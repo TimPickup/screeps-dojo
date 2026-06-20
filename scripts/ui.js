@@ -41,8 +41,11 @@ if (run('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 // 2. Build the images (BOTH services, so neither ships a stale/un-baked
 // node_modules). docker compose build is cached and fast once nothing has
 // changed; the first build bakes the toolchain in and takes a few minutes.
-console.log('[dojo-ui] building the container image (first run takes a few minutes; cached afterwards)…');
-if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
+console.log('[dojo-ui] building the container image…');
+console.log('[dojo-ui]   First run compiles the engine (isolated-vm), builds the mock server,');
+console.log('[dojo-ui]   and downloads ffmpeg — a few minutes, and it may look quiet mid-compile.');
+console.log('[dojo-ui]   This is cached, so every later run skips it. (docker stats shows it working.)');
+if (run('docker', ['compose', 'build', '--progress=plain']).status !== 0) fail('image build failed.');
 
 // 3. frontend built?
 if (!fs.existsSync(path.join(ROOT, 'ui', 'dist', 'index.html'))) {

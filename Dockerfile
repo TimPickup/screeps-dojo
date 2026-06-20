@@ -10,6 +10,9 @@ WORKDIR /dojo
 # mounted there is initialised from this on first run. (The runtime bootstrap
 # install remains as a fallback if the volume is ever empty.)
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+# --foreground-scripts streams the slow native builds (isolated-vm compile,
+# screeps-server-mockup TypeScript build, ffmpeg download) so the build shows
+# activity instead of sitting silent for minutes.
+RUN npm install --no-audit --no-fund --foreground-scripts
 
 CMD ["bash"]
