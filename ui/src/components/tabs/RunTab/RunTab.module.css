@@ -1,0 +1,15 @@
+.run { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--line2); }
+.play, .again { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 4px 14px; }
+.abort { background: #3a1a1a; border: 1px solid var(--hostile); color: var(--hostile); border-radius: var(--radius); padding: 4px 14px; }
+.record { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.spacer { margin-left: auto; }
+.tick { color: var(--accent); font-size: 12px; }
+.end { color: var(--muted); font-size: 12px; }
+.canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
+.idle { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.bigPlay { width: 90px; height: 90px; border-radius: 50%; background: var(--accent-dim); border: 2px solid var(--accent); color: var(--accent); font-size: 34px; }
+.bigPlay:hover { background: #1e3a1e; }
+.idleHint { color: var(--muted); }
+.recnote { padding: 6px 12px; color: var(--accent); font-size: 12px; background: var(--accent-dim); }
+.errorBanner { padding: 8px 12px; color: var(--hostile); font-size: 13px; background: #3a1a1a; border-bottom: 1px solid var(--hostile); white-space: pre-wrap; }

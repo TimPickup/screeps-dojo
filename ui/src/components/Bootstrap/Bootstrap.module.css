@@ -1,0 +1,6 @@
+.wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; gap: 14px; }
+.title { color: var(--accent); font-weight: normal; }
+.sub { color: var(--muted); max-width: 560px; text-align: center; line-height: 1.6; }
+.log { width: min(720px, 90vw); height: 280px; overflow: auto; background: var(--bg2); border: 1px solid var(--line2); border-radius: var(--radius); padding: 10px; color: var(--text-dim); font-size: 12px; white-space: pre-wrap; }
+.spinner { color: var(--accent); letter-spacing: 4px; animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }

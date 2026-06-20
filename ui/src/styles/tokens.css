@@ -1,0 +1,20 @@
+:root {
+  --bg: #1a1a1a;
+  --bg2: #161a20;
+  --panel: #141414;
+  --panel2: #20242c;
+  --line: #333;
+  --line2: #2a2f3a;
+  --text: #cccccc;
+  --text-dim: #aeb6c4;
+  --muted: #6b7280;
+  --accent: #65fd62;
+  --accent-dim: #2a3a2a;
+  --hostile: #fd6262;
+  --warn: #e0b341;
+  --swamp: #23311e;
+  --wall: #111111;
+  --room-bg: #2b2b2b;
+  --radius: 3px;
+  --font: ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+}

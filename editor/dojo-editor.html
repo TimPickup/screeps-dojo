@@ -1,0 +1,3181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Screeps Dojo Editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #1a1a1a; color: #cccccc; font-family: monospace; font-size: 13px; }
+#app { display: flex; flex-direction: column; height: 100vh; }
+#tabs { display: flex; background: #111; border-bottom: 1px solid #333; }
+.tab-btn {
+	padding: 8px 18px; cursor: pointer; background: transparent;
+	color: #888; border: none; font-family: monospace; font-size: 13px;
+	border-bottom: 2px solid transparent;
+}
+.tab-btn.active { color: #ddd; border-bottom-color: #65fd62; }
+.tab-btn:hover:not(.active) { color: #bbb; }
+.tab-pane { display: none; flex: 1; overflow: hidden; }
+.tab-pane.active { display: flex; }
+
+/* ---- Map Editor ---- */
+#editor-pane { flex-direction: row; }
+#left-panel { width: 200px; min-width: 200px; background: #141414; border-right: 1px solid #333; display: flex; flex-direction: column; gap: 0; overflow-y: auto; }
+#right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#canvas-area { flex: 1; overflow: auto; background: #1a1a1a; display: flex; align-items: flex-start; justify-content: flex-start; padding: 10px; }
+#bottom-panel { border-top: 1px solid #333; background: #141414; padding: 8px; display: flex; gap: 8px; flex-direction: column; max-height: 60vh; overflow: auto; }
+
+.panel-section { border-bottom: 1px solid #2a2a2a; padding: 8px; }
+.panel-label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+
+#room-name-input {
+	width: 100%; background: #1e1e1e; border: 1px solid #444; color: #ddd;
+	font-family: monospace; font-size: 12px; padding: 4px 6px;
+}
+#room-name-input.invalid { border-color: #cc3333; }
+
+.terrain-btn, .obj-btn, .eraser-btn, .tool-btn {
+	display: inline-block; padding: 4px 8px; margin: 2px; cursor: pointer;
+	background: #252525; border: 1px solid #444; color: #aaa;
+	font-family: monospace; font-size: 12px; border-radius: 2px;
+}
+.tool-btn { width: calc(100% - 4px); text-align: left; }
+.terrain-btn.active, .obj-btn.active, .eraser-btn.active, .tool-btn.active {
+	background: #2a3a2a; border-color: #65fd62; color: #65fd62;
+}
+.terrain-btn:hover, .obj-btn:hover, .eraser-btn:hover, .tool-btn:hover { background: #333; }
+
+#border-wall-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; margin-top: 4px; }
+#border-wall-toggle input { cursor: pointer; }
+
+#obj-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+#obj-grid .obj-btn, #obj-grid .eraser-btn { margin: 0; white-space: normal; text-align: center; }
+
+#props-panel { padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 80px; }
+#props-panel.hidden { display: none; }
+.prop-row { display: flex; align-items: center; gap: 6px; }
+.prop-row label { color: #777; font-size: 11px; width: 70px; flex-shrink: 0; }
+.prop-row input, .prop-row select {
+	flex: 1; background: #1e1e1e; border: 1px solid #444; color: #ddd;
+	font-family: monospace; font-size: 12px; padding: 3px 5px;
+}
+.prop-row input.json-invalid { border-color: #cc3333; }
+#delete-btn {
+	background: #3a1a1a; border: 1px solid #cc3333; color: #cc3333;
+	font-family: monospace; font-size: 12px; padding: 4px 10px; cursor: pointer;
+	border-radius: 2px; margin-top: 4px; align-self: flex-start;
+}
+#delete-btn:hover { background: #4a2020; }
+
+#bottom-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#json-textarea {
+	flex: 1; background: #111; border: 1px solid #333; color: #aaa;
+	font-family: monospace; font-size: 11px; resize: vertical; min-height: 120px; height: 240px; padding: 6px;
+}
+.import-btns, .export-btns { display: flex; flex-direction: column; gap: 4px; }
+.action-btn {
+	padding: 4px 12px; cursor: pointer; background: #252525; border: 1px solid #555;
+	color: #bbb; font-family: monospace; font-size: 12px; border-radius: 2px;
+}
+.action-btn:hover { background: #333; }
+#file-input { display: none; }
+#file-label {
+	padding: 4px 12px; cursor: pointer; background: #252525; border: 1px solid #555;
+	color: #bbb; font-family: monospace; font-size: 12px; border-radius: 2px;
+	display: inline-block;
+}
+#file-label:hover { background: #333; }
+#load-error { color: #cc5555; font-size: 11px; margin-top: 2px; }
+
+/* ---- SVG canvas ---- */
+#editor-svg { cursor: crosshair; display: block; }
+#editor-svg .dojo-grid { pointer-events: none; }
+.tile-overlay { opacity: 0; }
+.tile-overlay:hover { opacity: 1; fill: rgba(255,255,255,0.12); }
+
+/* ---- Replay Viewer ---- */
+#replay-pane { flex-direction: row; overflow: hidden; }
+#replay-left { width: 220px; min-width: 220px; background: #141414; border-right: 1px solid #333; display: flex; flex-direction: column; gap: 0; overflow-y: auto; }
+#replay-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#replay-canvas-area { flex: 1; overflow: hidden; background: #0e0e0e; display: flex; min-width: 0; min-height: 0; }
+#replay-controls { border-top: 1px solid #333; background: #141414; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+#replay-drop-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #444; font-size: 14px; border: 2px dashed #333; margin: 20px; border-radius: 4px; padding: 30px; cursor: pointer; text-align: center; }
+#replay-drop-zone.drag-over { border-color: #65fd62; color: #65fd62; }
+#replay-drop-zone.hidden { display: none; }
+#replay-svg-wrap { display: none; }
+#replay-svg-wrap.visible { display: block; flex: 1; min-width: 0; min-height: 0; cursor: grab; }
+#replay-svg-wrap.panning { cursor: grabbing; }
+#replay-svg-wrap svg { display: block; width: 100%; height: 100%; }
+#replay-svg { display: block; }
+#replay-slider-row { display: flex; align-items: center; gap: 8px; }
+#replay-slider { flex: 1; cursor: pointer; accent-color: #65fd62; }
+#replay-tick-label { color: #65fd62; font-size: 13px; min-width: 80px; }
+#replay-playback-row { display: flex; align-items: center; gap: 10px; }
+#replay-play-btn {
+	padding: 4px 14px; cursor: pointer; background: #252525; border: 1px solid #65fd62;
+	color: #65fd62; font-family: monospace; font-size: 12px; border-radius: 2px;
+}
+#replay-play-btn:hover { background: #1e3a1e; }
+#replay-reset-view-btn {
+	padding: 4px 10px; cursor: pointer; background: #252525; border: 1px solid #444;
+	color: #ddd; font-family: monospace; font-size: 12px; border-radius: 2px;
+}
+#replay-reset-view-btn:hover { background: #333; }
+#replay-speed-select {
+	background: #1e1e1e; border: 1px solid #444; color: #ddd;
+	font-family: monospace; font-size: 12px; padding: 3px 5px;
+}
+#replay-end-reason { color: #888; font-size: 11px; }
+#replay-info-panel { padding: 8px; }
+#replay-meta { color: #666; font-size: 11px; line-height: 1.6; }
+#replay-creep-hits { margin-top: 6px; }
+.replay-creep-row { font-size: 11px; color: #aaa; margin: 2px 0; }
+.replay-file-input-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px; border-bottom: 1px solid #2a2a2a; }
+#replay-file-input { display: none; }
+#replay-file-label {
+	padding: 4px 12px; cursor: pointer; background: #252525; border: 1px solid #555;
+	color: #bbb; font-family: monospace; font-size: 12px; border-radius: 2px;
+	display: inline-block;
+}
+#replay-file-label:hover { background: #333; }
+#replay-load-error { color: #cc5555; font-size: 11px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+	<div id="tabs">
+		<button class="tab-btn active" data-tab="editor">Map Editor</button>
+		<button class="tab-btn" data-tab="replay">Replay Viewer</button>
+	</div>
+
+	<div id="editor-pane" class="tab-pane active">
+		<div id="left-panel">
+			<!-- Room name -->
+			<div class="panel-section">
+				<div class="panel-label">Room</div>
+				<input id="room-name-input" type="text" value="W0N0" spellcheck="false">
+			</div>
+
+			<!-- Tool -->
+			<div class="panel-section">
+				<div class="panel-label">Tool</div>
+				<button class="tool-btn active" data-tool="select">▣ select / edit</button>
+				<div style="color:#666;font-size:10px;margin-top:4px;">click a placed object to select &amp; edit it</div>
+			</div>
+
+			<!-- Terrain palette -->
+			<div class="panel-section">
+				<div class="panel-label">Terrain</div>
+				<button class="terrain-btn" data-terrain=".">plain .</button>
+				<button class="terrain-btn" data-terrain="~">swamp ~</button>
+				<button class="terrain-btn" data-terrain="#">wall #</button>
+				<div id="border-wall-toggle">
+					<input type="checkbox" id="border-wall-cb" checked>
+					<label for="border-wall-cb">auto-wall border</label>
+				</div>
+			</div>
+
+			<!-- Object palette -->
+			<div class="panel-section">
+				<div class="panel-label">Objects</div>
+				<div id="obj-grid">
+					<button class="obj-btn" data-obj="spawn">spawn</button>
+					<button class="obj-btn" data-obj="extension">extension</button>
+					<button class="obj-btn" data-obj="tower">tower</button>
+					<button class="obj-btn" data-obj="storage">storage</button>
+					<button class="obj-btn" data-obj="terminal">terminal</button>
+					<button class="obj-btn" data-obj="link">link</button>
+					<button class="obj-btn" data-obj="lab">lab</button>
+					<button class="obj-btn" data-obj="factory">factory</button>
+					<button class="obj-btn" data-obj="container">container</button>
+					<button class="obj-btn" data-obj="road">road</button>
+					<button class="obj-btn" data-obj="rampart">rampart</button>
+					<button class="obj-btn" data-obj="constructedWall">constructed wall</button>
+					<button class="obj-btn" data-obj="source">source</button>
+					<button class="obj-btn" data-obj="controller">controller</button>
+					<button class="obj-btn" data-obj="mineral">mineral</button>
+					<button class="obj-btn" data-obj="flag">flag</button>
+					<button class="eraser-btn" data-obj="eraser">eraser</button>
+				</div>
+			</div>
+
+			<!-- Properties panel for selected object -->
+			<div class="panel-section">
+				<div class="panel-label">Properties</div>
+				<div id="props-panel" class="hidden">
+					<div class="prop-row" id="prop-owner-row">
+						<label>owner</label>
+						<select id="prop-owner">
+							<option value="me">me</option>
+							<option value="invader">invader</option>
+							<option value="unclaimed">unclaimed / neutral</option>
+						</select>
+					</div>
+					<div class="prop-row" id="prop-store-row">
+						<label>store</label>
+						<input id="prop-store" type="text" value="{}" spellcheck="false">
+					</div>
+					<div class="prop-row" id="prop-capacity-row">
+						<label>capacity</label>
+						<span id="prop-capacity" style="color:#888;font-size:11px;"></span>
+					</div>
+					<div class="prop-row" id="prop-flagname-row">
+						<label>flag name</label>
+						<input id="prop-flagname" type="text" value="" spellcheck="false">
+					</div>
+					<div class="prop-row" id="prop-level-row">
+						<label>level</label>
+						<input id="prop-level" type="number" value="0" min="0" max="8">
+					</div>
+					<div class="prop-row" id="prop-mineral-row">
+						<label>mineral</label>
+						<select id="prop-mineral">
+							<option value="H">H</option>
+							<option value="O">O</option>
+							<option value="U">U</option>
+							<option value="L">L</option>
+							<option value="K">K</option>
+							<option value="Z">Z</option>
+							<option value="X">X</option>
+						</select>
+					</div>
+					<button id="delete-btn">Delete</button>
+				</div>
+				<div id="no-sel-msg" style="color:#555;font-size:11px;padding:4px 0;">Click a placed object to edit</div>
+			</div>
+		</div>
+
+		<div id="right-panel">
+			<div id="canvas-area">
+				<svg id="editor-svg" width="700" height="700" viewBox="0 0 50 50"
+					xmlns="http://www.w3.org/2000/svg"></svg>
+			</div>
+			<div id="bottom-panel">
+				<div id="bottom-row">
+					<div class="import-btns">
+						<div class="panel-label">Import</div>
+						<label id="file-label">Load File
+							<input type="file" id="file-input" accept=".json">
+						</label>
+						<button class="action-btn" id="load-btn">Load JSON</button>
+					</div>
+					<textarea id="json-textarea" placeholder="Paste map JSON here or view export..."></textarea>
+					<div class="export-btns">
+						<div class="panel-label">Export</div>
+						<button class="action-btn" id="download-btn">Download map.json</button>
+					</div>
+				</div>
+				<div id="load-error"></div>
+			</div>
+		</div>
+	</div>
+
+	<div id="replay-pane" class="tab-pane">
+		<div id="replay-left">
+			<div class="replay-file-input-wrap">
+				<div class="panel-label">Recording</div>
+				<label id="replay-file-label">Load File
+					<input type="file" id="replay-file-input" accept=".json">
+				</label>
+				<div id="replay-load-error"></div>
+			</div>
+			<div id="replay-info-panel">
+				<div id="replay-meta"></div>
+				<div id="replay-creep-hits"></div>
+			</div>
+		</div>
+		<div id="replay-main">
+			<div id="replay-canvas-area">
+				<div id="replay-drop-zone">
+					<div>Drop recording.json here</div>
+					<div style="font-size:11px;color:#333;margin-top:8px;">or use Load File</div>
+				</div>
+				<div id="replay-svg-wrap"></div>
+			</div>
+			<div id="replay-controls">
+				<div id="replay-slider-row">
+					<span style="color:#666;font-size:11px;">Tick</span>
+					<input type="range" id="replay-slider" min="0" max="0" value="0">
+					<span id="replay-tick-label">—</span>
+				</div>
+				<div id="replay-playback-row">
+					<button id="replay-play-btn">&#9654; Play</button>
+					<select id="replay-speed-select">
+						<option value="0.5">0.5×</option>
+						<option value="1" selected>1×</option>
+						<option value="2">2×</option>
+						<option value="4">4×</option>
+					</select>
+					<button id="replay-reset-view-btn" title="Reset zoom/pan (or double-click the map)">Reset view</button>
+					<span id="replay-end-reason"></span>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<script>
+window.DOJO_CONSTANTS = {"OK":0,"ERR_INVALID_ARGS":-10,"STRUCTURE_SPAWN":"spawn","STRUCTURE_EXTENSION":"extension","STRUCTURE_ROAD":"road","STRUCTURE_WALL":"constructedWall","STRUCTURE_RAMPART":"rampart","STRUCTURE_KEEPER_LAIR":"keeperLair","STRUCTURE_PORTAL":"portal","STRUCTURE_CONTROLLER":"controller","STRUCTURE_LINK":"link","STRUCTURE_STORAGE":"storage","STRUCTURE_TOWER":"tower","STRUCTURE_OBSERVER":"observer","STRUCTURE_POWER_BANK":"powerBank","STRUCTURE_POWER_SPAWN":"powerSpawn","STRUCTURE_EXTRACTOR":"extractor","STRUCTURE_LAB":"lab","STRUCTURE_TERMINAL":"terminal","STRUCTURE_CONTAINER":"container","STRUCTURE_NUKER":"nuker","STRUCTURE_FACTORY":"factory","STRUCTURE_INVADER_CORE":"invaderCore","CONTROLLER_LEVELS":{"1":200,"2":45000,"3":135000,"4":405000,"5":1215000,"6":3645000,"7":10935000},"RESOURCE_ENERGY":"energy","RESOURCE_POWER":"power","RESOURCE_HYDROGEN":"H","RESOURCE_OXYGEN":"O","RESOURCE_UTRIUM":"U","RESOURCE_LEMERGIUM":"L","RESOURCE_KEANIUM":"K","RESOURCE_ZYNTHIUM":"Z","RESOURCE_CATALYST":"X","RESOURCE_GHODIUM":"G","RESOURCE_SILICON":"silicon","RESOURCE_METAL":"metal","RESOURCE_BIOMASS":"biomass","RESOURCE_MIST":"mist","RESOURCE_HYDROXIDE":"OH","RESOURCE_ZYNTHIUM_KEANITE":"ZK","RESOURCE_UTRIUM_LEMERGITE":"UL","RESOURCE_UTRIUM_HYDRIDE":"UH","RESOURCE_UTRIUM_OXIDE":"UO","RESOURCE_KEANIUM_HYDRIDE":"KH","RESOURCE_KEANIUM_OXIDE":"KO","RESOURCE_LEMERGIUM_HYDRIDE":"LH","RESOURCE_LEMERGIUM_OXIDE":"LO","RESOURCE_ZYNTHIUM_HYDRIDE":"ZH","RESOURCE_ZYNTHIUM_OXIDE":"ZO","RESOURCE_GHODIUM_HYDRIDE":"GH","RESOURCE_GHODIUM_OXIDE":"GO","RESOURCE_UTRIUM_ACID":"UH2O","RESOURCE_UTRIUM_ALKALIDE":"UHO2","RESOURCE_KEANIUM_ACID":"KH2O","RESOURCE_KEANIUM_ALKALIDE":"KHO2","RESOURCE_LEMERGIUM_ACID":"LH2O","RESOURCE_LEMERGIUM_ALKALIDE":"LHO2","RESOURCE_ZYNTHIUM_ACID":"ZH2O","RESOURCE_ZYNTHIUM_ALKALIDE":"ZHO2","RESOURCE_GHODIUM_ACID":"GH2O","RESOURCE_GHODIUM_ALKALIDE":"GHO2","RESOURCE_CATALYZED_UTRIUM_ACID":"XUH2O","RESOURCE_CATALYZED_UTRIUM_ALKALIDE":"XUHO2","RESOURCE_CATALYZED_KEANIUM_ACID":"XKH2O","RESOURCE_CATALYZED_KEANIUM_ALKALIDE":"XKHO2","RESOURCE_CATALYZED_LEMERGIUM_ACID":"XLH2O","RESOURCE_CATALYZED_LEMERGIUM_ALKALIDE":"XLHO2","RESOURCE_CATALYZED_ZYNTHIUM_ACID":"XZH2O","RESOURCE_CATALYZED_ZYNTHIUM_ALKALIDE":"XZHO2","RESOURCE_CATALYZED_GHODIUM_ACID":"XGH2O","RESOURCE_CATALYZED_GHODIUM_ALKALIDE":"XGHO2","RESOURCE_OPS":"ops","RESOURCE_UTRIUM_BAR":"utrium_bar","RESOURCE_LEMERGIUM_BAR":"lemergium_bar","RESOURCE_ZYNTHIUM_BAR":"zynthium_bar","RESOURCE_KEANIUM_BAR":"keanium_bar","RESOURCE_GHODIUM_MELT":"ghodium_melt","RESOURCE_OXIDANT":"oxidant","RESOURCE_REDUCTANT":"reductant","RESOURCE_PURIFIER":"purifier","RESOURCE_BATTERY":"battery","RESOURCE_COMPOSITE":"composite","RESOURCE_CRYSTAL":"crystal","RESOURCE_LIQUID":"liquid","RESOURCE_WIRE":"wire","RESOURCE_SWITCH":"switch","RESOURCE_TRANSISTOR":"transistor","RESOURCE_MICROCHIP":"microchip","RESOURCE_CIRCUIT":"circuit","RESOURCE_DEVICE":"device","RESOURCE_CELL":"cell","RESOURCE_PHLEGM":"phlegm","RESOURCE_TISSUE":"tissue","RESOURCE_MUSCLE":"muscle","RESOURCE_ORGANOID":"organoid","RESOURCE_ORGANISM":"organism","RESOURCE_ALLOY":"alloy","RESOURCE_TUBE":"tube","RESOURCE_FIXTURES":"fixtures","RESOURCE_FRAME":"frame","RESOURCE_HYDRAULICS":"hydraulics","RESOURCE_MACHINE":"machine","RESOURCE_CONDENSATE":"condensate","RESOURCE_CONCENTRATE":"concentrate","RESOURCE_EXTRACT":"extract","RESOURCE_SPIRIT":"spirit","RESOURCE_EMANATION":"emanation","RESOURCE_ESSENCE":"essence"};
+</script>
+<script>
+'use strict';
+
+// Dual-environment (Node + browser) SVG primitives: FakeRoomVisual drawing
+// surface, elementToSvg converter, and svgEscape helper. No Node APIs; safe
+// to inline into the browser editor. UMD-lite export mirrors creepSprite.js.
+(function (exportTarget) {
+
+	function normalizePoints(points) {
+		return points.map(function (point) {
+			return Array.isArray(point) ? [point[0], point[1]] : [point.x, point.y];
+		});
+	}
+
+	class FakeRoomVisual {
+		constructor(roomName) {
+			this.roomName = roomName;
+			this.elements = [];
+		}
+
+		line(x1, y1, x2, y2, style) {
+			this.elements.push({ kind: 'line', x1: x1, y1: y1, x2: x2, y2: y2, style: style || {} });
+			return this;
+		}
+
+		circle(x, y, style) {
+			this.elements.push({ kind: 'circle', x: x, y: y, style: style || {} });
+			return this;
+		}
+
+		rect(x, y, width, height, style) {
+			this.elements.push({ kind: 'rect', x: x, y: y, width: width, height: height, style: style || {} });
+			return this;
+		}
+
+		poly(points, style) {
+			this.elements.push({ kind: 'poly', points: normalizePoints(points), style: style || {} });
+			return this;
+		}
+
+		text(text, x, y, style) {
+			this.elements.push({ kind: 'text', text: String(text), x: x, y: y, style: style || {} });
+			return this;
+		}
+
+		clear() {
+			this.elements = [];
+			this.roads = undefined; // lib/RoomVisual.js road accumulator
+			return this;
+		}
+	}
+
+	function svgEscape(text) {
+		return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;');
+	}
+
+	function styleColor(value, fallback) {
+		if (value === undefined || value === null || value === false) return fallback;
+		if (value === 'transparent') return 'none';
+		return value;
+	}
+
+	// One RoomVisual element -> SVG, in TILE units (the caller wraps in a
+	// scaled <g>). Tile centers sit at integer coordinates, so +0.5 shifts to
+	// the tile-grid origin.
+	function elementToSvg(element) {
+		const style = element.style;
+		const opacity = style.opacity !== undefined ? style.opacity : 1;
+		switch (element.kind) {
+			case 'line': {
+				const stroke = styleColor(style.color, '#ffffff');
+				const width = style.width !== undefined ? style.width : 0.1;
+				return '<line x1="' + (element.x1 + 0.5) + '" y1="' + (element.y1 + 0.5)
+					+ '" x2="' + (element.x2 + 0.5) + '" y2="' + (element.y2 + 0.5)
+					+ '" stroke="' + stroke + '" stroke-width="' + width
+					+ '" opacity="' + opacity + '" stroke-linecap="round"/>';
+			}
+			case 'circle': {
+				const radius = style.radius !== undefined ? style.radius : 0.15;
+				const fill = styleColor(style.fill, '#ffffff');
+				const stroke = styleColor(style.stroke, 'none');
+				const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 0.05;
+				return '<circle cx="' + (element.x + 0.5) + '" cy="' + (element.y + 0.5)
+					+ '" r="' + radius + '" fill="' + fill + '" stroke="' + stroke
+					+ '" stroke-width="' + strokeWidth + '" opacity="' + opacity + '"/>';
+			}
+			case 'rect': {
+				const fill = styleColor(style.fill, '#ffffff');
+				const stroke = styleColor(style.stroke, 'none');
+				const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 0.05;
+				return '<rect x="' + (element.x + 0.5) + '" y="' + (element.y + 0.5)
+					+ '" width="' + element.width + '" height="' + element.height
+					+ '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + strokeWidth
+					+ '" opacity="' + opacity + '"/>';
+			}
+			case 'poly': {
+				const fill = styleColor(style.fill, 'none');
+				const stroke = styleColor(style.stroke, '#ffffff');
+				const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 0.05;
+				const points = element.points.map(function (point) {
+					return (point[0] + 0.5) + ',' + (point[1] + 0.5);
+				}).join(' ');
+				return '<polyline points="' + points + '" fill="' + fill + '" stroke="' + stroke
+					+ '" stroke-width="' + strokeWidth + '" opacity="' + opacity
+					+ '" stroke-linejoin="round"/>';
+			}
+			case 'text': {
+				const color = styleColor(style.color, '#ffffff');
+				// font may be a number (size in tiles) or a CSS-ish string; keep it simple
+				let fontSize = 0.5;
+				if (typeof style.font === 'number') fontSize = style.font;
+				else if (typeof style.font === 'string') {
+					const match = /([\d.]+)/.exec(style.font);
+					if (match) fontSize = Number(match[1]);
+				}
+				const anchor = style.align === 'left' ? 'start' : style.align === 'right' ? 'end' : 'middle';
+				let background = '';
+				if (style.backgroundColor) {
+					const padding = style.backgroundPadding !== undefined ? style.backgroundPadding : 0.3;
+					const width = element.text.length * fontSize * 0.6 + padding * 2;
+					const height = fontSize + padding * 2;
+					background = '<rect x="' + (element.x + 0.5 - width / 2) + '" y="'
+						+ (element.y + 0.5 - height / 2 - fontSize * 0.33) + '" width="' + width
+						+ '" height="' + height + '" rx="' + padding + '" fill="'
+						+ style.backgroundColor + '" opacity="' + opacity + '"/>';
+				}
+				return background + '<text x="' + (element.x + 0.5) + '" y="' + (element.y + 0.5)
+					+ '" font-size="' + fontSize + '" fill="' + color + '" text-anchor="' + anchor
+					+ '" font-family="DejaVu Sans" opacity="' + opacity + '">'
+					+ svgEscape(element.text) + '</text>';
+			}
+			default:
+				return '';
+		}
+	}
+
+	exportTarget.FakeRoomVisual = FakeRoomVisual;
+	exportTarget.elementToSvg = elementToSvg;
+	exportTarget.svgEscape = svgEscape;
+})(typeof module !== 'undefined' && module.exports ? module.exports : (window.DojoSvgPrimitives = {}));
+
+</script>
+<script>
+'use strict';
+
+// In-game-style creep rendering (body-part ring), shared between the Node
+// renderer and the browser viewer (no Node APIs; UMD-lite export at the
+// bottom). Look: black ring, MOVE arc bottom-centred, action arcs stacked
+// symmetrically at the top (earlier types peek out beneath later ones),
+// TOUGH outline at the bottom-left, grey body, cargo dot.
+(function (exportTarget) {
+	const MAX_BODY_PARTS = 50;
+	const PART_ANGLE = 360 / MAX_BODY_PARTS;
+	const PART_COLORS = {
+		heal: '#5cff6a',
+		rangedAttack: '#5f8fdc',
+		attack: '#ff3b4f',
+		work: '#ffe25a',
+		claim: '#b46cff',
+		move: '#d7e0e5',
+		tough: '#e8e8e8',
+		ring: '#1c1c1c',
+		inner: '#666666',
+		energy: '#ffe25a',
+		cargoOther: '#ffffff'
+	};
+	const TOP_PART_ORDER = [
+		{ key: 'heal', color: PART_COLORS.heal },
+		{ key: 'rangedAttack', color: PART_COLORS.rangedAttack },
+		{ key: 'attack', color: PART_COLORS.attack },
+		{ key: 'work', color: PART_COLORS.work },
+		{ key: 'claim', color: PART_COLORS.claim }
+	];
+
+	function pointOnCircle(cx, cy, radius, angleDeg) {
+		const rad = angleDeg * Math.PI / 180;
+		return { x: cx + Math.sin(rad) * radius, y: cy - Math.cos(rad) * radius };
+	}
+
+	function arcPath(cx, cy, radius, startAngle, endAngle) {
+		const start = pointOnCircle(cx, cy, radius, startAngle);
+		const end = pointOnCircle(cx, cy, radius, endAngle);
+		const largeArcFlag = Math.abs(endAngle - startAngle) > 180 ? 1 : 0;
+		return 'M ' + start.x.toFixed(3) + ' ' + start.y.toFixed(3)
+			+ ' A ' + radius.toFixed(3) + ' ' + radius.toFixed(3) + ' 0 ' + largeArcFlag + ' 1 '
+			+ end.x.toFixed(3) + ' ' + end.y.toFixed(3);
+	}
+
+	function arc(cx, cy, radius, startAngle, endAngle, color, width) {
+		if (Math.abs(endAngle - startAngle) <= 0.001) return '';
+		return '<path d="' + arcPath(cx, cy, radius, startAngle, endAngle)
+			+ '" fill="none" stroke="' + color + '" stroke-width="' + width.toFixed(3)
+			+ '" stroke-linecap="butt"/>';
+	}
+
+	// body = [{type, hits}] from the recording; destroyed parts (hits 0) vanish
+	// from the ring, mirroring how damage reads in the real client.
+	function countBodyParts(body) {
+		const counts = {};
+		for (const part of body || []) {
+			if (part.hits !== undefined && part.hits <= 0) continue;
+			counts[part.type] = (counts[part.type] || 0) + 1;
+		}
+		return counts;
+	}
+
+	// cx/cy = tile-centre coordinates (tile units); size = creep diameter in
+	// tiles. storeCapacity scales the cargo dot (full load almost — never
+	// quite — covers the inner body color). rotationDegrees turns the whole
+	// ring about its centre: the design "faces" UP (action arcs at the top,
+	// MOVE at the bottom), so pass facing+90 to point it along a heading
+	// where 0 degrees = east. Returns an SVG fragment (<g>); the caller
+	// controls layer order.
+	function generateCreepSvg(cx, cy, size, bodyCounts, store, opacity, innerColor, storeCapacity, rotationDegrees) {
+		const unit = size / 100; // geometry below lives in a 100-unit design space
+		const ringRadius = 28 * unit;
+		const ringWidth = 12 * unit;
+		const innerRadius = 18 * unit;
+
+		const rotation = rotationDegrees ? ' transform="rotate(' + rotationDegrees.toFixed(1)
+			+ ' ' + cx + ' ' + cy + ')"' : '';
+		let svg = '<g class="dojo-creep" opacity="' + (opacity !== undefined ? opacity : 1) + '"' + rotation + '>';
+		svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + ringRadius.toFixed(3)
+			+ '" fill="none" stroke="' + PART_COLORS.ring + '" stroke-width="' + ringWidth.toFixed(3) + '"/>';
+
+		if (bodyCounts.tough > 0) {
+			const toughSpan = bodyCounts.tough * PART_ANGLE;
+			const toughRadius = ringRadius + ringWidth / 2 + 2 * unit;
+			svg += arc(cx, cy, toughRadius, 225 - toughSpan / 2, 225 + toughSpan / 2, PART_COLORS.tough, 4 * unit);
+		}
+
+		if (bodyCounts.move > 0) {
+			const moveSpan = bodyCounts.move * PART_ANGLE;
+			svg += arc(cx, cy, ringRadius, 180 - moveSpan / 2, 180 + moveSpan / 2, PART_COLORS.move, ringWidth);
+		}
+
+		// top arcs: each type spans the cumulative count of itself plus every
+		// type after it in TOP_PART_ORDER, drawn widest-first, so earlier types
+		// peek out symmetrically beneath later ones
+		for (let i = 0; i < TOP_PART_ORDER.length; i++) {
+			let cumulative = 0;
+			for (let j = i; j < TOP_PART_ORDER.length; j++) cumulative += bodyCounts[TOP_PART_ORDER[j].key] || 0;
+			if (cumulative <= 0) continue;
+			const span = cumulative * PART_ANGLE;
+			svg += arc(cx, cy, ringRadius, -span / 2, span / 2, TOP_PART_ORDER[i].color, ringWidth);
+		}
+
+		svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + innerRadius.toFixed(3)
+			+ '" fill="' + (innerColor || PART_COLORS.inner) + '"/>';
+
+		// cargo dot: energy-yellow when carrying only energy, white otherwise.
+		// Radius scales with fill fraction; at full capacity it reaches 16 of
+		// the inner body's 18 units, so the body color always stays visible.
+		const carried = Object.keys(store || {}).filter(function (resource) { return (store || {})[resource] > 0; });
+		if (carried.length > 0) {
+			const cargoColor = carried.length === 1 && carried[0] === 'energy'
+				? PART_COLORS.energy : PART_COLORS.cargoOther;
+			let cargoRadius = 6 * unit;
+			if (typeof storeCapacity === 'number' && storeCapacity > 0) {
+				let used = 0;
+				for (const resource of carried) used += store[resource];
+				const fraction = Math.min(1, used / storeCapacity);
+				cargoRadius = (4 + 12 * fraction) * unit;
+			}
+			svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + cargoRadius.toFixed(3)
+				+ '" fill="' + cargoColor + '"/>';
+		}
+
+		svg += '</g>';
+		return svg;
+	}
+
+	exportTarget.generateCreepSvg = generateCreepSvg;
+	exportTarget.countBodyParts = countBodyParts;
+})(typeof module !== 'undefined' && module.exports ? module.exports : (window.DojoCreepSprite = {}));
+
+</script>
+<script>
+// Bootstrap globals that lib/RoomVisual.js expects to find on window.
+// Must happen BEFORE the RoomVisual lib script below.
+(function () {
+	// Copy all DOJO_CONSTANTS onto window so RoomVisual.js can use STRUCTURE_SPAWN etc.
+	if (window.DOJO_CONSTANTS) {
+		Object.keys(window.DOJO_CONSTANTS).forEach(function (k) {
+			window[k] = window.DOJO_CONSTANTS[k];
+		});
+	}
+	// RoomVisual constructor shim — the lib extends RoomVisual.prototype
+	window.RoomVisual = DojoSvgPrimitives.FakeRoomVisual;
+	// Lodash partial shim used by connectRoads
+	window._ = { some: function (c, p) { return c.some(p); } };
+	// Game.time used by animatedPosition (not called in editor but must exist)
+	window.Game = { time: 0 };
+	// Node-ism in lib/RoomVisual.js: its Season block is guarded by
+	// `if (global.SYMBOLS)` — alias global to window so the guard reads
+	// undefined instead of throwing ReferenceError mid-file
+	window.global = window;
+})();
+</script>
+<script>
+// Screeps Dojo's dedicated RoomVisual extension library 
+// Seeded from the community RoomVisual lib (via https://github.com/screepers/RoomVisual) and
+// maintained/extended here.
+// Bottoms out in the 5 primitives: poly, circle, rect, line, text.
+const colors = {
+	gray: '#555555',
+	light: '#AAAAAA',
+	road: '#666', // >:D
+	energy: '#FFE87B',
+	power: '#F53547',
+	dark: '#181818',
+	outline: '#8FBB93',
+	speechText: '#000000',
+	speechBackground: '#2ccf3b'
+}
+
+const speechSize = 0.5
+const speechFont = 'Times New Roman'
+function calculateFactoryLevelGapsPoly() {
+	let x = -0.08;
+	let y = -0.52;
+	let result = [];
+
+	let gapAngle = 16 * (Math.PI / 180);
+	let c1 = Math.cos(gapAngle);
+	let s1 = Math.sin(gapAngle);
+
+	let angle = 72 * (Math.PI / 180);
+	let c2 = Math.cos(angle);
+	let s2 = Math.sin(angle);
+
+	for (let i = 0; i < 5; ++i) {
+		result.push([0.0, 0.0]);
+		result.push([x, y]);
+		result.push([x * c1 - y * s1, x * s1 + y * c1]);
+		let tmpX = x * c2 - y * s2;
+		y = x * s2 + y * c2;
+		x = tmpX;
+	}
+	return result;
+}
+const factoryLevelGaps = calculateFactoryLevelGapsPoly();
+
+RoomVisual.prototype.structure = function(x,y,type,opts={}){
+	opts = Object.assign({
+		opacity: 1
+	},opts)
+	switch(type){
+		case STRUCTURE_FACTORY: {
+			const outline = [
+				[-0.68, -0.11],
+				[-0.84, -0.18],
+				[-0.84, -0.32],
+				[-0.44, -0.44],
+				[-0.32, -0.84],
+				[-0.18, -0.84],
+				[-0.11, -0.68],
+
+				[0.11, -0.68],
+				[0.18, -0.84],
+				[0.32, -0.84],
+				[0.44, -0.44],
+				[0.84, -0.32],
+				[0.84, -0.18],
+				[0.68, -0.11],
+
+				[0.68, 0.11],
+				[0.84, 0.18],
+				[0.84, 0.32],
+				[0.44, 0.44],
+				[0.32, 0.84],
+				[0.18, 0.84],
+				[0.11, 0.68],
+
+				[-0.11, 0.68],
+				[-0.18, 0.84],
+				[-0.32, 0.84],
+				[-0.44, 0.44],
+				[-0.84, 0.32],
+				[-0.84, 0.18],
+				[-0.68, 0.11]
+			];
+			this.poly(outline.map(p => [ p[0] + x, p[1] + y ]), {
+				fill: null,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			});
+			// outer circle
+			this.circle(x, y, {
+				radius: 0.65,
+				fill: '#232323',
+				strokeWidth: 0.035,
+				stroke: '#140a0a',
+				opacity: opts.opacity
+			});
+			const spikes = [
+				[-0.4, -0.1],
+				[-0.8, -0.2],
+				[-0.8, -0.3],
+				[-0.4, -0.4],
+				[-0.3, -0.8],
+				[-0.2, -0.8],
+				[-0.1, -0.4],
+
+				[0.1, -0.4],
+				[0.2, -0.8],
+				[0.3, -0.8],
+				[0.4, -0.4],
+				[0.8, -0.3],
+				[0.8, -0.2],
+				[0.4, -0.1],
+
+				[0.4, 0.1],
+				[0.8, 0.2],
+				[0.8, 0.3],
+				[0.4, 0.4],
+				[0.3, 0.8],
+				[0.2, 0.8],
+				[0.1, 0.4],
+
+				[-0.1, 0.4],
+				[-0.2, 0.8],
+				[-0.3, 0.8],
+				[-0.4, 0.4],
+				[-0.8, 0.3],
+				[-0.8, 0.2],
+				[-0.4, 0.1]
+			];
+			this.poly(spikes.map(p => [ p[0] + x, p[1] + y ]), {
+				fill: colors.gray,
+				stroke: '#140a0a',
+				strokeWidth: 0.04,
+				opacity: opts.opacity
+			});
+			// factory level circle
+			this.circle(x, y, {
+				radius: 0.54,
+				fill: '#302a2a',
+				strokeWidth: 0.04,
+				stroke: '#140a0a',
+				opacity: opts.opacity
+			});
+			this.poly(factoryLevelGaps.map(p => [ p[0] + x, p[1] + y ]), {
+				fill: '#140a0a',
+				stroke: null,
+				opacity: opts.opacity
+			});
+			// inner black circle
+			this.circle(x, y, {
+				radius: 0.42,
+				fill: '#140a0a',
+				opacity: opts.opacity
+			});
+			this.rect(x - 0.24, y - 0.24, 0.48, 0.48, {
+				fill: '#3f3f3f',
+				opacity: opts.opacity
+			});
+			break;
+		}
+		case STRUCTURE_EXTENSION:
+			this.circle(x,y,{
+				radius: 0.5,
+				fill: colors.dark,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			// dojo extension: with opts.fillFraction (0..1) the core turns
+			// energy-yellow and scales with stored energy; omitted -> classic grey
+			if (opts.fillFraction !== undefined) {
+				if (opts.fillFraction > 0) {
+					this.circle(x,y,{
+						radius: 0.35 * opts.fillFraction,
+						fill: colors.energy,
+						opacity: opts.opacity
+					})
+				}
+			} else {
+				this.circle(x,y,{
+					radius: 0.35,
+					fill: colors.gray,
+					opacity: opts.opacity
+				})
+			}
+			break
+		case STRUCTURE_SPAWN:
+			this.circle(x,y,{
+				radius: 0.65,
+				fill: colors.dark,
+				stroke: '#CCCCCC',
+				strokeWidth: 0.10,
+				opacity: opts.opacity
+			})
+			// dojo extension: opts.fillFraction (0..1) scales the energy core so
+			// store fill reads at a glance; omitted -> classic full look
+			if (opts.fillFraction === undefined || opts.fillFraction > 0) {
+				this.circle(x,y,{
+					radius: 0.40 * (opts.fillFraction !== undefined ? opts.fillFraction : 1),
+					fill: colors.energy,
+					opacity: opts.opacity
+				})
+			}
+
+			break;
+		case STRUCTURE_POWER_SPAWN:
+			this.circle(x,y,{
+				radius: 0.65,
+				fill: colors.dark,
+				stroke: colors.power,
+				strokeWidth: 0.10,
+				opacity: opts.opacity
+			})
+			this.circle(x,y,{
+				radius: 0.40,
+				fill: colors.energy,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_LINK:
+		{
+			let osize = 0.3
+			let isize = 0.2
+			let outer = [
+				[0.0,-0.5],
+				[0.4,0.0],
+				[0.0,0.5],
+				[-0.4,0.0]
+			]
+			let inner = [
+				[0.0,-0.3],
+				[0.25,0.0],
+				[0.0,0.3],
+				[-0.25,0.0]
+			]
+			// dojo extension: with opts.fillFraction (0..1) the inner diamond
+			// turns energy-yellow and scales with stored energy
+			if (opts.fillFraction !== undefined) {
+				inner = inner.map(p => [p[0] * opts.fillFraction, p[1] * opts.fillFraction])
+			}
+			outer = relPoly(x,y,outer)
+			inner = relPoly(x,y,inner)
+			outer.push(outer[0])
+			inner.push(inner[0])
+			this.poly(outer,{
+				fill: colors.dark,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			if (opts.fillFraction === undefined || opts.fillFraction > 0) {
+				this.poly(inner,{
+					fill: opts.fillFraction !== undefined ? colors.energy : colors.gray,
+					stroke: false,
+					opacity: opts.opacity
+				})
+			}
+			break;
+		}
+		case STRUCTURE_TERMINAL:
+		{
+			let outer = [
+				[0.0,-0.8],
+				[0.55,-0.55],
+				[0.8,0.0],
+				[0.55,0.55],
+				[0.0,0.8],
+				[-0.55,0.55],
+				[-0.8,0.0],
+				[-0.55,-0.55],
+			]
+			let inner = [
+				[0.0,-0.65],
+				[0.45,-0.45],
+				[0.65,0.0],
+				[0.45,0.45],
+				[0.0,0.65],
+				[-0.45,0.45],
+				[-0.65,0.0],
+				[-0.45,-0.45],
+			]
+			outer = relPoly(x,y,outer)
+			inner = relPoly(x,y,inner)
+			outer.push(outer[0])
+			inner.push(inner[0])
+			this.poly(outer,{
+				fill: colors.dark,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			this.poly(inner,{
+				fill: colors.light,
+				stroke: false,
+				opacity: opts.opacity
+			})
+			this.rect(x-0.45,y-0.45,0.9,0.9,{
+				fill: colors.gray,
+				stroke: colors.dark,
+				strokeWidth: 0.1,
+				opacity: opts.opacity
+			})
+			break;
+		}
+		case STRUCTURE_LAB:
+			this.circle(x,y-0.025,{
+				radius: 0.55,
+				fill: colors.dark,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			this.circle(x,y-0.025,{
+				radius: 0.40,
+				fill: colors.gray,
+				opacity: opts.opacity
+			})
+			this.rect(x-0.45,y+0.3,0.9,0.25,{
+				fill: colors.dark,
+				stroke: false,
+				opacity: opts.opacity
+			})
+		{
+			let box = [
+				[-0.45,0.3],
+				[-0.45,0.55],
+				[0.45,0.55],
+				[0.45,0.3],
+			]
+			box = relPoly(x,y,box)
+			this.poly(box,{
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+		}
+			break
+		case STRUCTURE_TOWER:
+			this.circle(x,y,{
+				radius: 0.6,
+				fill: colors.dark,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			this.rect(x-0.4,y-0.3,0.8,0.6,{
+				fill: colors.gray,
+				opacity: opts.opacity
+			})
+			this.rect(x-0.2,y-0.9,0.4,0.5,{
+				fill: colors.light,
+				stroke: colors.dark,
+				strokeWidth: 0.07,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_ROAD:
+			this.circle(x,y,{
+				radius: 0.175,
+				fill: colors.road,
+				stroke: false,
+				opacity: opts.opacity
+			})
+			if(!this.roads) this.roads = []
+			this.roads.push([x,y])
+			break;
+		case STRUCTURE_RAMPART:
+			// Full-tile translucent green: adjacent ramparts merge into one shield
+			// (H/V connected) and structures underneath (core, tower, container) stay
+			// visible. fill-only — no stroke — so neighbouring tiles join seamlessly.
+			this.rect(x - 0.5, y - 0.5, 1, 1, {
+				fill: '#52a052',
+				opacity: 0.25 * (opts.opacity === undefined ? 1 : opts.opacity),
+				stroke: false
+			})
+			break;
+		case 'invaderCore':
+			// invader stronghold core: red circle, black outline
+			this.circle(x,y,{
+				radius: 0.55,
+				fill: '#cc2222',
+				stroke: '#000000',
+				strokeWidth: 0.10,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_WALL:
+			this.circle(x,y,{
+				radius: 0.40,
+				fill: colors.dark,
+				stroke: colors.light,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_STORAGE:
+			let outline1 = relPoly(x, y, [
+				[-0.45, -0.55],
+				[0, -0.65],
+				[0.45, -0.55],
+				[0.55, 0],
+				[0.45, 0.55],
+				[0, 0.65],
+				[-0.45, 0.55],
+				[-0.55, 0],
+				[-0.45, -0.55],
+			])
+			this.poly(outline1, {
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				fill: colors.dark,
+				opacity: opts.opacity
+			})
+			this.rect(x - 0.35, y - 0.45, 0.7, 0.9, {
+				fill: colors.energy,
+				opacity: opts.opacity,
+			})
+			break;
+		case STRUCTURE_OBSERVER:
+			this.circle(x, y, {
+				fill: colors.dark,
+				radius: 0.45,
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				opacity: opts.opacity
+			})
+			this.circle(x + 0.225, y, {
+				fill: colors.outline,
+				radius: 0.20,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_NUKER:
+			let outline = [
+				[0,-1],
+				[-0.47,0.2],
+				[-0.5,0.5],
+				[0.5,0.5],
+				[0.47,0.2],
+				[0,-1],
+			];
+			outline = relPoly(x,y,outline)
+			this.poly(outline,{
+				stroke: colors.outline,
+				strokeWidth: 0.05,
+				fill: colors.dark,
+				opacity: opts.opacity
+			})
+			let inline = [
+				[0,-.80],
+				[-0.40,0.2],
+				[0.40,0.2],
+				[0,-.80],
+			]
+			inline = relPoly(x,y,inline)
+			this.poly(inline,{
+				stroke: colors.outline,
+				strokeWidth: 0.01,
+				fill: colors.gray,
+				opacity: opts.opacity
+			})
+			break;
+		case STRUCTURE_CONTAINER:
+			this.rect(x - 0.225, y - 0.3, 0.45, 0.6,{
+				fill: colors.gray,
+				opacity: opts.opacity,
+				stroke: colors.dark,
+				strokeWidth: 0.09,
+			})
+			this.rect(x - 0.17, y + 0.07, 0.34, 0.2, {
+				fill: colors.energy,
+				opacity: opts.opacity,
+			})
+			break;
+		default:
+			this.circle(x, y, {
+				fill: colors.light,
+				radius: 0.35,
+				stroke: colors.dark,
+				strokeWidth: 0.20,
+				opacity: opts.opacity
+			})
+			break;
+	}
+
+	return this;
+}
+
+const dirs = [
+	[],
+	[0, -1],
+	[1, -1],
+	[1, 0],
+	[1, 1],
+	[0, 1],
+	[-1, 1],
+	[-1, 0],
+	[-1, -1]
+]
+
+RoomVisual.prototype.connectRoads = function(opts={}){
+	let color = opts.color || colors.road || 'white'
+	if(!this.roads) return
+	this.roads.forEach(r=>{
+		for(let i=1;i<=4;i++){
+		let d = dirs[i]
+		let c = [r[0]+d[0],r[1]+d[1]]
+		let rd = _.some(this.roads,r=>r[0] == c[0] && r[1] == c[1])
+		if(rd){
+			this.line(r[0],r[1],c[0],c[1],{
+				color: color,
+				width: 0.35,
+				opacity: opts.opacity || 1
+			})
+		}
+	}
+})
+
+return this;
+}
+
+
+RoomVisual.prototype.speech = function(text, x, y, opts={}) {
+	var background = !!opts.background ? opts.background : colors.speechBackground
+	var textcolor = !!opts.textcolor ? opts.textcolor : colors.speechText
+	var textstyle = !!opts.textstyle ? opts.textstyle : false
+	var textsize = !!opts.textsize ? opts.textsize : speechSize
+	var textfont = !!opts.textfont ? opts.textfont : speechFont
+	var opacity = !!opts.opacity ? opts.opacity : 1
+
+	var fontstring = ''
+	if(textstyle) {
+		fontstring = textstyle + ' '
+	}
+	fontstring += textsize + ' ' + textfont
+
+	let pointer = [
+		[-0.2, -0.8],
+		[ 0.2, -0.8],
+		[ 0,   -0.3]
+	]
+	pointer = relPoly(x,y,pointer)
+	pointer.push(pointer[0])
+
+	this.poly(pointer,{
+		fill: background,
+		stroke: background,
+		opacity: opacity,
+		strokeWidth: 0.0
+	})
+
+	this.text(text, x, y-1, {
+		color: textcolor,
+		backgroundColor: background,
+		backgroundPadding: 0.1,
+		opacity: opacity,
+		font: fontstring
+	})
+
+	return this;
+}
+
+
+RoomVisual.prototype.animatedPosition = function (x, y, opts={}) {
+
+	let color = !!opts.color ? opts.color : 'blue'
+	let opacity = !!opts.opacity ? opts.opacity : 0.5
+	let radius = !!opts.radius ? opts.radius : 0.75
+	let frames = !!opts.frames ? opts.frames : 6
+
+
+	let angle = (Game.time % frames * 90 / frames) * (Math.PI / 180);
+	let s = Math.sin(angle);
+	let c = Math.cos(angle);
+
+	let sizeMod = Math.abs(Game.time % frames - frames / 2) / 10;
+	radius += radius * sizeMod;
+
+	let points = [
+		rotate(0, -radius, s, c, x, y),
+		rotate(radius, 0, s, c, x, y),
+		rotate(0, radius, s, c, x, y),
+		rotate(-radius, 0, s, c, x, y),
+		rotate(0, -radius, s, c, x, y),
+	];
+
+	this.poly(points, {stroke: color, opacity: opacity});
+
+	return this;
+}
+
+function rotate(x, y, s, c, px, py) {
+	let xDelta = x * c - y * s;
+	let yDelta = x * s + y * c;
+	return { x: px + xDelta, y: py + yDelta };
+}
+
+
+function relPoly(x,y,poly){
+	return poly.map(p=>{
+		p[0] += x
+	p[1] += y
+	return p
+})
+}
+
+RoomVisual.prototype.test = function test(){
+	let demopos = [19,24]
+	this.clear()
+	this.structure(demopos[0]+0,demopos[1]+0,STRUCTURE_LAB)
+	this.structure(demopos[0]+1,demopos[1]+1,STRUCTURE_TOWER)
+	this.structure(demopos[0]+2,demopos[1]+0,STRUCTURE_LINK)
+	this.structure(demopos[0]+3,demopos[1]+1,STRUCTURE_TERMINAL)
+	this.structure(demopos[0]+4,demopos[1]+0,STRUCTURE_EXTENSION)
+	this.structure(demopos[0]+5,demopos[1]+1,STRUCTURE_SPAWN)
+
+	return this;
+}
+
+
+/// #region RESOURCE BADGES
+const ColorSets = {
+	white:  ["#ffffff", "#4c4c4c"],
+	grey:   ["#b4b4b4", "#4c4c4c"],
+	red:    ["#ff7b7b", "#592121"],
+	yellow: ["#fdd388", "#5d4c2e"],
+	green:  ["#00f4a2", "#236144"],
+	blue:   ["#50d7f9", "#006181"],
+	purple: ["#a071ff", "#371383"],
+};
+const ResourceColors = {
+	[RESOURCE_ENERGY]:    ColorSets.yellow,
+	[RESOURCE_POWER]:     ColorSets.red,
+
+	[RESOURCE_HYDROGEN]:  ColorSets.grey,
+	[RESOURCE_OXYGEN]:    ColorSets.grey,
+	[RESOURCE_UTRIUM]:    ColorSets.blue,
+	[RESOURCE_LEMERGIUM]: ColorSets.green,
+	[RESOURCE_KEANIUM]:   ColorSets.purple,
+	[RESOURCE_ZYNTHIUM]:  ColorSets.yellow,
+	[RESOURCE_CATALYST]:  ColorSets.red,
+	[RESOURCE_GHODIUM]:   ColorSets.white,
+
+	[RESOURCE_HYDROXIDE]:         ColorSets.grey,
+	[RESOURCE_ZYNTHIUM_KEANITE]:  ColorSets.grey,
+	[RESOURCE_UTRIUM_LEMERGITE]:  ColorSets.grey,
+
+	[RESOURCE_UTRIUM_HYDRIDE]:    ColorSets.blue,
+	[RESOURCE_UTRIUM_OXIDE]:      ColorSets.blue,
+	[RESOURCE_KEANIUM_HYDRIDE]:   ColorSets.purple,
+	[RESOURCE_KEANIUM_OXIDE]:     ColorSets.purple,
+	[RESOURCE_LEMERGIUM_HYDRIDE]: ColorSets.green,
+	[RESOURCE_LEMERGIUM_OXIDE]:   ColorSets.green,
+	[RESOURCE_ZYNTHIUM_HYDRIDE]:  ColorSets.yellow,
+	[RESOURCE_ZYNTHIUM_OXIDE]:    ColorSets.yellow,
+	[RESOURCE_GHODIUM_HYDRIDE]:   ColorSets.white,
+	[RESOURCE_GHODIUM_OXIDE]:     ColorSets.white,
+
+	[RESOURCE_UTRIUM_ACID]:       ColorSets.blue,
+	[RESOURCE_UTRIUM_ALKALIDE]:   ColorSets.blue,
+	[RESOURCE_KEANIUM_ACID]:      ColorSets.purple,
+	[RESOURCE_KEANIUM_ALKALIDE]:  ColorSets.purple,
+	[RESOURCE_LEMERGIUM_ACID]:    ColorSets.green,
+	[RESOURCE_LEMERGIUM_ALKALIDE]:ColorSets.green,
+	[RESOURCE_ZYNTHIUM_ACID]:     ColorSets.yellow,
+	[RESOURCE_ZYNTHIUM_ALKALIDE]: ColorSets.yellow,
+	[RESOURCE_GHODIUM_ACID]:      ColorSets.white,
+	[RESOURCE_GHODIUM_ALKALIDE]:  ColorSets.white,
+
+	[RESOURCE_CATALYZED_UTRIUM_ACID]:         ColorSets.blue,
+	[RESOURCE_CATALYZED_UTRIUM_ALKALIDE]:     ColorSets.blue,
+	[RESOURCE_CATALYZED_KEANIUM_ACID]:        ColorSets.purple,
+	[RESOURCE_CATALYZED_KEANIUM_ALKALIDE]:    ColorSets.purple,
+	[RESOURCE_CATALYZED_LEMERGIUM_ACID]:      ColorSets.green,
+	[RESOURCE_CATALYZED_LEMERGIUM_ALKALIDE]:  ColorSets.green,
+	[RESOURCE_CATALYZED_ZYNTHIUM_ACID]:       ColorSets.yellow,
+	[RESOURCE_CATALYZED_ZYNTHIUM_ALKALIDE]:   ColorSets.yellow,
+	[RESOURCE_CATALYZED_GHODIUM_ACID]:        ColorSets.white,
+	[RESOURCE_CATALYZED_GHODIUM_ALKALIDE]:    ColorSets.white,
+};
+
+const MINERALS = [
+	RESOURCE_CATALYST,
+	RESOURCE_HYDROGEN,
+	RESOURCE_OXYGEN,
+	RESOURCE_LEMERGIUM,
+	RESOURCE_UTRIUM,
+	RESOURCE_ZYNTHIUM,
+	RESOURCE_KEANIUM
+]
+
+if (global.SYMBOLS) {
+	const SYMBOL_MAP = {
+		[RESOURCE_SYMBOL_ALEPH]: '?',
+		[RESOURCE_SYMBOL_BETH]: '?',
+		[RESOURCE_SYMBOL_GIMMEL]: '?',
+		[RESOURCE_SYMBOL_DALETH]: '?',
+		[RESOURCE_SYMBOL_HE]: '?',
+		[RESOURCE_SYMBOL_WAW]: '?',
+		[RESOURCE_SYMBOL_ZAYIN]: '?',
+		[RESOURCE_SYMBOL_HETH]: '?',
+		[RESOURCE_SYMBOL_TETH]: '?',
+		[RESOURCE_SYMBOL_YODH]: '?',
+		[RESOURCE_SYMBOL_KAPH]: '?',
+		[RESOURCE_SYMBOL_LAMEDH]: '?',
+		[RESOURCE_SYMBOL_MEM]: '?',
+		[RESOURCE_SYMBOL_NUN]: '?',
+		[RESOURCE_SYMBOL_SAMEKH]: '?',
+		[RESOURCE_SYMBOL_AYIN]: '?',
+		[RESOURCE_SYMBOL_PE]: '?',
+		[RESOURCE_SYMBOL_TSADE]: '?',
+		[RESOURCE_SYMBOL_QOPH]: '?',
+		[RESOURCE_SYMBOL_RES]: '?',
+		[RESOURCE_SYMBOL_SIN]: '?',
+		[RESOURCE_SYMBOL_TAW]: '?',
+}
+
+const SYMBOL_COLORS = {
+	[RESOURCE_SYMBOL_ALEPH]: '#C63946',
+	[RESOURCE_SYMBOL_BETH]: '#B72E6F',
+	[RESOURCE_SYMBOL_GIMMEL]: '#B72FA5',
+	[RESOURCE_SYMBOL_DALETH]: '#A334B7',
+	[RESOURCE_SYMBOL_HE]: '#9D41ED',
+	[RESOURCE_SYMBOL_WAW]: '#8441ED',
+	[RESOURCE_SYMBOL_ZAYIN]: '#6E49FF',
+	[RESOURCE_SYMBOL_HETH]: '#4E71FF',
+	[RESOURCE_SYMBOL_TETH]: '#5088F4',
+	[RESOURCE_SYMBOL_YODH]: '#3DA1EA',
+	[RESOURCE_SYMBOL_KAPH]: '#38A9C7',
+	[RESOURCE_SYMBOL_LAMEDH]: '#35B7B5',
+	[RESOURCE_SYMBOL_MEM]: '#36B79A',
+	[RESOURCE_SYMBOL_NUN]: '#33B75D',
+	[RESOURCE_SYMBOL_SAMEKH]: '#3FB147',
+	[RESOURCE_SYMBOL_AYIN]: '#69A239',
+	[RESOURCE_SYMBOL_PE]: '#7EA232',
+	[RESOURCE_SYMBOL_TSADE]: '#9FA23B',
+	[RESOURCE_SYMBOL_QOPH]: '#BB933A',
+	[RESOURCE_SYMBOL_RES]: '#D88942',
+	[RESOURCE_SYMBOL_SIN]: '#DC763D',
+	[RESOURCE_SYMBOL_TAW]: '#D64B3D'
+}
+RoomVisual.prototype._symbol = function (type, x, y, size = 0.25) {
+	const outline = [
+			[64, 128],
+			[24.45, 121.78],
+			[6.31, 86.07],
+			[0, 46.52],
+			[28.35, 18.23],
+			[64, 0],
+			[99.65, 18.23],
+			[128, 46.52],
+			[121.69, 86.07],
+			[103.55, 121.78],
+			[64, 128]
+		].map(([x, y]) => [x - 64, y - 64])
+	.map(([x, y]) => [x / 128, y / 128])
+	this.poly(relPoly(x, y, outline, size), {
+		opacity: 1,
+		fill: SYMBOL_COLORS[type],
+		stroke: 'transparent'
+	})
+	this.text(SYMBOL_MAP[type], x, y + (size * 0.35), {
+		font: `bold ${size * 0.8} arial`,
+	color: 'black'
+})
+return this
+}
+}
+RoomVisual.prototype.resource = function(type, x, y, size = 0.25){
+	if (type == RESOURCE_ENERGY || type == RESOURCE_POWER)
+		this._fluid(type, x, y, size)
+	else if (MINERALS.includes(type))
+		this._mineral(type, x, y, size)
+	else if (ResourceColors[type] != undefined)
+		this._compound(type, x, y, size)
+	else if (global.SYMBOLS && SYMBOLS.includes(type))
+		this._symbol(type, x, y, size)
+	else
+		return ERR_INVALID_ARGS
+	return OK;
+};
+RoomVisual.prototype._fluid = function (type, x, y, size = 0.25) {
+	this.circle(x, y, {
+		radius: size,
+		fill: ResourceColors[type][0],
+		opacity: 1,
+	})
+	this.text(type[0], x, y-(size*0.1), {
+		font: (size*1.5),
+		color: ResourceColors[type][1],
+		backgroundColor: ResourceColors[type][0],
+		backgroundPadding: 0,
+	})
+};
+RoomVisual.prototype._mineral = function (type, x, y, size = 0.25) {
+	this.circle(x, y, {
+		radius: size,
+		fill: ResourceColors[type][0],
+		opacity: 1,
+	})
+	this.circle(x, y, {
+		radius: size * 0.8,
+		fill: ResourceColors[type][1],
+		opacity: 1,
+	})
+	this.text(type, x, y+(size*0.03), {
+		font: "bold "+(size*1.25)+" arial",
+		color: ResourceColors[type][0],
+		backgroundColor: ResourceColors[type][1],
+		backgroundPadding: 0,
+	})
+};
+RoomVisual.prototype._compound = function (type, x, y, size = 0.25) {
+	let label = type.replace("2", '?');
+
+	this.text(label, x, y, {
+		font: "bold "+(size*1)+" arial",
+		color: ResourceColors[type][1],
+		backgroundColor: ResourceColors[type][0],
+		backgroundPadding: 0.3*size,
+	})
+};
+/// #endregion
+
+</script>
+<script>
+window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 50\" role=\"img\" aria-label=\"Red five-sided shape with black outline\">\r\n  <polygon\r\n    points=\"24,4 8,12 8,38 24,46 56,25\"\r\n    fill=\"#e51f36\"\r\n    stroke=\"#120006\"\r\n    stroke-width=\"8\"\r\n    stroke-linejoin=\"miter\"\r\n    stroke-miterlimit=\"6\"\r\n    paint-order=\"stroke fill\"\r\n  />\r\n</svg>\r\n";
+</script>
+
+<script>
+// ============================================================
+// Map Editor application logic
+// ============================================================
+(function () {
+	'use strict';
+
+	var ROOM_SIZE = 50;
+	var ROOM_NAME_RE = /^[WE]\d+[NS]\d+$/;
+	// pixel size of each tile in the SVG viewBox units (viewBox is 50x50)
+	var TILE = 1;
+
+	// Terrain colors matching frameRenderer.js
+	var TILE_COLORS = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
+	var ROOM_BACKGROUND = '#2b2b2b';
+
+	// Structural constants
+	var STRUCTURE_TYPES = ['spawn','extension','tower','storage','terminal','link','lab',
+		'factory','container','road','rampart','constructedWall','controller'];
+	// roads, constructed walls and containers are unowned in Screeps — no owner.
+	var OWNS_OWNER = ['spawn','extension','tower','storage','terminal','link','lab',
+		'factory','rampart','controller'];
+	// a controller/structure is "claimed" (owned) unless it's unclaimed/neutral.
+	function isClaimed(owner) { return owner != null && owner !== 'neutral' && owner !== 'unclaimed'; }
+	// stacking layers: a road (floor), a rampart (overlay) and one main structure
+	// can share a tile. Selection prefers main > rampart > road.
+	function structureLayer(type) { return type === 'road' ? 'floor' : (type === 'rampart' ? 'overlay' : 'main'); }
+	var HAS_STORE = ['storage','terminal','container'];
+	var STORE_CAPACITY = { storage: 1000000, terminal: 300000, container: 2000 };
+	var SINGLE_INSTANCE = ['controller'];
+
+	// ---- State ----
+	var state = {
+		room: 'W0N0',
+		terrain: makeDefaultTerrain(),
+		structures: [],   // {type, x, y, owner?, store?, level?, mineralType?, flagName?}
+		flags: [],        // {name, x, y}
+		selectedIdx: -1,  // index into structures or flags (selectedKind distinguishes)
+		selectedKind: null, // 'structure' | 'flag'
+		activeTool: 'select', // 'select' | 'terrain' | 'object'
+		terrainBrush: '.',
+		objectBrush: 'spawn',
+		painting: false,
+	};
+
+	function makeDefaultTerrain() {
+		var rows = [];
+		for (var y = 0; y < ROOM_SIZE; y++) {
+			var row = '';
+			for (var x = 0; x < ROOM_SIZE; x++) {
+				if (x === 0 || x === ROOM_SIZE - 1 || y === 0 || y === ROOM_SIZE - 1) {
+					row += '#';
+				} else {
+					row += '.';
+				}
+			}
+			rows.push(row);
+		}
+		return rows;
+	}
+
+	// ---- DOM refs ----
+	var svg = document.getElementById('editor-svg');
+	var roomInput = document.getElementById('room-name-input');
+	var jsonTextarea = document.getElementById('json-textarea');
+	var loadError = document.getElementById('load-error');
+	var propsPanel = document.getElementById('props-panel');
+	var noSelMsg = document.getElementById('no-sel-msg');
+	var propOwnerRow = document.getElementById('prop-owner-row');
+	var propStoreRow = document.getElementById('prop-store-row');
+	var propCapacityRow = document.getElementById('prop-capacity-row');
+	var propCapacity = document.getElementById('prop-capacity');
+	var propFlagnameRow = document.getElementById('prop-flagname-row');
+	var propLevelRow = document.getElementById('prop-level-row');
+	var propMineralRow = document.getElementById('prop-mineral-row');
+	var propOwner = document.getElementById('prop-owner');
+	var propStore = document.getElementById('prop-store');
+	var propFlagname = document.getElementById('prop-flagname');
+	var propLevel = document.getElementById('prop-level');
+	var propMineral = document.getElementById('prop-mineral');
+
+	// ---- SVG helpers ----
+	function svgEl(tag, attrs) {
+		var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+		Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+		return el;
+	}
+
+	// Convert RoomVisual elements into children of a <g> (foreign-parser trick).
+	function appendElementsToG(g, elements) {
+		elements.forEach(function (el) {
+			var markup = DojoSvgPrimitives.elementToSvg(el);
+			var wrapper = document.createElement('div');
+			wrapper.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg">' + markup + '</svg>';
+			var svgDoc = wrapper.firstChild;
+			while (svgDoc.firstChild) g.appendChild(document.adoptNode(svgDoc.firstChild));
+		});
+		return g;
+	}
+
+	// Draw structure at (x,y) using RoomVisual lib -> elementToSvg, return <g> element
+	function drawStructureSvg(type, x, y, extraAttrs) {
+		var vis = new window.RoomVisual(state.room);
+		if (type === 'source') {
+			vis.circle(x, y, { radius: 0.35, fill: '#FFE87B', opacity: 0.9 });
+		} else if (type === 'mineral') {
+			vis.circle(x, y, { radius: 0.35, fill: '#ffffff', opacity: 0.6 });
+		} else if (type === 'controller') {
+			vis.circle(x, y, { radius: 0.45, fill: '#555', stroke: '#8FBB93', strokeWidth: 0.05, opacity: 0.9 });
+		} else if (type === 'flag') {
+			vis.poly([[x, y + 0.3], [x, y - 0.5], [x + 0.5, y - 0.3], [x, y - 0.1]],
+				{ stroke: '#ffffff', strokeWidth: 0.08, fill: '#ff6666', opacity: 0.9 });
+		} else {
+			vis.structure(x, y, type);
+		}
+		var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+		if (extraAttrs) {
+			Object.keys(extraAttrs).forEach(function (k) { g.setAttribute(k, extraAttrs[k]); });
+		}
+		appendElementsToG(g, vis.elements);
+		return g;
+	}
+
+	// ---- Render ----
+	var layers = {};
+
+	function initSvg() {
+		svg.innerHTML = '';
+
+		// terrain layer
+		var terrainG = svgEl('g', { id: 'layer-terrain' });
+		svg.appendChild(terrainG);
+
+		// grid layer
+		var gridG = svgEl('g', { id: 'layer-grid' });
+		svg.appendChild(gridG);
+
+		// structures layer
+		var structG = svgEl('g', { id: 'layer-structures' });
+		svg.appendChild(structG);
+
+		// hit-test overlay layer (for painting + selection)
+		var overlayG = svgEl('g', { id: 'layer-overlay' });
+		svg.appendChild(overlayG);
+
+		layers.terrain = terrainG;
+		layers.grid = gridG;
+		layers.structures = structG;
+		layers.overlay = overlayG;
+
+		// Draw grid lines (same style as frameRenderer)
+		var gridPath = '';
+		for (var i = 1; i < ROOM_SIZE; i++) {
+			gridPath += 'M ' + i + ' 0 V ' + ROOM_SIZE + ' M 0 ' + i + ' H ' + ROOM_SIZE + ' ';
+		}
+		var gridEl = svgEl('path', {
+			d: gridPath.trim(),
+			stroke: '#ffffff',
+			'stroke-width': '0.02',
+			opacity: '0.07',
+			fill: 'none',
+			'class': 'dojo-grid'
+		});
+		layers.grid.appendChild(gridEl);
+
+		// Build hit-test rects (one per tile) — no repaint needed for these
+		for (var ty = 0; ty < ROOM_SIZE; ty++) {
+			for (var tx = 0; tx < ROOM_SIZE; tx++) {
+				(function (cx, cy) {
+					var rect = svgEl('rect', {
+						x: cx, y: cy, width: 1, height: 1,
+						fill: 'transparent',
+						'class': 'tile-hit'
+					});
+					rect.addEventListener('mousedown', function (e) { onTileDown(cx, cy, e); });
+					rect.addEventListener('mousemove', function (e) { onTileMove(cx, cy, e); });
+					rect.addEventListener('mouseup', function () { state.painting = false; });
+					layers.overlay.appendChild(rect);
+				})(tx, ty);
+			}
+		}
+
+		svg.addEventListener('mouseleave', function () { state.painting = false; });
+	}
+
+	function renderTerrain() {
+		var t = layers.terrain;
+		while (t.firstChild) t.removeChild(t.firstChild);
+
+		// background
+		t.appendChild(svgEl('rect', {
+			x: 0, y: 0, width: ROOM_SIZE, height: ROOM_SIZE, fill: ROOM_BACKGROUND
+		}));
+
+		for (var y = 0; y < ROOM_SIZE; y++) {
+			for (var x = 0; x < ROOM_SIZE; x++) {
+				var ch = state.terrain[y][x];
+				if (ch === '.') continue;
+				t.appendChild(svgEl('rect', {
+					x: x, y: y, width: 1, height: 1, fill: TILE_COLORS[ch]
+				}));
+			}
+		}
+
+		// Exit chevrons: outward arrows on every walkable border tile, same
+		// visual language as the replay viewer (class dojo-exit).
+		var exitGroup = svgEl('g', {
+			'class': 'dojo-exit', stroke: '#9bd49b', 'stroke-width': '0.08',
+			opacity: '0.5', fill: 'none'
+		});
+		function addChevron(x1, y1, x2, y2, x3, y3) {
+			exitGroup.appendChild(svgEl('path', {
+				d: 'M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2 + ' L ' + x3 + ' ' + y3
+			}));
+		}
+		var last = ROOM_SIZE - 1;
+		for (var i = 0; i < ROOM_SIZE; i++) {
+			if (state.terrain[i][0] !== '#') addChevron(0.4, i + 0.25, 0.1, i + 0.5, 0.4, i + 0.75);
+			if (state.terrain[i][last] !== '#') addChevron(last + 0.6, i + 0.25, last + 0.9, i + 0.5, last + 0.6, i + 0.75);
+			if (state.terrain[0][i] !== '#') addChevron(i + 0.25, 0.4, i + 0.5, 0.1, i + 0.75, 0.4);
+			if (state.terrain[last][i] !== '#') addChevron(i + 0.25, last + 0.6, i + 0.5, last + 0.9, i + 0.75, last + 0.6);
+		}
+		t.appendChild(exitGroup);
+	}
+
+	function renderStructures() {
+		var sl = layers.structures;
+		while (sl.firstChild) sl.removeChild(sl.firstChild);
+
+		var CONNECTED = { road: 1, constructedWall: 1, rampart: 1 };
+		state.structures.forEach(function (obj, idx) {
+			var selected = (state.selectedKind === 'structure' && state.selectedIdx === idx);
+			var g;
+			if (CONNECTED[obj.type]) {
+				// road/wall/rampart visuals come from the connected overlay below;
+				// here we just need a transparent hit area so they're selectable
+				// (and so the overlay isn't drawn twice / showing through ramparts).
+				g = svgEl('g', { 'data-kind': 'structure', 'data-idx': idx, cursor: 'pointer' });
+				g.appendChild(svgEl('rect', { x: obj.x, y: obj.y, width: 1, height: 1, fill: 'transparent' }));
+			} else {
+				g = drawStructureSvg(obj.type, obj.x, obj.y, {
+					'data-kind': 'structure',
+					'data-idx': idx,
+					cursor: 'pointer',
+					opacity: selected ? '0.7' : '1'
+				});
+			}
+			if (selected) {
+				// highlight ring
+				var ring = svgEl('circle', {
+					cx: obj.x + 0.5, cy: obj.y + 0.5, r: '0.6',
+					fill: 'none', stroke: '#65fd62', 'stroke-width': '0.07', opacity: '0.9'
+				});
+				g.appendChild(ring);
+			}
+			g.addEventListener('mousedown', function (e) {
+				if (state.activeTool === 'object' && state.objectBrush === 'eraser') return;
+				e.stopPropagation();
+				selectObject('structure', idx);
+			});
+			sl.appendChild(g);
+		});
+
+		state.flags.forEach(function (flag, idx) {
+			var selected = (state.selectedKind === 'flag' && state.selectedIdx === idx);
+			var g = drawStructureSvg('flag', flag.x, flag.y, {
+				'data-kind': 'flag',
+				'data-idx': idx,
+				cursor: 'pointer',
+				opacity: selected ? '0.7' : '1'
+			});
+			if (selected) {
+				var ring = svgEl('circle', {
+					cx: flag.x + 0.5, cy: flag.y + 0.5, r: '0.55',
+					fill: 'none', stroke: '#65fd62', 'stroke-width': '0.07', opacity: '0.9'
+				});
+				g.appendChild(ring);
+			}
+			g.addEventListener('mousedown', function (e) {
+				if (state.activeTool === 'object' && state.objectBrush === 'eraser') return;
+				e.stopPropagation();
+				selectObject('flag', idx);
+			});
+			sl.appendChild(g);
+		});
+
+		// Connected overlay (non-interactive, on top): roads use the lib's
+		// connectRoads() like the replay viewer; walls + ramparts use connected
+		// "pill" blobs (orthogonal neighbours merge; diagonals don't).
+		var cg = svgEl('g', { 'pointer-events': 'none' });
+		var roads = state.structures.filter(function (o) { return o.type === 'road'; });
+		if (roads.length) {
+			var rv = new window.RoomVisual(state.room);
+			roads.forEach(function (o) { rv.structure(o.x, o.y, 'road'); });
+			if (typeof rv.connectRoads === 'function') rv.connectRoads();
+			appendElementsToG(cg, rv.elements);
+		}
+		appendConnectedBarriers(cg, state.structures);
+		sl.appendChild(cg);
+	}
+
+	// Renders constructed walls and ramparts as connected blobs. Orthogonally
+	// adjacent tiles merge into a pill/network; ramparts are translucent green
+	// (mine) or red (anyone else's), walls are solid dark.
+	function drawBarrierGroup(cg, tiles, fill, opacity) {
+		if (!tiles.length) return;
+		var set = {};
+		tiles.forEach(function (t) { set[t.x + ',' + t.y] = true; });
+		var inner = svgEl('g', { opacity: String(opacity) }); // group opacity = no overlap darkening
+		var half = 0.42;
+		tiles.forEach(function (t) {
+			inner.appendChild(svgEl('rect', { x: t.x + 0.5 - half, y: t.y + 0.5 - half, width: 2 * half, height: 2 * half, rx: '0.16', ry: '0.16', fill: fill }));
+			if (set[(t.x + 1) + ',' + t.y]) inner.appendChild(svgEl('rect', { x: t.x + 0.5, y: t.y + 0.5 - half, width: 1, height: 2 * half, fill: fill }));
+			if (set[t.x + ',' + (t.y + 1)]) inner.appendChild(svgEl('rect', { x: t.x + 0.5 - half, y: t.y + 0.5, width: 2 * half, height: 1, fill: fill }));
+		});
+		cg.appendChild(inner);
+	}
+
+	function appendConnectedBarriers(cg, structures) {
+		drawBarrierGroup(cg, structures.filter(function (o) { return o.type === 'constructedWall'; }), '#111417', 1);
+		drawBarrierGroup(cg, structures.filter(function (o) { return o.type === 'rampart' && !(o.owner && o.owner !== 'me'); }), '#46d160', 0.32);
+		drawBarrierGroup(cg, structures.filter(function (o) { return o.type === 'rampart' && o.owner && o.owner !== 'me'; }), '#e85050', 0.32);
+	}
+
+	function fullRender() {
+		renderTerrain();
+		renderStructures();
+		updateJsonExport();
+	}
+
+	// ---- Selection / Properties ----
+	function selectObject(kind, idx) {
+		state.selectedKind = kind;
+		state.selectedIdx = idx;
+		showProps();
+		renderStructures();
+	}
+
+	function clearSelection() {
+		state.selectedKind = null;
+		state.selectedIdx = -1;
+		propsPanel.classList.add('hidden');
+		noSelMsg.style.display = 'block';
+		renderStructures();
+	}
+
+	function showProps() {
+		propsPanel.classList.remove('hidden');
+		noSelMsg.style.display = 'none';
+		// hide all rows first
+		[propOwnerRow, propStoreRow, propCapacityRow, propFlagnameRow, propLevelRow, propMineralRow].forEach(function (r) {
+			r.style.display = 'none';
+		});
+
+		if (state.selectedKind === 'flag') {
+			var flag = state.flags[state.selectedIdx];
+			propFlagnameRow.style.display = 'flex';
+			propFlagname.value = flag.name || '';
+			return;
+		}
+
+		var obj = state.structures[state.selectedIdx];
+		if (!obj) return;
+
+		if (OWNS_OWNER.indexOf(obj.type) !== -1) {
+			propOwnerRow.style.display = 'flex';
+			// controllers default to unclaimed; everything else defaults to 'me'.
+			// ('neutral' is the legacy value for an unclaimed controller.)
+			var defaultOwner = obj.type === 'controller' ? 'unclaimed' : 'me';
+			propOwner.value = obj.owner == null ? defaultOwner : (obj.owner === 'neutral' ? 'unclaimed' : obj.owner);
+		}
+		if (HAS_STORE.indexOf(obj.type) !== -1) {
+			propStoreRow.style.display = 'flex';
+			propStore.value = JSON.stringify(obj.store || {});
+			updateCapacityDisplay(obj);
+		}
+		// A controller's level only applies when it's claimed; an unclaimed
+		// controller is always level 0 (so the level field is hidden).
+		if (obj.type === 'controller' && isClaimed(obj.owner)) {
+			propLevelRow.style.display = 'flex';
+			propLevel.value = obj.level != null ? obj.level : 1;
+		}
+		if (obj.type === 'mineral') {
+			propMineralRow.style.display = 'flex';
+			propMineral.value = obj.mineralType || 'H';
+		}
+	}
+
+	// Shows "used / capacity" for a store-bearing structure; flags over-capacity.
+	function updateCapacityDisplay(obj) {
+		propCapacityRow.style.display = 'flex';
+		var cap = STORE_CAPACITY[obj.type] || 0;
+		var used = 0, st = obj.store || {};
+		for (var k in st) used += Number(st[k]) || 0;
+		var over = cap && used > cap;
+		propCapacity.textContent = used.toLocaleString() + ' / ' + cap.toLocaleString() + (over ? '  ⚠ over capacity' : '');
+		propCapacity.style.color = over ? '#cc5555' : '#888';
+	}
+
+	// ---- Tile interaction ----
+	// Returns the object sitting on a tile (structures take priority over flags).
+	function findObjectAt(x, y) {
+		// prefer the main structure, then rampart, then road (the top-most thing).
+		var rank = { main: 2, overlay: 1, floor: 0 };
+		var best = -1, bestRank = -1;
+		state.structures.forEach(function (o, i) {
+			if (o.x !== x || o.y !== y) return;
+			var r = rank[structureLayer(o.type)];
+			if (r > bestRank) { bestRank = r; best = i; }
+		});
+		if (best !== -1) return { kind: 'structure', idx: best };
+		var fi = state.flags.findIndex(function (f) { return f.x === x && f.y === y; });
+		if (fi !== -1) return { kind: 'flag', idx: fi };
+		return null;
+	}
+
+	function onTileDown(x, y, e) {
+		if (e.button !== 0) return;
+		// select is a single click (no drag-paint); paint/erase tools drag.
+		state.painting = state.activeTool !== 'select';
+		applyTool(x, y);
+	}
+
+	function onTileMove(x, y, e) {
+		if (!state.painting) return;
+		if (!(e.buttons & 1)) { state.painting = false; return; }
+		applyTool(x, y);
+	}
+
+	function applyTool(x, y) {
+		if (state.activeTool === 'select') {
+			var hit = findObjectAt(x, y);
+			if (hit) selectObject(hit.kind, hit.idx); else clearSelection();
+		} else if (state.activeTool === 'terrain') {
+			paintTerrain(x, y, state.terrainBrush);
+		} else if (state.activeTool === 'object') {
+			if (state.objectBrush === 'eraser') {
+				eraseAt(x, y);
+			} else {
+				placeObject(x, y, state.objectBrush);
+			}
+		}
+	}
+
+	function paintTerrain(x, y, ch) {
+		// Border auto-wall: if border-wall is on and we're on the border, force '#'
+		var borderWall = document.getElementById('border-wall-cb').checked;
+		var actualCh = ch;
+		if (borderWall && (x === 0 || x === ROOM_SIZE - 1 || y === 0 || y === ROOM_SIZE - 1)) {
+			actualCh = '#';
+		}
+		var row = state.terrain[y];
+		if (row[x] === actualCh) return;
+		state.terrain[y] = row.slice(0, x) + actualCh + row.slice(x + 1);
+		renderTerrain();
+		updateJsonExport();
+	}
+
+	function placeObject(x, y, type) {
+		// Single-instance types: remove any existing one first
+		if (SINGLE_INSTANCE.indexOf(type) !== -1) {
+			state.structures = state.structures.filter(function (o) { return o.type !== type; });
+		}
+
+		if (type === 'flag') {
+			// Allow multiple flags but not stacked
+			var existing = state.flags.findIndex(function (f) { return f.x === x && f.y === y; });
+			if (existing !== -1) return;
+			state.flags.push({ name: 'flag' + state.flags.length, x: x, y: y });
+		} else {
+			// A tile can hold three layers at once: a road (floor), a rampart
+			// (overlay), and one "main" structure. Placing into a layer only
+			// replaces what's already in that layer — so roads go under and
+			// ramparts go over any structure.
+			var layer = structureLayer(type);
+			state.structures = state.structures.filter(function (o) {
+				return !(o.x === x && o.y === y && structureLayer(o.type) === layer);
+			});
+
+			var obj = { type: type, x: x, y: y };
+			// controllers default to UNCLAIMED (no owner); other ownable structures
+			// default to 'me'. roads/walls/containers are never owned.
+			if (OWNS_OWNER.indexOf(type) !== -1 && type !== 'controller') obj.owner = 'me';
+			if (HAS_STORE.indexOf(type) !== -1) obj.store = {};
+			if (type === 'controller') obj.level = 0;
+			if (type === 'mineral') obj.mineralType = 'H';
+			state.structures.push(obj);
+		}
+
+		clearSelection();
+		renderStructures();
+		updateJsonExport();
+	}
+
+	function eraseAt(x, y) {
+		var changed = false;
+		var si = state.structures.findIndex(function (o) { return o.x === x && o.y === y; });
+		if (si !== -1) { state.structures.splice(si, 1); changed = true; }
+		var fi = state.flags.findIndex(function (f) { return f.x === x && f.y === y; });
+		if (fi !== -1) { state.flags.splice(fi, 1); changed = true; }
+		if (changed) {
+			clearSelection();
+			renderStructures();
+			updateJsonExport();
+		}
+	}
+
+	// ---- JSON export/import ----
+	function buildMapJson() {
+		var map = {
+			room: state.room,
+			terrain: state.terrain.slice(),
+			structures: state.structures.map(function (o) {
+				var s = { type: o.type, x: o.x, y: o.y };
+				if (o.owner != null) s.owner = o.owner;
+				if (o.store != null && Object.keys(o.store).length > 0) s.store = o.store;
+				if (o.level != null && o.level !== 0) s.level = o.level;
+				if (o.mineralType != null) s.mineralType = o.mineralType;
+				return s;
+			}),
+		};
+		// Add sources, controller, minerals separately from structures for format compatibility
+		// The map format (scout-flee/map.json) only has: room, terrain, structures, flags
+		// Sources, controller, minerals are included in structures[] but also separately if needed
+		// Looking at map.json: it just has structures:[] and flags:[]. Keep compact.
+		map.flags = state.flags.map(function (f) {
+			return { name: f.name, x: f.x, y: f.y };
+		});
+		return map;
+	}
+
+	// when true, skip rewriting the textarea (so live-editing the JSON doesn't
+	// fight the user's cursor) — but the embed bridge still posts the change.
+	var suppressJsonWrite = false;
+	function updateJsonExport() {
+		if (!suppressJsonWrite) jsonTextarea.value = JSON.stringify(buildMapJson(), null, '\t');
+	}
+
+	function loadMapJson(json) {
+		try {
+			var map = typeof json === 'string' ? JSON.parse(json) : json;
+			if (!map.room || !Array.isArray(map.terrain) || map.terrain.length !== ROOM_SIZE) {
+				throw new Error('invalid map: missing room or terrain (50 rows required)');
+			}
+			for (var i = 0; i < ROOM_SIZE; i++) {
+				if (typeof map.terrain[i] !== 'string' || map.terrain[i].length !== ROOM_SIZE) {
+					throw new Error('terrain row ' + i + ' must be a 50-char string');
+				}
+			}
+			state.room = map.room;
+			state.terrain = map.terrain.slice();
+			state.structures = (map.structures || []).map(function (s) {
+				var o = Object.assign({}, s);
+				return o;
+			});
+			state.flags = (map.flags || []).map(function (f) {
+				return { name: f.name, x: f.x, y: f.y };
+			});
+			roomInput.value = state.room;
+			clearSelection();
+			fullRender();
+			loadError.textContent = '';
+		} catch (err) {
+			loadError.textContent = 'Error: ' + err.message;
+		}
+	}
+
+	// ---- UI wiring ----
+
+	// Tab switching
+	document.querySelectorAll('.tab-btn').forEach(function (btn) {
+		btn.addEventListener('click', function () {
+			document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+			document.querySelectorAll('.tab-pane').forEach(function (p) { p.classList.remove('active'); });
+			btn.classList.add('active');
+			document.getElementById(btn.dataset.tab + '-pane').classList.add('active');
+		});
+	});
+
+	// Room name validation
+	roomInput.addEventListener('input', function () {
+		var v = roomInput.value.trim();
+		if (ROOM_NAME_RE.test(v)) {
+			roomInput.classList.remove('invalid');
+			state.room = v;
+			updateJsonExport();
+		} else {
+			roomInput.classList.add('invalid');
+		}
+	});
+
+	function clearPaletteActive() {
+		document.querySelectorAll('.terrain-btn,.obj-btn,.eraser-btn,.tool-btn').forEach(function (b) { b.classList.remove('active'); });
+	}
+
+	// Select / edit tool
+	document.querySelectorAll('.tool-btn').forEach(function (btn) {
+		btn.addEventListener('click', function () {
+			clearPaletteActive();
+			btn.classList.add('active');
+			state.activeTool = 'select';
+		});
+	});
+
+	// Terrain palette
+	document.querySelectorAll('.terrain-btn').forEach(function (btn) {
+		btn.addEventListener('click', function () {
+			clearPaletteActive();
+			btn.classList.add('active');
+			state.terrainBrush = btn.dataset.terrain;
+			state.activeTool = 'terrain';
+		});
+	});
+
+	// Object palette
+	document.querySelectorAll('.obj-btn, .eraser-btn').forEach(function (btn) {
+		btn.addEventListener('click', function () {
+			clearPaletteActive();
+			btn.classList.add('active');
+			state.objectBrush = btn.dataset.obj;
+			state.activeTool = 'object';
+		});
+	});
+
+	// Properties change listeners
+	propOwner.addEventListener('change', function () {
+		if (state.selectedKind !== 'structure') return;
+		var obj = state.structures[state.selectedIdx];
+		obj.owner = propOwner.value;
+		// Keep a controller's level consistent with its claimed state: claiming
+		// sets level 1 (if it was 0), unclaiming forces level 0.
+		if (obj.type === 'controller') {
+			if (isClaimed(obj.owner)) { if (!obj.level) obj.level = 1; }
+			else { obj.level = 0; }
+			showProps(); // re-evaluate which rows show (level only when claimed)
+		}
+		renderStructures();
+		updateJsonExport();
+	});
+
+	propStore.addEventListener('input', function () {
+		if (state.selectedKind !== 'structure') return;
+		try {
+			var v = JSON.parse(propStore.value);
+			state.structures[state.selectedIdx].store = v;
+			propStore.classList.remove('json-invalid');
+			updateCapacityDisplay(state.structures[state.selectedIdx]);
+			updateJsonExport();
+		} catch (e) {
+			propStore.classList.add('json-invalid');
+		}
+	});
+
+	propFlagname.addEventListener('input', function () {
+		if (state.selectedKind !== 'flag') return;
+		state.flags[state.selectedIdx].name = propFlagname.value;
+		updateJsonExport();
+	});
+
+	propLevel.addEventListener('input', function () {
+		if (state.selectedKind !== 'structure') return;
+		state.structures[state.selectedIdx].level = Number(propLevel.value);
+		updateJsonExport();
+	});
+
+	propMineral.addEventListener('change', function () {
+		if (state.selectedKind !== 'structure') return;
+		state.structures[state.selectedIdx].mineralType = propMineral.value;
+		updateJsonExport();
+	});
+
+	document.getElementById('delete-btn').addEventListener('click', function () {
+		if (state.selectedKind === 'structure') {
+			state.structures.splice(state.selectedIdx, 1);
+		} else if (state.selectedKind === 'flag') {
+			state.flags.splice(state.selectedIdx, 1);
+		}
+		clearSelection();
+		renderStructures();
+		updateJsonExport();
+	});
+
+	// Import
+	document.getElementById('load-btn').addEventListener('click', function () {
+		loadMapJson(jsonTextarea.value);
+	});
+
+	// Live two-way editing: typing in the JSON re-renders the map (debounced),
+	// showing parse/validation errors inline WITHOUT clobbering what you type.
+	var jsonEditTimer = null;
+	jsonTextarea.addEventListener('input', function () {
+		clearTimeout(jsonEditTimer);
+		jsonEditTimer = setTimeout(function () {
+			suppressJsonWrite = true;
+			loadMapJson(jsonTextarea.value);
+			suppressJsonWrite = false;
+		}, 350);
+	});
+
+	document.getElementById('file-input').addEventListener('change', function (e) {
+		var file = e.target.files[0];
+		if (!file) return;
+		var reader = new FileReader();
+		reader.onload = function (ev) { loadMapJson(ev.target.result); };
+		reader.readAsText(file);
+	});
+
+	// Export
+	document.getElementById('download-btn').addEventListener('click', function () {
+		var blob = new Blob([jsonTextarea.value], { type: 'application/json' });
+		var a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = 'map.json';
+		a.click();
+		URL.revokeObjectURL(a.href);
+	});
+
+	// Click on empty svg canvas to deselect / apply terrain
+	svg.addEventListener('mousedown', function (e) {
+		if (e.target === svg || e.target.id === 'layer-terrain' || e.target.id === 'layer-grid') {
+			clearSelection();
+		}
+	});
+
+	// ---- Init ----
+	initSvg();
+	fullRender();
+
+	// ---- Dojo embed bridge ----
+	// When loaded inside the GUI's Edit tab (?embed=1), hide the standalone
+	// chrome and talk to the parent: receive a map to edit, post changes back.
+	(function () {
+		var params = new URLSearchParams(location.search);
+		if (!params.has('embed')) return;
+		var tabsEl = document.getElementById('tabs'); if (tabsEl) tabsEl.style.display = 'none';
+		// Raw-JSON editing lives in the host app's Monaco editor (its Visual/JSON
+		// toggle), so the standalone JSON panel + Load/Download buttons stay hidden
+		// in embed mode. We sync with the host over postMessage below.
+		var bottomEl = document.getElementById('bottom-panel'); if (bottomEl) bottomEl.style.display = 'none';
+		var origUpdate = updateJsonExport;
+		updateJsonExport = function () {
+			origUpdate.apply(this, arguments);
+			try { parent.postMessage({ type: 'dojoMapChanged', map: jsonTextarea.value }, '*'); } catch (e) { /* ignore */ }
+		};
+		window.addEventListener('message', function (e) {
+			if (e.data && e.data.type === 'dojoLoadMap' && e.data.map) {
+				loadMapJson(e.data.map);
+			}
+		});
+		try { parent.postMessage({ type: 'dojoEditorReady' }, '*'); } catch (e) { /* ignore */ }
+	})();
+
+})();
+</script>
+
+<script>
+// ============================================================
+// Replay Viewer application logic
+// ============================================================
+(function () {
+	'use strict';
+
+	// ---- Constants (mirror frameRenderer.js visual language) ----
+	var TILE_COLORS = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
+	var ROOM_BACKGROUND = '#2b2b2b';
+	var BOT_COLOR = '#65fd62';
+	var HOSTILE_COLOR = '#fd6262';
+	var NPC_USER_IDS = ['2', '3'];
+	var CREEP_SIZE_TILES = 1.25;
+	var PIXELS_PER_ROOM = 600;
+	var ROOM_TILES = 50;
+
+	// ---- Parse the inlined invader SVG ----
+	var invaderAsset = (function () {
+		var raw = window.DOJO_INVADER_SVG || '';
+		var vbMatch = raw.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+		var innerMatch = raw.match(/<svg[^>]*>([\s\S]*)<\/svg>/);
+		if (!vbMatch || !innerMatch) return null;
+		return {
+			inner: innerMatch[1],
+			width: Number(vbMatch[1]),
+			height: Number(vbMatch[2])
+		};
+	})();
+
+	function invaderSvg(x, y, opacity, angleDegrees) {
+		if (!invaderAsset) return '';
+		var size = 0.95;
+		var scale = size / invaderAsset.width;
+		var drawWidth = invaderAsset.width * scale;
+		var drawHeight = invaderAsset.height * scale;
+		var cx = (invaderAsset.width / 2).toFixed(3);
+		var cy = (invaderAsset.height / 2).toFixed(3);
+		var angle = angleDegrees !== undefined ? angleDegrees : 0;
+		return '<g class="dojo-invader" opacity="' + opacity + '" transform="translate('
+			+ (x + 0.5 - drawWidth / 2).toFixed(3) + ',' + (y + 0.5 - drawHeight / 2).toFixed(3)
+			+ ') scale(' + scale.toFixed(4) + ') rotate(' + angle + ' ' + cx + ' ' + cy + ')">'
+			+ invaderAsset.inner + '</g>';
+	}
+
+	// creepFacing: ported from src/render/frameRenderer.js.
+	// Returns the facing angle in degrees for a creep at frameIndex.
+	// An ACTION target on the upcoming tick (next frame's actionLog — harvest,
+	// attack, upgrade, heal, ...) takes priority: a creep working a source faces
+	// the source even while standing still. Otherwise looks at the current
+	// transition (frames[frameIndex] -> frames[frameIndex+1]); if no movement
+	// there, scans backward for the most recent tick with movement. Cross-room
+	// steps compare layout-adjusted world coordinates, so a step east through a
+	// room seam still faces 0 degrees.
+	// Returns fallbackAngle (default 0, faces right) if the creep never moved.
+	var ACTION_FACING_KEYS = ['harvest', 'attack', 'upgradeController', 'heal',
+		'rangedAttack', 'rangedHeal', 'build'];
+	function creepFacing(recording, layout, frameIndex, objectId, fallbackAngle) {
+		var frames = recording.frames;
+
+		function posAt(fi) {
+			var frame = frames[fi];
+			if (!frame) return null;
+			for (var i = 0; i < frame.objects.length; i++) {
+				if (frame.objects[i]._id === objectId) return frame.objects[i];
+			}
+			return null;
+		}
+
+		// World coordinates: room-local position shifted by the room's layout
+		// offset. Null when the room isn't part of the rendered layout.
+		function worldPos(obj) {
+			var off = layout.offsets[obj.room];
+			if (!off) return null;
+			return { x: obj.x + off.col * ROOM_TILES, y: obj.y + off.row * ROOM_TILES };
+		}
+
+		function angleBetween(a, b) {
+			if (a.room === b.room) {
+				if (a.x === b.x && a.y === b.y) return null;
+				return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+			}
+			var wa = worldPos(a);
+			var wb = worldPos(b);
+			if (!wa || !wb || (wa.x === wb.x && wa.y === wb.y)) return null;
+			return Math.atan2(wb.y - wa.y, wb.x - wa.x) * 180 / Math.PI;
+		}
+
+		// ACTION target wins over movement: the actionLog describing this
+		// transition rides the NEXT frame's object (same convention as the
+		// effect beams). Targets are room-local {x,y}; angleBetween handles a
+		// target room when present (layout-aware).
+		var actor = posAt(frameIndex + 1);
+		if (actor && actor.actionLog) {
+			for (var ak = 0; ak < ACTION_FACING_KEYS.length; ak++) {
+				var target = actor.actionLog[ACTION_FACING_KEYS[ak]];
+				if (target && typeof target.x === 'number' && typeof target.y === 'number') {
+					var actionAngle = angleBetween(actor,
+						{ room: target.room || actor.room, x: target.x, y: target.y });
+					if (actionAngle !== null) return actionAngle;
+				}
+			}
+		}
+
+		// Check current transition first
+		var curr = posAt(frameIndex);
+		var next = posAt(frameIndex + 1);
+		if (curr && next) {
+			var angle = angleBetween(curr, next);
+			if (angle !== null) return angle;
+		}
+
+		// Scan backward for most recent movement
+		for (var k = frameIndex; k >= 1; k--) {
+			var a = posAt(k - 1);
+			var b = posAt(k);
+			if (a && b) {
+				var past = angleBetween(a, b);
+				if (past !== null) return past;
+			}
+		}
+
+		return fallbackAngle !== undefined ? fallbackAngle : 0;
+	}
+
+	// ---- roomNameToXY (ported from mapFormat.js; credited to frameRenderer.js computeLayout) ----
+	var ROOM_NAME_PATTERN = /^([WE])(\d+)([NS])(\d+)$/;
+	function roomNameToXY(name) {
+		var m = ROOM_NAME_PATTERN.exec(name);
+		if (!m) return { x: 0, y: 0 };
+		var x = m[1] === 'W' ? -Number(m[2]) - 1 : Number(m[2]);
+		var y = m[3] === 'N' ? -Number(m[4]) - 1 : Number(m[4]);
+		return { x: x, y: y };
+	}
+
+	// computeLayout: ported from frameRenderer.js (credit: src/render/frameRenderer.js)
+	function computeLayout(roomNames) {
+		var positions = roomNames.map(function (name) {
+			var xy = roomNameToXY(name);
+			return { name: name, x: xy.x, y: xy.y };
+		});
+		var minX = Math.min.apply(null, positions.map(function (p) { return p.x; }));
+		var minY = Math.min.apply(null, positions.map(function (p) { return p.y; }));
+		var offsets = {};
+		var columns = 1, rows = 1;
+		for (var i = 0; i < positions.length; i++) {
+			var p = positions[i];
+			var col = p.x - minX;
+			var row = p.y - minY;
+			offsets[p.name] = { col: col, row: row };
+			if (col + 1 > columns) columns = col + 1;
+			if (row + 1 > rows) rows = row + 1;
+		}
+		return { offsets: offsets, columns: columns, rows: rows };
+	}
+
+	function lerp(a, b, t) { return a + (b - a) * t; }
+
+	// ---- SVG element builder ----
+	function svgNS(tag, attrs) {
+		var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+		Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+		return el;
+	}
+
+	// ---- FakeRoomVisual -> SVG string (uses DojoSvgPrimitives) ----
+	function visualToSvgString(vis) {
+		return vis.elements.map(function (el) {
+			return DojoSvgPrimitives.elementToSvg(el);
+		}).join('');
+	}
+
+	// ---- Terrain SVG string for a room ----
+	function terrainHtml(rows) {
+		var parts = ['<rect x="0" y="0" width="50" height="50" fill="' + ROOM_BACKGROUND + '"/>'];
+		for (var y = 0; y < ROOM_TILES; y++) {
+			for (var x = 0; x < ROOM_TILES; x++) {
+				var ch = rows[y][x];
+				if (ch === '.') continue;
+				parts.push('<rect x="' + x + '" y="' + y + '" width="1" height="1" fill="'
+					+ (TILE_COLORS[ch] || ROOM_BACKGROUND) + '"/>');
+			}
+		}
+		var gridPath = '';
+		for (var i = 1; i < ROOM_TILES; i++) {
+			gridPath += 'M ' + i + ' 0 V 50 M 0 ' + i + ' H 50 ';
+		}
+		parts.push('<path class="dojo-grid" d="' + gridPath.trim()
+			+ '" stroke="#ffffff" stroke-width="0.02" opacity="0.07" fill="none"/>');
+		parts.push(exitArrowsHtml(rows));
+		return parts.join('');
+	}
+
+	// Outward chevrons on every walkable border tile so room exits read at a
+	// glance: left edge points left, right edge right, top up, bottom down.
+	function exitArrowsHtml(rows) {
+		var chevrons = [];
+		function chev(x1, y1, x2, y2, x3, y3) {
+			chevrons.push('<path d="M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2
+				+ ' L ' + x3 + ' ' + y3 + '"/>');
+		}
+		var last = ROOM_TILES - 1;
+		for (var i = 0; i < ROOM_TILES; i++) {
+			if (rows[i][0] !== '#') chev(0.4, i + 0.25, 0.1, i + 0.5, 0.4, i + 0.75);
+			if (rows[i][last] !== '#') chev(last + 0.6, i + 0.25, last + 0.9, i + 0.5, last + 0.6, i + 0.75);
+			if (rows[0][i] !== '#') chev(i + 0.25, 0.4, i + 0.5, 0.1, i + 0.75, 0.4);
+			if (rows[last][i] !== '#') chev(i + 0.25, last + 0.6, i + 0.5, last + 0.9, i + 0.75, last + 0.6);
+		}
+		if (!chevrons.length) return '';
+		return '<g class="dojo-exit" stroke="#9bd49b" stroke-width="0.08" opacity="0.5" fill="none">'
+			+ chevrons.join('') + '</g>';
+	}
+
+	// ---- Controller arc helper (same math style as DojoCreepSprite's arcs:
+	// angle 0 = top, degrees increase clockwise) ----
+	function ctrlPointOnCircle(cx, cy, radius, angleDeg) {
+		var rad = angleDeg * Math.PI / 180;
+		return { x: cx + Math.sin(rad) * radius, y: cy - Math.cos(rad) * radius };
+	}
+
+	function ctrlArcSvg(cx, cy, radius, startAngle, endAngle, color, width) {
+		if (Math.abs(endAngle - startAngle) <= 0.001) return '';
+		if (Math.abs(endAngle - startAngle) >= 359.999) {
+			return '<circle cx="' + cx + '" cy="' + cy + '" r="' + radius.toFixed(3)
+				+ '" fill="none" stroke="' + color + '" stroke-width="' + width.toFixed(3) + '"/>';
+		}
+		var start = ctrlPointOnCircle(cx, cy, radius, startAngle);
+		var end = ctrlPointOnCircle(cx, cy, radius, endAngle);
+		var largeArcFlag = Math.abs(endAngle - startAngle) > 180 ? 1 : 0;
+		return '<path d="M ' + start.x.toFixed(3) + ' ' + start.y.toFixed(3)
+			+ ' A ' + radius.toFixed(3) + ' ' + radius.toFixed(3) + ' 0 ' + largeArcFlag + ' 1 '
+			+ end.x.toFixed(3) + ' ' + end.y.toFixed(3)
+			+ '" fill="none" stroke="' + color + '" stroke-width="' + width.toFixed(3)
+			+ '" stroke-linecap="butt"/>';
+	}
+
+	// Controller: dark base + progress disc + rim arc (under creeps) and the
+	// white level number (drawn last, on top of creeps).
+	function controllerHtml(obj) {
+		// only skip the loader's (0,0) scaffold controller; draw real controllers
+		// at their true position even when neutral or reserved (no owner / level 0)
+		if (obj.x === 0 && obj.y === 0 && !obj.user && !(obj.level > 0)) return null;
+		var cx = obj.x + 0.5;
+		var cy = obj.y + 0.5;
+		var parts = [];
+		parts.push('<circle cx="' + cx + '" cy="' + cy
+			+ '" r="0.6" fill="#181818" stroke="#888888" stroke-width="0.05"/>');
+		var levels = window.CONTROLLER_LEVELS || {};
+		var required = levels[obj.level];
+		var fraction = required > 0
+			? Math.max(0, Math.min(1, (obj.progress || 0) / required)) : 0;
+		if (fraction > 0) {
+			parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="'
+				+ (0.45 * fraction).toFixed(3) + '" fill="#ffe25a" opacity="0.85"/>');
+			parts.push(ctrlArcSvg(cx, cy, 0.6, 0, fraction * 360, '#ffe25a', 0.08));
+		}
+		var top = '<text x="' + cx + '" y="' + (cy + 0.17)
+			+ '" font-size="0.5" fill="#ffffff" text-anchor="middle"'
+			+ ' font-family="DejaVu Sans">' + (obj.level || 0) + '</text>';
+		return { base: parts.join(''), top: top };
+	}
+
+	// Dropped resources: ground piles under creeps. The engine stores them as
+	// type 'energy' docs with the amount under the resourceType key (plain
+	// energy carries obj.energy). Pure energy reads yellow, anything else white.
+	function droppedResourceHtml(obj) {
+		var resourceType = obj.resourceType || 'energy';
+		var amount = typeof obj[resourceType] === 'number' ? obj[resourceType] : (obj.energy || 0);
+		var radius = 0.15 + 0.15 * Math.min(1, amount / 1000);
+		var color = resourceType === 'energy' ? '#FFE87B' : '#ffffff';
+		return '<g class="dojo-resource"><circle cx="' + (obj.x + 0.5) + '" cy="' + (obj.y + 0.5)
+			+ '" r="' + radius.toFixed(3) + '" fill="' + color + '" opacity="0.85"/></g>';
+	}
+
+	// Tombstones: small grey headstone (rounded top, flat base) with a dark
+	// cross. Renders under creeps like the other ground objects.
+	function tombstoneHtml(obj) {
+		var cx = obj.x + 0.5;
+		var cy = obj.y + 0.5;
+		var left = (cx - 0.25).toFixed(3);
+		var right = (cx + 0.25).toFixed(3);
+		var bottom = (cy + 0.3).toFixed(3);
+		var shoulder = (cy - 0.05).toFixed(3);
+		return '<g class="dojo-tombstone">'
+			+ '<path d="M ' + left + ' ' + bottom + ' L ' + left + ' ' + shoulder
+			+ ' A 0.25 0.25 0 0 1 ' + right + ' ' + shoulder
+			+ ' L ' + right + ' ' + bottom + ' Z" fill="#9a9a9a" stroke="#555555" stroke-width="0.04"/>'
+			+ '<path d="M ' + cx.toFixed(3) + ' ' + (cy - 0.18).toFixed(3) + ' V ' + (cy + 0.1).toFixed(3)
+			+ ' M ' + (cx - 0.09).toFixed(3) + ' ' + (cy - 0.08).toFixed(3) + ' H ' + (cx + 0.09).toFixed(3)
+			+ '" stroke="#444444" stroke-width="0.05" fill="none"/></g>';
+	}
+
+	// ---- Structures for a room ----
+	// Returns { html, topHtml }: html renders under creeps, topHtml (controller
+	// level numbers) renders after the creep/overlay layers.
+	function buildStructureHtml(baseFrame, roomName) {
+		var gameTime = baseFrame.gameTime;
+		var vis = new window.RoomVisual(roomName);
+		var STRUCT_TYPES = ['spawn', 'extension', 'tower', 'storage', 'terminal', 'link',
+			'lab', 'factory', 'observer', 'nuker', 'powerSpawn', 'container', 'road', 'rampart',
+			'constructedWall', 'invaderCore', 'keeperLair', 'extractor'];
+		var rawParts = [];
+		var topParts = [];
+		for (var i = 0; i < baseFrame.objects.length; i++) {
+			var obj = baseFrame.objects[i];
+			if (obj.room !== roomName || obj.type === 'creep') continue;
+			if (obj.type === 'flag') continue;
+			if (obj.type === 'source') {
+				// black base + yellow fill disc scaled by remaining energy
+				vis.circle(obj.x, obj.y, {
+					radius: 0.35, fill: '#0a0a0a',
+					stroke: '#333333', strokeWidth: 0.04
+				});
+				var cap = obj.energyCapacity;
+				var fillFraction = cap > 0
+					? Math.max(0, Math.min(1, (obj.energy || 0) / cap)) : 0;
+				if (fillFraction > 0) {
+					vis.circle(obj.x, obj.y, {
+						radius: 0.32 * fillFraction, fill: '#FFE87B', opacity: 0.95
+					});
+				}
+			} else if (obj.type === 'controller') {
+				var ctrl = controllerHtml(obj);
+				if (ctrl) {
+					rawParts.push(ctrl.base);
+					topParts.push(ctrl.top);
+				}
+			} else if (obj.type === 'mineral') {
+				vis.circle(obj.x, obj.y, { radius: 0.35, fill: '#ffffff', opacity: 0.6 });
+			} else if (obj.type === 'energy') {
+				rawParts.push(droppedResourceHtml(obj));
+			} else if (obj.type === 'tombstone') {
+				rawParts.push(tombstoneHtml(obj));
+			} else if (STRUCT_TYPES.indexOf(obj.type) !== -1) {
+				// Energy-fill cores: spawn/extension read store vs capacity,
+				// links are fixed 800. Omitted (no store data) -> classic look.
+				var structOpts;
+				if ((obj.type === 'spawn' || obj.type === 'extension')
+						&& obj.store && obj.storeCapacityResource
+						&& obj.storeCapacityResource.energy > 0) {
+					structOpts = { fillFraction: Math.max(0, Math.min(1,
+						(obj.store.energy || 0) / obj.storeCapacityResource.energy)) };
+				} else if (obj.type === 'link' && obj.store) {
+					structOpts = { fillFraction: Math.max(0, Math.min(1,
+						(obj.store.energy || 0) / 800)) };
+				}
+				vis.structure(obj.x, obj.y, obj.type, structOpts);
+				// Spawn progress: white clockwise arc from the top, sweep grows
+				// as the creep nears completion. The engine stores spawnTime
+				// (completion gameTime) and needTime (total ticks):
+				// fraction = 1 - (spawnTime - gameTime) / needTime.
+				if (obj.type === 'spawn' && obj.spawning
+						&& typeof obj.spawning.spawnTime === 'number'
+						&& obj.spawning.needTime > 0) {
+					var spawnFraction = Math.max(0, Math.min(1,
+						1 - (obj.spawning.spawnTime - gameTime) / obj.spawning.needTime));
+					if (spawnFraction > 0) {
+						rawParts.push('<g class="dojo-spawn-progress" opacity="0.85">'
+							+ ctrlArcSvg(obj.x + 0.5, obj.y + 0.5, 0.52, 0,
+								spawnFraction * 360, '#ffffff', 0.12)
+							+ '</g>');
+					}
+				}
+			}
+		}
+		vis.connectRoads();
+		return { html: visualToSvgString(vis) + rawParts.join(''), topHtml: topParts.join('') };
+	}
+
+	// ---- Flag rendering ----
+	function buildFlagsHtml(flags, roomName) {
+		var vis = new window.RoomVisual(roomName);
+		for (var i = 0; i < flags.length; i++) {
+			var flagDoc = flags[i];
+			if (flagDoc.room !== roomName) continue;
+			var entries = String(flagDoc.data || '').split('|').filter(Boolean);
+			for (var j = 0; j < entries.length; j++) {
+				var fields = entries[j].split('~');
+				var fx = Number(fields[3]), fy = Number(fields[4]);
+				vis.poly([[fx, fy + 0.3], [fx, fy - 0.5], [fx + 0.5, fy - 0.3], [fx, fy - 0.1]],
+					{ stroke: '#ffffff', strokeWidth: 0.08, fill: '#ff6666', opacity: 0.9 });
+				vis.text(fields[0], fx, fy + 0.85, { font: 0.4, color: '#ffffff', opacity: 0.8 });
+			}
+		}
+		return visualToSvgString(vis);
+	}
+
+	// ---- Creep drawing ----
+	function drawCreepHtml(creep, x, y, botUserId, opacity, facingAngle) {
+		var creepParts = [];
+		var overlay = new window.RoomVisual('');
+
+		// String(): old recordings may carry numeric user ids from un-normalized scenarios
+		if (NPC_USER_IDS.indexOf(String(creep.user)) !== -1) {
+			creepParts.push(invaderSvg(x, y, opacity, facingAngle));
+		} else {
+			var bodyCounts = DojoCreepSprite.countBodyParts(creep.body || []);
+			var innerColor = creep.user === botUserId ? '#5577ff' : '#ff5555';
+			// Ring design "faces" up; +90 points it along the facing heading
+			// (0 degrees = east) so the action arcs lead the way.
+			creepParts.push(DojoCreepSprite.generateCreepSvg(
+				x + 0.5, y + 0.5, CREEP_SIZE_TILES, bodyCounts, creep.store, opacity, innerColor,
+				creep.storeCapacity,
+				(facingAngle !== undefined ? facingAngle : 0) + 90));
+		}
+
+		if (creep.hits !== undefined && creep.hitsMax && creep.hits < creep.hitsMax) {
+			var fraction = Math.max(0, creep.hits / creep.hitsMax);
+			overlay.rect(x - 0.5, y - 0.85, 1.0, 0.15, { fill: '#555555', opacity: opacity });
+			overlay.rect(x - 0.5, y - 0.85, fraction, 0.15, { fill: '#65fd62', opacity: opacity });
+		}
+
+		if (creep.actionLog && creep.actionLog.say && creep.actionLog.say.message) {
+			overlay.speech(creep.actionLog.say.message, x, y, { textsize: 0.7, opacity: 0.95 });
+		}
+
+		return { creep: creepParts.join(''), overlay: visualToSvgString(overlay) };
+	}
+
+	// Spawning creeps: ring only, parked beneath the spawn graphic — no bob,
+	// no facing rotation, no HP bar / say overlay.
+	function drawSpawningCreepHtml(creep, botUserId) {
+		if (NPC_USER_IDS.indexOf(String(creep.user)) !== -1) {
+			return invaderSvg(creep.x, creep.y, 1, 0);
+		}
+		var bodyCounts = DojoCreepSprite.countBodyParts(creep.body || []);
+		var innerColor = creep.user === botUserId ? '#5577ff' : '#ff5555';
+		return DojoCreepSprite.generateCreepSvg(
+			creep.x + 0.5, creep.y + 0.5, CREEP_SIZE_TILES, bodyCounts, creep.store, 1, innerColor,
+			creep.storeCapacity);
+	}
+
+	// Animated beam: a faint guide line over the full span plus a bright pulse
+	// segment whose head travels from -> to as t advances (the tail trails by
+	// 0.18). Coordinates are tile coords (RoomVisual convention, +0.5 to SVG).
+	function beamHtml(fromX, fromY, toX, toY, color, width, t) {
+		var x1 = fromX + 0.5, y1 = fromY + 0.5;
+		var x2 = toX + 0.5, y2 = toY + 0.5;
+		var tail = Math.max(0, t - 0.18);
+		return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2
+			+ '" stroke="' + color + '" stroke-width="' + (width * 0.6).toFixed(3)
+			+ '" opacity="0.25" stroke-linecap="round"/>'
+			+ '<line x1="' + lerp(x1, x2, tail).toFixed(3) + '" y1="' + lerp(y1, y2, tail).toFixed(3)
+			+ '" x2="' + lerp(x1, x2, t).toFixed(3) + '" y2="' + lerp(y1, y2, t).toFixed(3)
+			+ '" stroke="' + color + '" stroke-width="' + width
+			+ '" opacity="0.9" stroke-linecap="round"/>';
+	}
+
+	// ---- Effect lines ----
+	// creep is the NEXT-frame object (its actionLog describes this transition);
+	// x/y is the drawn (lerped + bobbed) anchor; t is the interpolation phase
+	// driving the pulse animations.
+	function drawEffectsHtml(creep, x, y, t) {
+		var overlay = new window.RoomVisual('');
+		var beams = [];
+		var al = creep.actionLog || {};
+		if (al.attack) {
+			beams.push(beamHtml(x, y, al.attack.x, al.attack.y, '#ff4040', 0.15, t));
+			overlay.circle(al.attack.x, al.attack.y, {
+				radius: 0.5, fill: 'transparent',
+				stroke: '#ff4040', strokeWidth: 0.08, opacity: 0.8
+			});
+		}
+		if (al.rangedAttack) {
+			beams.push(beamHtml(x, y, al.rangedAttack.x, al.rangedAttack.y, '#5d80b2', 0.1, t));
+		}
+		if (al.upgradeController) {
+			beams.push(beamHtml(x, y, al.upgradeController.x, al.upgradeController.y, '#ffe25a', 0.12, t));
+			overlay.circle(al.upgradeController.x, al.upgradeController.y,
+				{ radius: 0.2, fill: '#ffe25a', opacity: 0.5 });
+		}
+		if (al.heal) {
+			if (al.heal.x === creep.x && al.heal.y === creep.y) {
+				// self-heal: pulsing glow on the creep instead of a beam
+				overlay.circle(x, y, {
+					radius: 0.55 + 0.1 * Math.sin(Math.PI * t), fill: 'transparent',
+					stroke: '#5cff6a', strokeWidth: 0.08,
+					opacity: 0.4 + 0.4 * Math.sin(Math.PI * t)
+				});
+			} else {
+				beams.push(beamHtml(x, y, al.heal.x, al.heal.y, '#65fd62', 0.1, t));
+			}
+		}
+		if (al.rangedHeal) {
+			beams.push(beamHtml(x, y, al.rangedHeal.x, al.rangedHeal.y, '#65fd62', 0.08, t));
+		}
+		if (al.rangedMassAttack) {
+			// expanding pulse ring (actionLog carries an empty {} marker)
+			overlay.circle(x, y, {
+				radius: Math.max(0.2, 3 * t), fill: 'transparent',
+				stroke: '#5d80b2', strokeWidth: 0.1, opacity: 0.8 * (1 - t)
+			});
+		}
+		return beams.join('') + visualToSvgString(overlay);
+	}
+
+	function indexById(objects) {
+		var byId = {};
+		for (var i = 0; i < objects.length; i++) byId[objects[i]._id] = objects[i];
+		return byId;
+	}
+
+	// ---- Build full SVG markup for a frame (with interpolation t in [0,1)) ----
+	function buildFrameSvg(recording, frameIndex, t) {
+		var roomNames = Object.keys(recording.terrain);
+		var layout = computeLayout(roomNames);
+		var scale = PIXELS_PER_ROOM / ROOM_TILES;
+		var totalW = layout.columns * PIXELS_PER_ROOM;
+		var totalH = layout.rows * PIXELS_PER_ROOM;
+
+		var baseFrame = recording.frames[frameIndex];
+		var nextFrame = recording.frames[frameIndex + 1] || null;
+		var nextById = nextFrame ? indexById(nextFrame.objects) : null;
+		var baseById = indexById(baseFrame.objects);
+		var botUserId = recording.meta.botUserId;
+
+		// Responsive: the element fills its container; the viewBox keeps the
+		// internal coordinate system. data-full-w/h carry the stitched pixel
+		// size for the zoom/pan code (the width attr is no longer a number).
+		var parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" '
+			+ 'preserveAspectRatio="xMidYMid meet" data-full-w="' + totalW + '" data-full-h="'
+			+ totalH + '" viewBox="0 0 ' + totalW + ' ' + totalH + '">'];
+
+		for (var ri = 0; ri < roomNames.length; ri++) {
+			var roomName = roomNames[ri];
+			var offset = layout.offsets[roomName];
+			var tx = offset.col * PIXELS_PER_ROOM;
+			var ty = offset.row * PIXELS_PER_ROOM;
+
+			parts.push('<g transform="translate(' + tx + ',' + ty + ') scale(' + scale + ')">');
+
+			// Terrain
+			parts.push(terrainHtml(recording.terrain[roomName]));
+
+			// Spawning creeps render beneath the structure layer so they peek
+			// out from under the spawn graphic while it builds them.
+			var spawningParts = [];
+			for (var spi = 0; spi < baseFrame.objects.length; spi++) {
+				var spObj = baseFrame.objects[spi];
+				if (spObj.room !== roomName || spObj.type !== 'creep' || !spObj.spawning) continue;
+				spawningParts.push(drawSpawningCreepHtml(spObj, botUserId));
+			}
+			if (spawningParts.length) {
+				parts.push('<g class="dojo-spawning">' + spawningParts.join('') + '</g>');
+			}
+
+			// Structures (positions are static; source energy / controller
+			// progress read from the current frame's objects)
+			var structureHtml = buildStructureHtml(baseFrame, roomName);
+			parts.push(structureHtml.html);
+
+			// Flags
+			var flagsHtml = buildFlagsHtml(baseFrame.flags || [], roomName);
+			parts.push(flagsHtml);
+
+			// Creeps
+			var creepParts = [];
+			var overlayParts = [];
+
+			for (var oi = 0; oi < baseFrame.objects.length; oi++) {
+				var obj = baseFrame.objects[oi];
+				if (obj.room !== roomName || obj.type !== 'creep') continue;
+				if (obj.spawning) continue; // drawn beneath the spawn already
+				var next = nextById ? nextById[obj._id] : null;
+				// Cross-room transition: express next's position in the BASE
+				// room's local space so the creep lerps across the seam (SVG
+				// groups don't clip, so out-of-range coords draw fine). If the
+				// destination room isn't rendered, fall back to the death fade.
+				var nextLocal = null;
+				if (next) {
+					if (next.room === obj.room) {
+						nextLocal = { x: next.x, y: next.y };
+					} else if (layout.offsets[next.room]) {
+						nextLocal = {
+							x: next.x + (layout.offsets[next.room].col - offset.col) * ROOM_TILES,
+							y: next.y + (layout.offsets[next.room].row - offset.row) * ROOM_TILES
+						};
+					}
+				}
+				var cx, cy, drawn;
+				if (nextLocal) {
+					cx = lerp(obj.x, nextLocal.x, t);
+					cy = lerp(obj.y, nextLocal.y, t);
+					// Work bob: when the upcoming tick harvests or attacks an
+					// adjacent target, nudge the whole creep (sprite, HP bar,
+					// say, effect anchors) toward it. Direction comes from the
+					// next-frame pose since the actionLog belongs to that tick.
+					var nal = next.actionLog || {};
+					var bobTarget = (nal.harvest && typeof nal.harvest.x === 'number') ? nal.harvest
+						: (nal.attack && typeof nal.attack.x === 'number') ? nal.attack : null;
+					if (bobTarget) {
+						var bdx = bobTarget.x - next.x;
+						var bdy = bobTarget.y - next.y;
+						var bdist = Math.sqrt(bdx * bdx + bdy * bdy);
+						if (bdist > 0) {
+							var bob = 0.15 * Math.sin(Math.PI * t);
+							cx += (bdx / bdist) * bob;
+							cy += (bdy / bdist) * bob;
+						}
+					}
+					// HP/say from BASE frame; effects from next
+					drawn = drawCreepHtml(obj, cx, cy, botUserId, 1,
+						creepFacing(recording, layout, frameIndex, obj._id));
+					creepParts.push(drawn.creep);
+					overlayParts.push(drawn.overlay);
+					overlayParts.push(drawEffectsHtml(next, cx, cy, t));
+				} else if (nextFrame) {
+					// death fade (also: walked into a room outside the layout)
+					drawn = drawCreepHtml(obj, obj.x, obj.y, botUserId, 1 - t,
+						creepFacing(recording, layout, frameIndex, obj._id));
+					creepParts.push(drawn.creep);
+					overlayParts.push(drawn.overlay);
+				} else {
+					drawn = drawCreepHtml(obj, obj.x, obj.y, botUserId, 1,
+						creepFacing(recording, layout, frameIndex, obj._id));
+					creepParts.push(drawn.creep);
+					overlayParts.push(drawn.overlay);
+				}
+			}
+
+			// Spawn fade-in (creeps that appear in next frame only; ones still
+			// inside a spawn join the under-structure layer next frame instead)
+			if (nextFrame) {
+				for (var ni = 0; ni < nextFrame.objects.length; ni++) {
+					var nobj = nextFrame.objects[ni];
+					if (nobj.room !== roomName || nobj.type !== 'creep'
+						|| nobj.spawning || baseById[nobj._id]) continue;
+					var spawned = drawCreepHtml(nobj, nobj.x, nobj.y, botUserId, t,
+						creepFacing(recording, layout, frameIndex + 1, nobj._id));
+					creepParts.push(spawned.creep);
+					overlayParts.push(spawned.overlay);
+				}
+			}
+
+			// Link energy beams: structure actionLog rides the next frame,
+			// same convention as creep effects.
+			if (nextFrame) {
+				for (var li = 0; li < nextFrame.objects.length; li++) {
+					var lobj = nextFrame.objects[li];
+					if (lobj.room !== roomName || lobj.type !== 'link') continue;
+					var lal = lobj.actionLog || {};
+					if (lal.transferEnergy && typeof lal.transferEnergy.x === 'number'
+							&& typeof lal.transferEnergy.y === 'number') {
+						overlayParts.push(beamHtml(lobj.x, lobj.y,
+							lal.transferEnergy.x, lal.transferEnergy.y, '#ffe25a', 0.12, t));
+					}
+				}
+			}
+
+			parts.push(creepParts.join(''));
+			parts.push(overlayParts.join(''));
+			// Controller level numbers render last so creeps never cover them
+			parts.push(structureHtml.topHtml);
+			parts.push('</g>');
+		}
+
+		parts.push('</svg>');
+		return parts.join('');
+	}
+
+	// ---- State ----
+	var replayState = {
+		recording: null,
+		frameIndex: 0,
+		playing: false,
+		speed: 1,
+		animStart: null,    // performance.now() when this tick animation started
+		animT: 0,           // current interpolation t [0,1)
+		holdTimer: null,
+		rafId: null,
+		viewBox: null,      // {x, y, w, h} zoom/pan state; null = full view
+		fullW: 0,           // rendered SVG width (all stitched rooms)
+		fullH: 0
+	};
+
+	// ---- DOM refs ----
+	var dropZone = document.getElementById('replay-drop-zone');
+	var svgWrap = document.getElementById('replay-svg-wrap');
+	var slider = document.getElementById('replay-slider');
+	var tickLabel = document.getElementById('replay-tick-label');
+	var playBtn = document.getElementById('replay-play-btn');
+	var speedSelect = document.getElementById('replay-speed-select');
+	var endReasonSpan = document.getElementById('replay-end-reason');
+	var metaDiv = document.getElementById('replay-meta');
+	var hitsDiv = document.getElementById('replay-creep-hits');
+	var loadError = document.getElementById('replay-load-error');
+	var fileInput = document.getElementById('replay-file-input');
+	var replayPane = document.getElementById('replay-pane');
+
+	// ---- Zoom/pan: viewBox state persisted across re-renders ----
+	// Per-frame re-renders replace the SVG node, so the stored viewBox must be
+	// reapplied after every render for zoom/pan to survive playback/scrubbing.
+	var ZOOM_FACTOR = 1.15;
+	var ZOOM_MIN = 0.5;   // can zoom out to half the full view scale
+	var ZOOM_MAX = 20;
+
+	function applyViewBox() {
+		var svgEl = svgWrap.querySelector('svg');
+		if (!svgEl) return;
+		// width/height attrs are "100%" now; the stitched pixel size travels
+		// in data attributes set by buildFrameSvg.
+		replayState.fullW = Number(svgEl.getAttribute('data-full-w'));
+		replayState.fullH = Number(svgEl.getAttribute('data-full-h'));
+		if (!replayState.viewBox) {
+			replayState.viewBox = { x: 0, y: 0, w: replayState.fullW, h: replayState.fullH };
+		}
+		var vb = replayState.viewBox;
+		svgEl.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+	}
+
+	// The svg element is responsive (100% x 100%, preserveAspectRatio
+	// "xMidYMid meet"), so the viewBox maps onto a letterboxed sub-rect of the
+	// client rect — 1 CSS px is NOT 1 viewBox unit. These helpers do the
+	// conversion against the CURRENT viewBox.
+	function viewBoxScale(rect, vb) {
+		// CSS pixels per viewBox unit under "meet" fitting
+		return Math.min(rect.width / vb.w, rect.height / vb.h);
+	}
+
+	function clientToViewBox(rect, vb, clientX, clientY) {
+		var s = viewBoxScale(rect, vb);
+		var contentLeft = rect.left + (rect.width - vb.w * s) / 2;
+		var contentTop = rect.top + (rect.height - vb.h * s) / 2;
+		return {
+			x: vb.x + (clientX - contentLeft) / s,
+			y: vb.y + (clientY - contentTop) / s
+		};
+	}
+
+	function resetView() {
+		replayState.viewBox = null;
+		applyViewBox();
+	}
+
+	// ---- Render current frame to DOM ----
+	function renderFrame(t) {
+		if (!replayState.recording) return;
+		var svgMarkup = buildFrameSvg(replayState.recording, replayState.frameIndex, t || 0);
+		svgWrap.innerHTML = svgMarkup;
+		applyViewBox();
+		var gameTime = replayState.recording.frames[replayState.frameIndex].gameTime;
+		tickLabel.textContent = 'tick ' + gameTime;
+		slider.value = replayState.frameIndex;
+		updateHitsReadout();
+	}
+
+	function updateHitsReadout() {
+		if (!replayState.recording) return;
+		var frame = replayState.recording.frames[replayState.frameIndex];
+		var creeps = frame.objects.filter(function (o) { return o.type === 'creep'; });
+		var html = '';
+		creeps.forEach(function (c) {
+			var label = c.name || c._id.slice(-6);
+			html += '<div class="replay-creep-row">' + label + ': '
+				+ c.hits + '/' + c.hitsMax + '</div>';
+		});
+		hitsDiv.innerHTML = html;
+	}
+
+	// ---- Load recording ----
+	function loadRecording(json) {
+		try {
+			var rec = typeof json === 'string' ? JSON.parse(json) : json;
+			if (!rec.meta || !rec.terrain || !rec.frames || !rec.frames.length) {
+				throw new Error('invalid recording: missing meta/terrain/frames');
+			}
+			replayState.recording = rec;
+			replayState.frameIndex = 0;
+			replayState.playing = false;
+			replayState.viewBox = null; // reset zoom/pan for the new recording
+			stopPlayback();
+
+			slider.min = 0;
+			slider.max = rec.frames.length - 1;
+			slider.value = 0;
+
+			var m = rec.meta;
+			metaDiv.innerHTML = 'scenario: ' + (m.scenario || '?')
+				+ '<br>ticks: ' + (m.ticks || '?')
+				+ '<br>rooms: ' + Object.keys(rec.terrain).join(', ');
+			endReasonSpan.textContent = m.endReason || '';
+			loadError.textContent = '';
+
+			dropZone.classList.add('hidden');
+			svgWrap.classList.add('visible');
+			playBtn.textContent = '▶ Play';
+
+			renderFrame(0);
+		} catch (err) {
+			loadError.textContent = 'Error: ' + err.message;
+		}
+	}
+
+	// Expose for test/automation
+	window.dojoViewerLoad = loadRecording;
+
+	// ---- Playback ----
+	var TICK_ANIM_MS = 800;  // 0.8s interpolation per tick
+	var HOLD_MS = 200;       // 0.2s hold at the end of each tick
+
+	function stopPlayback() {
+		if (replayState.rafId !== null) {
+			cancelAnimationFrame(replayState.rafId);
+			replayState.rafId = null;
+		}
+		if (replayState.holdTimer !== null) {
+			clearTimeout(replayState.holdTimer);
+			replayState.holdTimer = null;
+		}
+		replayState.playing = false;
+		playBtn.textContent = '▶ Play';
+	}
+
+	function advanceToNextTick() {
+		var rec = replayState.recording;
+		if (!rec) { stopPlayback(); return; }
+		replayState.frameIndex++;
+		if (replayState.frameIndex >= rec.frames.length) {
+			replayState.frameIndex = rec.frames.length - 1;
+			stopPlayback();
+			renderFrame(0);
+			return;
+		}
+		renderFrame(0);
+		startTickAnimation();
+	}
+
+	function startTickAnimation() {
+		var speed = replayState.speed;
+		var animDuration = TICK_ANIM_MS / speed;
+		var holdDuration = HOLD_MS / speed;
+		replayState.animStart = performance.now();
+
+		function rafLoop(now) {
+			if (!replayState.playing) return;
+			var elapsed = now - replayState.animStart;
+			var t = Math.min(elapsed / animDuration, 1);
+			renderFrame(t);
+			if (t < 1) {
+				replayState.rafId = requestAnimationFrame(rafLoop);
+			} else {
+				replayState.rafId = null;
+				// Hold at t=1 then advance
+				replayState.holdTimer = setTimeout(advanceToNextTick, holdDuration);
+			}
+		}
+		replayState.rafId = requestAnimationFrame(rafLoop);
+	}
+
+	function togglePlayback() {
+		if (!replayState.recording) return;
+		if (replayState.playing) {
+			stopPlayback();
+		} else {
+			// If at last frame, restart
+			if (replayState.frameIndex >= replayState.recording.frames.length - 1) {
+				replayState.frameIndex = 0;
+				renderFrame(0);
+			}
+			replayState.playing = true;
+			playBtn.textContent = '⏸ Pause';
+			startTickAnimation();
+		}
+	}
+
+	// ---- UI wiring ----
+	playBtn.addEventListener('click', togglePlayback);
+
+	speedSelect.addEventListener('change', function () {
+		replayState.speed = Number(speedSelect.value);
+	});
+
+	slider.addEventListener('input', function () {
+		stopPlayback();
+		replayState.frameIndex = Number(slider.value);
+		renderFrame(0);
+	});
+
+	// ---- Zoom (wheel) + pan (left-drag) on the replay SVG container only ----
+	svgWrap.addEventListener('wheel', function (e) {
+		if (!replayState.viewBox) return;
+		e.preventDefault(); // keep the page from scrolling
+		var svgEl = svgWrap.querySelector('svg');
+		if (!svgEl) return;
+		var rect = svgEl.getBoundingClientRect();
+		if (!rect.width || !rect.height) return;
+		var vb = replayState.viewBox;
+		// Point under the cursor in viewBox coordinates: it must stay put.
+		var cursor = clientToViewBox(rect, vb, e.clientX, e.clientY);
+		var px = cursor.x;
+		var py = cursor.y;
+		var factor = e.deltaY < 0 ? 1 / ZOOM_FACTOR : ZOOM_FACTOR; // wheel up = zoom in
+		var newW = vb.w * factor;
+		var minW = replayState.fullW / ZOOM_MAX;
+		var maxW = replayState.fullW / ZOOM_MIN;
+		newW = Math.max(minW, Math.min(maxW, newW));
+		var newH = newW * (vb.h / vb.w);
+		vb.x = px - (px - vb.x) * (newW / vb.w);
+		vb.y = py - (py - vb.y) * (newH / vb.h);
+		vb.w = newW;
+		vb.h = newH;
+		applyViewBox();
+	}, { passive: false });
+
+	var panDrag = null;
+	svgWrap.addEventListener('mousedown', function (e) {
+		if (e.button !== 0 || !replayState.viewBox) return;
+		var svgEl = svgWrap.querySelector('svg');
+		if (!svgEl) return;
+		var rect = svgEl.getBoundingClientRect();
+		if (!rect.width || !rect.height) return;
+		e.preventDefault();
+		// viewBox units per CSS pixel: uniform under "meet" fitting, so one
+		// value covers both axes (letterboxing means rect ratios would be wrong)
+		var unit = 1 / viewBoxScale(rect, replayState.viewBox);
+		panDrag = {
+			startX: e.clientX,
+			startY: e.clientY,
+			vbX: replayState.viewBox.x,
+			vbY: replayState.viewBox.y,
+			unitX: unit,
+			unitY: unit
+		};
+		svgWrap.classList.add('panning');
+	});
+	window.addEventListener('mousemove', function (e) {
+		if (!panDrag) return;
+		replayState.viewBox.x = panDrag.vbX - (e.clientX - panDrag.startX) * panDrag.unitX;
+		replayState.viewBox.y = panDrag.vbY - (e.clientY - panDrag.startY) * panDrag.unitY;
+		applyViewBox();
+	});
+	window.addEventListener('mouseup', function () {
+		if (!panDrag) return;
+		panDrag = null;
+		svgWrap.classList.remove('panning');
+	});
+
+	svgWrap.addEventListener('dblclick', resetView);
+	document.getElementById('replay-reset-view-btn').addEventListener('click', resetView);
+
+	// File input
+	fileInput.addEventListener('change', function (e) {
+		var file = e.target.files[0];
+		if (!file) return;
+		var reader = new FileReader();
+		reader.onload = function (ev) { loadRecording(ev.target.result); };
+		reader.readAsText(file);
+	});
+
+	// Drag-drop
+	replayPane.addEventListener('dragover', function (e) {
+		e.preventDefault();
+		dropZone.classList.add('drag-over');
+	});
+	replayPane.addEventListener('dragleave', function () {
+		dropZone.classList.remove('drag-over');
+	});
+	replayPane.addEventListener('drop', function (e) {
+		e.preventDefault();
+		dropZone.classList.remove('drag-over');
+		var file = e.dataTransfer.files[0];
+		if (!file) return;
+		var reader = new FileReader();
+		reader.onload = function (ev) { loadRecording(ev.target.result); };
+		reader.readAsText(file);
+	});
+
+	// Click on drop zone triggers file picker
+	dropZone.addEventListener('click', function () {
+		fileInput.click();
+	});
+
+})();
+</script>
+</body>
+</html>

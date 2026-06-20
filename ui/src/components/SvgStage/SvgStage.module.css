@@ -1,0 +1,8 @@
+.stage { flex: 1; min-height: 0; min-width: 0; position: relative; overflow: hidden; background: #0e0e0e; cursor: grab; }
+.stage:active { cursor: grabbing; }
+.world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.base { position: absolute; top: 0; left: 0; }
+.base :global(svg) { display: block; }
+.overlay { position: absolute; top: 0; left: 0; }
+.empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.hint { position: absolute; bottom: 6px; right: 8px; color: var(--muted); font-size: 10px; opacity: 0.5; pointer-events: none; }

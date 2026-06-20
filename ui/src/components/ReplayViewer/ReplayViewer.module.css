@@ -1,0 +1,18 @@
+.viewer { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line2); }
+.scenario { color: var(--text); }
+.pass { color: var(--accent); font-size: 11px; border: 1px solid var(--accent); border-radius: 8px; padding: 0 7px; }
+.fail { color: var(--hostile); font-size: 11px; border: 1px solid var(--hostile); border-radius: 8px; padding: 0 7px; }
+.dim { color: var(--muted); font-size: 11px; }
+.spacer { margin-left: auto; }
+.btn { background: var(--panel2); border: 1px solid var(--line2); color: var(--text-dim); border-radius: var(--radius); padding: 3px 9px; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.toggleOn { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 9px; }
+.render { padding: 4px 10px; color: var(--accent); font-size: 11px; background: var(--accent-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
+.loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.scrub { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line2); }
+.play { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 12px; }
+.range { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.tickLabel { color: var(--accent); font-size: 12px; min-width: 100px; }
+.speed { background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 2px 5px; }

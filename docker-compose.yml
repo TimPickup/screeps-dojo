@@ -1,0 +1,31 @@
+services:
+  dojo:
+    build: .
+    working_dir: /dojo
+    volumes:
+      - .:/dojo
+      - dojo_node_modules:/dojo/node_modules
+      - ${DOJO_BOT_PATH}:/bot:ro
+    environment:
+      - DOJO_BOT_DIR=/bot
+
+  # GUI control-plane server. Same image/volumes as dojo. The server binds
+  # 0.0.0.0 inside the container; the port is published only to the HOST
+  # loopback (127.0.0.1) so the UI — which can edit .env and holds a live
+  # Screeps token — is never exposed on the network.
+  ui:
+    build: .
+    working_dir: /dojo
+    command: node scripts/serve.js
+    volumes:
+      - .:/dojo
+      - dojo_node_modules:/dojo/node_modules
+      - ${DOJO_BOT_PATH}:/bot:ro
+    environment:
+      - DOJO_BOT_DIR=/bot
+      - DOJO_UI_PORT=${DOJO_UI_PORT:-8787}
+    ports:
+      - "127.0.0.1:${DOJO_UI_PORT:-8787}:${DOJO_UI_PORT:-8787}"
+
+volumes:
+  dojo_node_modules:

@@ -1,0 +1,15 @@
+.test { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--line2); }
+.run { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 4px 14px; }
+.run:disabled { opacity: 0.5; }
+.dim { color: var(--muted); font-size: 12px; }
+.output { flex: 1; overflow: auto; padding: 12px; font-size: 13px; line-height: 1.7; }
+.line { color: var(--text-dim); }
+.lineErr { color: var(--hostile); white-space: pre-wrap; }
+.verdict { margin-top: 12px; font-size: 16px; }
+.pass { color: var(--accent); }
+.fail { color: var(--hostile); }
+.neutral { color: var(--muted); }
+.consoleBlock { margin-top: 16px; border-top: 1px solid var(--line2); padding-top: 8px; }
+.consoleHead { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px; }
+.cline { color: var(--text-dim); white-space: pre-wrap; font-size: 12px; }

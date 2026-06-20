@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 50" role="img" aria-label="Red five-sided shape with black outline">
+  <polygon
+    points="24,4 8,12 8,38 24,46 56,25"
+    fill="#e51f36"
+    stroke="#120006"
+    stroke-width="8"
+    stroke-linejoin="miter"
+    stroke-miterlimit="6"
+    paint-order="stroke fill"
+  />
+</svg>

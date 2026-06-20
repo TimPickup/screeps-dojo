@@ -1,0 +1,23 @@
+.placeholder { padding: 24px; color: var(--muted); }
+.wrap { display: flex; flex: 1; min-height: 0; }
+.list { width: 230px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; background: var(--panel); }
+.row { width: 100%; text-align: left; background: var(--panel2); border: 1px solid var(--line2); border-radius: var(--radius); padding: 6px 8px; margin-bottom: 5px; color: var(--text-dim); }
+.row:hover { border-color: var(--accent); }
+.rowSel { border-color: var(--accent); background: var(--accent-dim); }
+.badgePass { color: var(--accent); font-size: 11px; }
+.badgeFail { color: var(--hostile); font-size: 11px; }
+.meta { color: var(--muted); font-size: 11px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.viewerWrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line2); }
+.btn { background: var(--panel2); border: 1px solid var(--line2); color: var(--text-dim); border-radius: var(--radius); padding: 3px 9px; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.toggleOn { border-color: var(--accent); color: var(--accent); }
+.spacer { margin-left: auto; }
+.canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
+.scrub { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line2); }
+.range { flex: 1; accent-color: var(--accent); }
+.tickLabel { color: var(--accent); font-size: 12px; min-width: 90px; }
+.empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.insp .k { color: var(--muted); }
+.insp div { margin-bottom: 2px; }

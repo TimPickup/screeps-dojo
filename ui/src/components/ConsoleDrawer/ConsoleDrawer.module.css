@@ -1,0 +1,16 @@
+.drawer { border-top: 1px solid var(--line); background: var(--panel); position: relative; }
+.resizer { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.resizer:hover { background: var(--accent-dim); }
+.titlebar { display: flex; align-items: center; gap: 8px; padding: 5px 10px; cursor: pointer; user-select: none; }
+.titlebar:hover { background: #1a1a1a; }
+.caret { color: var(--accent); }
+.title { color: var(--text-dim); }
+.count { color: var(--muted); font-size: 11px; }
+.hint { margin-left: auto; color: var(--muted); font-size: 11px; }
+.body { display: flex; min-height: 0; }
+.console { flex: 1; overflow: auto; padding: 6px 10px; background: var(--bg2); font-size: 12px; line-height: 1.5; }
+.line { white-space: pre-wrap; word-break: break-word; color: var(--text-dim); }
+.empty { color: var(--muted); }
+.right { width: 220px; flex: none; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.rightTitle { padding: 5px 8px; color: var(--accent); border-bottom: 1px solid var(--line2); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.rightBody { flex: 1; overflow: auto; padding: 8px; font-size: 12px; }

@@ -1,0 +1,12 @@
+.app { display: flex; flex-direction: column; height: 100%; }
+.header { display: flex; align-items: center; gap: 14px; background: #111; border-bottom: 1px solid var(--line); padding: 8px 14px; }
+.brand { color: var(--accent); font-weight: bold; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 8px; }
+.logo { height: 26px; width: 26px; object-fit: contain; display: block; }
+.version { color: var(--muted); font-size: 11px; font-weight: normal; letter-spacing: 0; }
+.back { background: transparent; border: 1px solid var(--line); color: var(--text-dim); padding: 3px 10px; border-radius: var(--radius); }
+.back:hover { background: #1d1d1d; color: var(--text); }
+.spacer { margin-left: auto; }
+.cog { background: transparent; border: none; color: var(--muted); font-size: 18px; }
+.cog:hover { color: var(--accent); }
+.main { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.error { color: var(--hostile); padding: 8px 12px; }

@@ -1,0 +1,17 @@
+node_modules/
+.env
+.noratelimit.url
+/server/
+*.log
+recordings/
+.tmp/
+.playwright-mcp/
+.superpowers/
+
+# scenarios/ is your private workspace — author scenarios here, never committed.
+# (The directory itself is kept via .gitkeep; see examples/ for a template.)
+scenarios/*
+!scenarios/.gitkeep
+
+# Private dev planning docs — kept local, never published.
+docs/superpowers/
