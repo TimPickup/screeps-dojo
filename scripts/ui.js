@@ -38,12 +38,11 @@ if (run('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 	fail('Docker is installed but not running. Start Docker Desktop and retry.');
 }
 
-// 2. image built? compose project images are named <project>-dojo / <project>-ui.
-const images = out('docker', ['images', '--format', '{{.Repository}}']);
-if (!/-(dojo|ui)\b/.test(images) && images.indexOf('dojo') === -1) {
-	console.log('[dojo-ui] building the container image (first time only)…');
-	if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
-}
+// 2. Build the images (BOTH services, so neither ships a stale/un-baked
+// node_modules). docker compose build is cached and fast once nothing has
+// changed; the first build bakes the toolchain in and takes a few minutes.
+console.log('[dojo-ui] building the container image (first run takes a few minutes; cached afterwards)…');
+if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
 
 // 3. frontend built?
 if (!fs.existsSync(path.join(ROOT, 'ui', 'dist', 'index.html'))) {

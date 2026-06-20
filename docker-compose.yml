@@ -4,8 +4,15 @@ services:
     working_dir: /dojo
     volumes:
       - .:/dojo
-      - dojo_node_modules:/dojo/node_modules
-      - ${DOJO_BOT_PATH}:/bot:ro
+      # anonymous volume: keeps the image's baked node_modules over the bind
+      # mount, re-seeded from the image on every fresh container. (A NAMED volume,
+      # once created, is never re-initialised from the image — so a single failed
+      # run could leave it empty and force a slow runtime reinstall.)
+      - /dojo/node_modules
+      # bot path is optional — defaults to the project dir so the example
+      # scenarios (local main.js) run with no .env at all. Set DOJO_BOT_PATH to
+      # mount your real bot code read-only at /bot.
+      - ${DOJO_BOT_PATH:-.}:/bot:ro
     environment:
       - DOJO_BOT_DIR=/bot
 
@@ -19,13 +26,10 @@ services:
     command: node scripts/serve.js
     volumes:
       - .:/dojo
-      - dojo_node_modules:/dojo/node_modules
-      - ${DOJO_BOT_PATH}:/bot:ro
+      - /dojo/node_modules
+      - ${DOJO_BOT_PATH:-.}:/bot:ro
     environment:
       - DOJO_BOT_DIR=/bot
       - DOJO_UI_PORT=${DOJO_UI_PORT:-8787}
     ports:
       - "127.0.0.1:${DOJO_UI_PORT:-8787}:${DOJO_UI_PORT:-8787}"
-
-volumes:
-  dojo_node_modules:
