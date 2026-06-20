@@ -11,16 +11,16 @@ one-command browser UI or the CLI.
 Requirements: **Docker Desktop** (running) and **Node** (any recent version —
 only used to invoke npm scripts).
 
-1. `copy .env.example .env` (PowerShell: `Copy-Item .env.example .env`) and set
-   `DOJO_BOT_PATH` to your bot's script folder (flat `.js` modules; mounted
-   read-only into the container). Don't have a bot yet? Leave it — you can still
-   create and run example scenarios.
-2. `npm run ui`
+    npm run ui
 
-That's it. The first run builds the container image and installs the server
-toolchain **for you**, streaming progress to a welcome screen in the browser
-(it keeps running even if you close the tab). When it's ready it opens
+That's it — **no `.env` needed to start**. The first run builds the container
+image (the engine toolchain is baked in, so there's no separate install step —
+the build takes a few minutes; it's cached afterwards), then opens
 `http://localhost:8787`.
+
+To run your own bot instead of the bundled examples, copy `.env.example` to
+`.env` (PowerShell: `Copy-Item .env.example .env`) and set `DOJO_BOT_PATH` to
+your bot's script folder (flat `.js` modules, mounted read-only at `/bot`).
 
 From the UI you can:
 
