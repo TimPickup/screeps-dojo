@@ -44,7 +44,12 @@ function roomToMap(input) {
 		const tag = object.user ? classifyOwner(object.user) : 'neutral';
 
 		if (object.type === 'controller') {
-			map.controller = { x: object.x, y: object.y, level: object.level || 0 };
+			// Preserve ownership: without it an owned base imports UNCLAIMED (RCL 0)
+			// and every structure — spawns included — goes inactive. Uses the same
+			// owner classifier as structures/creeps (me/invader/sourceKeeper).
+			const controller = { x: object.x, y: object.y, level: object.level || 0 };
+			if (object.user && OWNER_TAGS[tag]) controller.owner = OWNER_TAGS[tag];
+			map.controller = controller;
 			continue;
 		}
 		if (object.type === 'source') {
