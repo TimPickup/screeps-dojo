@@ -69,7 +69,7 @@ export function RunTab({ scenario }: { scenario: string }) {
       {stream.ended && stream.recordingPath && (
         <div className={styles.recnote}>recording saved — see the <b>Replays</b> tab</div>
       )}
-      <ConsoleDrawer lines={stream.console} rightPanel={<ObjectInspector obj={selectedObj} />} rightTitle="Inspector" />
+      <ConsoleDrawer lines={stream.console} rightPanel={<ObjectInspector obj={selectedObj} gameTime={stream.lastFrame?.gameTime} />} rightTitle="Inspector" />
     </div>
   );
 }
