@@ -8,6 +8,11 @@ const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = 
 const BODY_PART_HITS = 100;
 const CARRY_CAPACITY = 50;
 const NPC_USER_IDS = { invader: '2', sourceKeeper: '3' };
+// Ticks after load until a keeper lair (loaded without an explicit
+// nextSpawnTime) produces its FIRST source keeper. The engine's own default is
+// ENERGY_REGEN_TIME (300) — far too long for a combat sandbox; respawn after a
+// keeper dies still follows the engine's normal 300-tick cycle.
+const KEEPER_FIRST_SPAWN_DELAY = 5;
 
 // Engine-required fields for objects defined in a map's structures[] array
 // (the editor exports sources/spawns/etc. that way). Without these the engine
@@ -71,7 +76,28 @@ class DojoWorld {
 	}
 
 	async tick() {
+		await this.activateNpcRooms();
 		await this.server.tick();
+	}
+
+	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set,
+	// which is filled from player intents (and a room's own prior-tick activity).
+	// NPC rooms — source-keeper lairs, invader cores — carry no player intents,
+	// so without a nudge the engine never simulates them: keeper lairs never tick
+	// (nextSpawnTime stays null forever) and no source keepers / invaders spawn.
+	// The real backend keeps such rooms permanently active; we mirror that by
+	// re-seeding every room that holds a keeper lair, an invader core, or any
+	// NPC-owned (user '2'/'3') object back into ACTIVE_ROOMS before each tick.
+	// ACTIVE_ROOMS is drained as the processor reads it, so this must run every
+	// tick, before server.tick().
+	async activateNpcRooms() {
+		const { db, env } = await this.world.load();
+		const npcObjects = await db['rooms.objects'].find({
+			$or: [{ type: 'keeperLair' }, { type: 'invaderCore' }, { user: '2' }, { user: '3' }]
+		});
+		const rooms = new Set();
+		for (const object of npcObjects) if (object.room) rooms.add(object.room);
+		for (const room of rooms) await env.sadd(env.keys.ACTIVE_ROOMS, room);
 	}
 
 	// --- world building -------------------------------------------------
@@ -281,6 +307,9 @@ class DojoWorld {
 	async placeMapObjects(maps) {
 		// addBot already created Spawn1; map-defined spawns get Spawn2, Spawn3...
 		let spawnIndex = 2;
+		// Absolute tick at which keeper lairs without an explicit nextSpawnTime
+		// fire their first keeper (see the keeperLair handling below).
+		const firstKeeperSpawn = (await this.world.gameTime) + KEEPER_FIRST_SPAWN_DELAY;
 		for (const map of maps) {
 			for (const structure of map.structures || []) {
 				// controllers were placed in createRoomsFromMaps (addBot needs
@@ -305,6 +334,14 @@ class DojoWorld {
 				// whose endTime is a far-future season tick — in the sim that leaves the
 				// core permanently invulnerable. Clear them so it can be attacked.
 				if (structure.type === 'invaderCore') attributes.effects = [];
+				// Imported keeper lairs carry nextSpawnTime: null, which makes the engine
+				// wait a full ENERGY_REGEN_TIME (300 ticks) before the FIRST keeper appears.
+				// Seed a near-term first spawn instead so keepers are present quickly. This
+				// touches only the first spawn: after a keeper dies the engine reschedules
+				// itself (+300), so respawn timing is unchanged. An explicit map value wins.
+				if (structure.type === 'keeperLair' && (attributes.nextSpawnTime === null || attributes.nextSpawnTime === undefined)) {
+					attributes.nextSpawnTime = firstKeeperSpawn;
+				}
 				await this.world.addRoomObject(map.room, structure.type, structure.x, structure.y, attributes);
 			}
 			for (const source of map.sources || []) {
