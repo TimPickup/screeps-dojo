@@ -44,6 +44,22 @@ function structureDefaults(type, spawnIndex) {
 			};
 		case 'storage':
 			return { store: {}, storeCapacity: 1000000, hits: 10000, hitsMax: 10000, notifyWhenAttacked: true };
+		// Other store-bearing structures: an imported one with an empty store omits
+		// the `store` field, and the engine/runtime's `.store` getter does
+		// Object.entries(store) — which throws on undefined and crashes any bot creep
+		// that inspects it. A default empty store keeps them safe.
+		case 'link':
+			return { store: {}, storeCapacityResource: { energy: 800 }, cooldown: 0, hits: 1000, hitsMax: 1000, notifyWhenAttacked: true };
+		case 'terminal':
+			return { store: {}, storeCapacity: 300000, hits: 3000, hitsMax: 3000, notifyWhenAttacked: true };
+		case 'lab':
+			return { store: {}, storeCapacityResource: { energy: 2000 }, cooldown: 0, hits: 500, hitsMax: 500, notifyWhenAttacked: true };
+		case 'factory':
+			return { store: {}, storeCapacity: 50000, cooldown: 0, hits: 1000, hitsMax: 1000, notifyWhenAttacked: true };
+		case 'powerSpawn':
+			return { store: {}, storeCapacityResource: { energy: 5000, power: 100 }, hits: 5000, hitsMax: 5000, notifyWhenAttacked: true };
+		case 'nuker':
+			return { store: {}, storeCapacityResource: { energy: 300000, G: 5000 }, hits: 1000, hitsMax: 1000, notifyWhenAttacked: true };
 		case 'mineral':
 			return { mineralType: 'H', density: 3, mineralAmount: 3000 };
 		default:
