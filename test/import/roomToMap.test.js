@@ -68,10 +68,21 @@ describe('roomToMap', function () {
 			{ type: 'source', x: 30, y: 30, energy: 3000 },
 			{ type: 'mineral', x: 35, y: 35, mineralType: 'H', density: 3 }
 		]);
-		assert.deepStrictEqual(result.map.controller, { x: 20, y: 20, level: 4 });
+		assert.deepStrictEqual(result.map.controller, { x: 20, y: 20, level: 4, owner: 'me' });
 		assert.deepStrictEqual(result.map.sources, [{ x: 30, y: 30 }]);
 		assert.deepStrictEqual(result.map.minerals, [{ x: 35, y: 35, mineralType: 'H', density: 3 }]);
 		assert.deepStrictEqual(result.map.structures, []);
+	});
+
+	it('preserves controller ownership (owned base loads claimed, not RCL 0)', function () {
+		const owned = build([{ type: 'controller', x: 20, y: 20, user: 'mine', level: 5 }]);
+		assert.deepStrictEqual(owned.map.controller, { x: 20, y: 20, level: 5, owner: 'me' });
+		// An unowned controller carries no owner field.
+		const unowned = build([{ type: 'controller', x: 20, y: 20, level: 0 }]);
+		assert.deepStrictEqual(unowned.map.controller, { x: 20, y: 20, level: 0 });
+		// An enemy-owned controller (classifier returns null) is not tagged 'me'.
+		const enemy = build([{ type: 'controller', x: 20, y: 20, user: 'enemy', level: 6 }]);
+		assert.deepStrictEqual(enemy.map.controller, { x: 20, y: 20, level: 6 });
 	});
 
 	it('preserves source and mineral ids when present', function () {
