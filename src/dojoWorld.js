@@ -399,14 +399,51 @@ class DojoWorld {
 
 	// Convenience: rooms + terrain, then the main bot, then owned objects/flags
 	// (owner 'me' needs the bot's user id to exist first).
+	//
+	// The bot's home spawn: pass it explicitly via botOptions { room, x, y }, OR
+	// just include a spawn with owner 'me' in a loaded map and it's adopted
+	// automatically — an imported base shouldn't have to restate coordinates the
+	// map already carries. (The mockup's addBot always bootstraps its own Spawn1
+	// and needs a location, so when we adopt a map spawn we place that bootstrap
+	// on the same tile and drop it afterwards, leaving the map's named spawn.)
 	async loadScenarioMaps(maps, botOptions, options) {
 		await this.createRoomsFromMaps(maps, options);
-		const bot = await this.addMainBot(botOptions);
+
+		const opts = Object.assign({}, botOptions);
+		const home = this.findHomeSpawn(maps);
+		const adoptHome = home && opts.room === undefined && opts.x === undefined && opts.y === undefined;
+		if (adoptHome) { opts.room = home.room; opts.x = home.x; opts.y = home.y; }
+		if (opts.room === undefined) {
+			throw new Error('loadScenarioMaps: no bot spawn — pass botOptions { room, x, y }, '
+				+ "or include a spawn with owner 'me' in a loaded map");
+		}
+
+		const bot = await this.addMainBot(opts);
 		if (options && options.memory !== undefined) await this.seedMemory(options.memory);
 		if (options && options.segments !== undefined) await this.seedSegments(options.segments);
 		await this.placeMapObjects(maps);
 		await this.applyMapControllers(maps);
+
+		if (adoptHome) {
+			// addBot's bootstrap Spawn1 now overlaps the map's real spawn; remove
+			// the placeholder so only the map-defined (named) spawn remains.
+			const { db } = await this.world.load();
+			await db['rooms.objects'].removeWhere({ room: home.room, type: 'spawn', name: 'Spawn1', x: home.x, y: home.y });
+		}
 		return bot;
+	}
+
+	// First spawn across the loaded maps that will belong to the bot (owner
+	// 'me'), as { room, x, y } — used to adopt a map's own spawn as the bot home.
+	findHomeSpawn(maps) {
+		for (const map of maps || []) {
+			for (const structure of map.structures || []) {
+				if (structure.type === 'spawn' && structure.owner === 'me') {
+					return { room: map.room, x: structure.x, y: structure.y };
+				}
+			}
+		}
+		return null;
 	}
 
 	// Applies each map controller's saved owner + level. Controllers are placed
