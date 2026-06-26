@@ -515,6 +515,16 @@ class DojoWorld {
 	async captureFrame() {
 		const { db, env } = await this.world.load();
 		const gameTime = await this.world.gameTime;
+		// CPU the bot used this tick. The engine runtime persists it to the user doc each tick
+		// (@screeps/driver runtime/make.js: $set.lastUsedCpu = usedTime), so we can read it here without
+		// advancing the world. ms of CPU; null if unavailable (e.g. a tick the bot was skipped).
+		let cpu = null;
+		if (this.botUserId) {
+			try {
+				const users = await db.users.find({ _id: this.botUserId });
+				if (users && users[0] && typeof users[0].lastUsedCpu === 'number') cpu = users[0].lastUsedCpu;
+			} catch (error) { /* cpu unavailable for this tick */ }
+		}
 		const objects = await db['rooms.objects'].find({});
 		const flags = await db['rooms.flags'].find({});
 		const roomNames = new Set();
@@ -545,7 +555,7 @@ class DojoWorld {
 				} catch (error) { /* no visuals for this room */ }
 			}
 		}
-		return { gameTime: gameTime, objects: objects, flags: flags, eventLog: eventLog, visuals: visuals };
+		return { gameTime: gameTime, cpu: cpu, objects: objects, flags: flags, eventLog: eventLog, visuals: visuals };
 	}
 
 	// Terrain as the map-format char rows, read back from the server, keyed

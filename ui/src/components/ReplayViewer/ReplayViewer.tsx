@@ -54,6 +54,15 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   }, [playing, speed, count, renderer]);
 
   const frame = frames[Math.min(tick, count - 1)] || null;
+  // Peak per-tick CPU across the recording, to scale the CPU bar in the toolbar.
+  const maxCpu = useMemo(() => {
+    let m = 0;
+    for (const f of frames) if (typeof f.cpu === 'number' && f.cpu > m) m = f.cpu;
+    return m;
+  }, [frames]);
+  const curCpu = frame && typeof frame.cpu === 'number' ? frame.cpu : null;
+  const cpuFrac = maxCpu > 0 && curCpu != null ? Math.min(1, curCpu / maxCpu) : 0;
+  const cpuColor = cpuFrac > 0.8 ? '#e0564f' : cpuFrac > 0.5 ? '#e0a84f' : '#5bb98a';
   const selectedObj = useMemo(
     () => (selectedId && frame ? frame.objects.find((o) => o._id === selectedId) || null : null),
     [selectedId, frame]
@@ -96,6 +105,12 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         <span className={styles.scenario}>{recording.meta.scenario}</span>
         {test && <span className={test.passed ? styles.pass : styles.fail}>{test.passed ? 'PASS' : 'FAIL'}</span>}
         <span className={styles.dim}>{recording.meta.endReason} · {count} frames</span>
+        <span className={styles.dim} title="Bot CPU used this tick (ms)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          · CPU {curCpu != null ? curCpu.toFixed(1) : '—'}ms
+          <span style={{ display: 'inline-block', width: 56, height: 8, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
+            <span style={{ display: 'block', height: '100%', width: `${cpuFrac * 100}%`, background: cpuColor }} />
+          </span>
+        </span>
         <span className={styles.spacer} />
         <button className={styles.btn} title="Switch renderer" onClick={() => { setPlaying(false); setPrefs({ renderer: renderer === 'canvas' ? 'svg' : 'canvas' }); }}>
           {renderer === 'canvas' ? '◗ canvas' : '▢ svg'}

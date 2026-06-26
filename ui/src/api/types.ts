@@ -45,6 +45,7 @@ export interface FrameObject {
 
 export interface Frame {
   gameTime: number;
+  cpu?: number | null;   // ms of CPU the bot used this tick (null if unavailable / skipped)
   objects: FrameObject[];
   flags: unknown[];
   eventLog?: Record<string, unknown[]>;
