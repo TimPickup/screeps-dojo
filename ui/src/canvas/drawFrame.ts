@@ -80,6 +80,22 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     }
   }
 
+  // 2b) towers: live energy fill + attack/heal/repair beams. Towers are baked
+  //     into the per-epoch background (epochKey excludes energy), so their
+  //     current fill and per-tick actions must be drawn here on top. Beams reuse
+  //     the creep effect renderer — tower actionLog keys (attack/heal/repair)
+  //     are a subset of the creep ones, so they read identically.
+  for (const obj of base.objects) {
+    if (obj.type !== 'tower') continue;
+    const p = wpos(obj.room, obj.x, obj.y);
+    if (!p) continue;
+    drawTowerFill(ctx, obj, p.wx, p.wy);
+    // actionLog lives on the structure doc; prefer the next frame's (the
+    // transition being animated), matching the link-beam approach.
+    const nextDoc = nextById ? nextById[obj._id] : null;
+    drawEffects(ctx, (nextDoc || obj) as FrameObject, p.wx, p.wy, sub, off, obj.room);
+  }
+
   // 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
   //    command strings — no server round-trip; instant toggle)
   if (opts.showVisuals && base.visuals) {
@@ -164,6 +180,24 @@ function drawHpBar(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy
   ctx.globalAlpha = opacity;
   ctx.fillStyle = '#555555'; ctx.fillRect(wx - 0.5, wy - 0.85, 1.0, 0.15);
   ctx.fillStyle = '#65fd62'; ctx.fillRect(wx - 0.5, wy - 0.85, frac, 0.15);
+  ctx.restore();
+}
+
+// Yellow energy gauge over a tower's central grey body rect. The body is drawn
+// by lib/RoomVisual's tower structure as rect(cx-0.4, cy-0.3, 0.8, 0.6); we fill
+// it bottom-up proportional to store.energy / capacity so fullness reads at a
+// glance (the static background draws the grey rect underneath).
+function drawTowerFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number) {
+  const cap = (o.storeCapacityResource as Record<string, number> | undefined)?.energy;
+  if (!cap || cap <= 0) return;
+  const energy = (o.store && (o.store as Record<string, number>).energy) || 0;
+  const frac = Math.max(0, Math.min(1, energy / cap));
+  if (frac <= 0) return;
+  const cx = wx + 0.5, cy = wy + 0.5;
+  const h = 0.6 * frac;
+  ctx.save();
+  ctx.fillStyle = '#FFE87B';
+  ctx.fillRect(cx - 0.4, cy + 0.3 - h, 0.8, h);
   ctx.restore();
 }
 
