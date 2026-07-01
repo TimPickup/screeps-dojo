@@ -2,7 +2,9 @@
 
 // Imports live rooms from a Screeps server into scenario map.json + memory files.
 // Usage: npm run import-room -- <scenarioName> <ROOM> [ROOM...]
-// Config (.env): DOJO_SCREEPS_TOKEN, DOJO_SCREEPS_SHARD (default shard0),
+// Config (.env): DOJO_SCREEPS_TOKEN (or DOJO_SCREEPS_USERNAME/EMAIL +
+//   DOJO_SCREEPS_PASSWORD for a private server whose token is rejected over the
+//   socket, e.g. screepsmod-auth), DOJO_SCREEPS_SHARD (default shard0),
 //   DOJO_SCREEPS_HOSTNAME (default screeps.com), DOJO_SCREEPS_PATH (default /),
 //   DOJO_SCREEPS_PROTOCOL (default https), DOJO_SCREEPS_PORT (default 443).
 

@@ -150,11 +150,16 @@ Pull a room (or several) straight from a Screeps server into a scenario — no
 console pasting, works for any room you have vision of. The GUI's **Import room**
 button does this interactively; from the CLI:
 
-1. Get an auth token from your account's **Auth Tokens** page.
-2. In `.env` set `DOJO_SCREEPS_TOKEN=...`. For a private/Season server also set
-   `DOJO_SCREEPS_HOSTNAME`, `DOJO_SCREEPS_PATH`, `DOJO_SCREEPS_PORT`,
-   `DOJO_SCREEPS_PROTOCOL`, and `DOJO_SCREEPS_SHARD` (defaults target
-   `screeps.com` / `shard0`).
+1. Authenticate one of two ways in `.env`:
+   - **Token** — get one from your account's **Auth Tokens** page and set
+     `DOJO_SCREEPS_TOKEN=...`.
+   - **Username/password** — set `DOJO_SCREEPS_USERNAME` (or `DOJO_SCREEPS_EMAIL`)
+     and `DOJO_SCREEPS_PASSWORD`. Use this for a private server whose API token is
+     accepted over REST but rejected by the WebSocket (e.g. `screepsmod-auth`);
+     signing in yields a native session token the importer's socket accepts.
+2. For a private/Season server also set `DOJO_SCREEPS_HOSTNAME`,
+   `DOJO_SCREEPS_PATH`, `DOJO_SCREEPS_PORT`, `DOJO_SCREEPS_PROTOCOL`, and
+   `DOJO_SCREEPS_SHARD` (defaults target `screeps.com` / `shard0`).
 3. Run:
 
        npm run import-room -- <scenarioName> W1N1 W2N1
