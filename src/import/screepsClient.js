@@ -14,7 +14,15 @@ function maskToken(token) {
 // object so the CLI can pass process.env.
 function createClient(config) {
 	const token = config.DOJO_SCREEPS_TOKEN;
-	if (!token) throw new Error('DOJO_SCREEPS_TOKEN is not set (.env)');
+	// Fallback auth when no token is set: username/password. A private server
+	// (screepsmod-auth) issues API tokens that work over REST but are rejected by
+	// the WebSocket auth; signing in yields a NATIVE session token the socket
+	// accepts. screeps-api takes { email, password } and signs in automatically.
+	const email = config.DOJO_SCREEPS_USERNAME || config.DOJO_SCREEPS_EMAIL;
+	const password = config.DOJO_SCREEPS_PASSWORD;
+	if (!token && !(email && password)) {
+		throw new Error('set DOJO_SCREEPS_TOKEN, or DOJO_SCREEPS_USERNAME + DOJO_SCREEPS_PASSWORD (.env)');
+	}
 	const shard = config.DOJO_SCREEPS_SHARD || 'shard0';
 	const hostname = config.DOJO_SCREEPS_HOSTNAME || 'screeps.com';
 
@@ -25,13 +33,15 @@ function createClient(config) {
 	function getApi() {
 		if (!apiPromise) {
 			apiPromise = import('screeps-api').then(function (mod) {
-				return new mod.ScreepsHttpClient({
-					token: token,
+				const clientOpts = {
 					protocol: config.DOJO_SCREEPS_PROTOCOL || 'https',
 					hostname: hostname,
 					port: Number(config.DOJO_SCREEPS_PORT || 443),
 					path: config.DOJO_SCREEPS_PATH || '/'
-				});
+				};
+				if (token) clientOpts.token = token;
+				else { clientOpts.email = email; clientOpts.password = password; }
+				return new mod.ScreepsHttpClient(clientOpts);
 			});
 		}
 		return apiPromise;
@@ -58,8 +68,11 @@ function createClient(config) {
 
 	return {
 		async connect() {
-			// Token auth needs no signin call; the token is sent automatically.
 			const api = await getApi();
+			// Password auth: sign in first so a native session token exists for the
+			// socket handshake (the mod's REST-only API token fails socket auth).
+			// Token auth needs no signin call; the token is sent automatically.
+			if (!token) await api.authSignin(email, password);
 			await api.socket.connect();
 		},
 
@@ -69,6 +82,9 @@ function createClient(config) {
 		// so activateUrl carries the real secret (write it to a gitignored file,
 		// never to stdout); maskedUrl is the safe-to-print version.
 		async checkToken() {
+			// No token (username/password auth): the no-rate-limit window is a
+			// live-server concept, so there's nothing to check.
+			if (!token) return { active: false, secondsLeft: 0, activateUrl: '', maskedUrl: '(password auth; rate-limit check skipped)' };
 			const base = 'https://' + hostname + '/a/#!/account/auth-tokens/noratelimit?token=';
 			const activateUrl = base + token;
 			const maskedUrl = base + maskToken(token);
