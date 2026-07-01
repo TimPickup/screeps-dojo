@@ -3,3 +3,13 @@
 .canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
 .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .hint { position: absolute; bottom: 6px; right: 8px; color: var(--muted); font-size: 10px; opacity: 0.5; pointer-events: none; }
+
+/* Multi-object picker (shown when a click lands on a tile holding several objects). */
+.picker { position: absolute; z-index: 20; min-width: 130px; max-height: 240px; overflow-y: auto;
+  background: #1b1b1b; border: 1px solid #3a3a3a; border-radius: 6px; padding: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); font-size: 12px; }
+.pickerHead { color: var(--muted); font-size: 10px; padding: 2px 8px 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pickerItem { display: block; width: 100%; text-align: left; background: none; border: none; color: #ddd;
+  padding: 5px 8px; border-radius: 4px; cursor: pointer; font: inherit; }
+.pickerItem:hover { background: #2c2c2c; }
+.pickerItemSel { background: #2a3a2a; color: #65fd62; }

@@ -5,6 +5,27 @@ import { SpriteCache, BackgroundCache, epochKey } from '../../canvas/caches';
 import { drawFrame } from '../../canvas/drawFrame';
 import styles from './CanvasStage.module.css';
 
+// Friendly names for the multi-object picker (when several objects share one tile).
+const TYPE_LABELS: Record<string, string> = {
+  creep: 'Creep', powerCreep: 'Power Creep', spawn: 'Spawn', extension: 'Extension', tower: 'Tower',
+  rampart: 'Rampart', constructedWall: 'Wall', wall: 'Wall', storage: 'Storage', terminal: 'Terminal',
+  link: 'Link', lab: 'Lab', factory: 'Factory', extractor: 'Extractor', observer: 'Observer',
+  nuker: 'Nuker', powerSpawn: 'Power Spawn', container: 'Container', road: 'Road', source: 'Source',
+  mineral: 'Mineral', deposit: 'Deposit', controller: 'Controller', keeperLair: 'Keeper Lair',
+  portal: 'Portal', powerBank: 'Power Bank', invaderCore: 'Invader Core', tombstone: 'Tombstone',
+  ruin: 'Ruin', energy: 'Resource', resource: 'Resource',
+};
+
+function objectLabel(o: FrameObject): string {
+  const base = TYPE_LABELS[o.type] || (o.type ? o.type[0].toUpperCase() + o.type.slice(1) : 'Object');
+  if (o.type === 'creep' && o.name) return base + ' · ' + o.name;
+  if (o.type === 'energy' || o.type === 'resource') {
+    const amt = o.store ? Object.values(o.store).reduce((a, b) => a + b, 0) : undefined;
+    return amt !== undefined ? base + ' · ' + amt : base;
+  }
+  return base;
+}
+
 interface Props {
   recording: Recording;
   layout: StageLayout;
@@ -33,6 +54,8 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const stateRef = useRef({ playing, speed, tick, showVisuals, selectedId });
   const [ready, setReady] = useState(false);
+  // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
+  const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
   stateRef.current = { playing, speed, tick, showVisuals, selectedId };
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
@@ -154,24 +177,44 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const onClick = (e: React.MouseEvent) => {
     const t = toTile(e.clientX, e.clientY);
     const f = recording.frames[Math.min(stateRef.current.tick, recording.frames.length - 1)];
-    let best: FrameObject | null = null, bestD = 0.8;
+    // Gather every object on the clicked tile (a tile can hold a creep + rampart + structure + resource).
+    const cx = Math.floor(t.x), cy = Math.floor(t.y);
+    const hits: FrameObject[] = [];
     for (const o of (f ? f.objects : [])) {
       const off = layout.offsets[o.room]; if (!off) continue;
-      const d = Math.hypot((off.col * 50 + o.x + 0.5) - t.x, (off.row * 50 + o.y + 0.5) - t.y);
-      if (d < bestD) { bestD = d; best = o; }
+      if (off.col * 50 + o.x === cx && off.row * 50 + o.y === cy) hits.push(o);
     }
-    onSelectObject(best ? best._id : null);
+    if (hits.length === 0) { onSelectObject(null); setMenu(null); return; }
+    if (hits.length === 1) { onSelectObject(hits[0]._id); setMenu(null); return; }
+    // >1: order them sensibly (creeps/resources first, big static structures last) and show a picker.
+    const rank = (o: FrameObject) => (o.type === 'creep' ? 0 : o.type === 'energy' || o.type === 'resource' ? 1 : o.type === 'rampart' ? 9 : 5);
+    hits.sort((a, b) => rank(a) - rank(b));
+    const rect = containerRef.current!.getBoundingClientRect();
+    setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, items: hits });
   };
 
   return (
     <div ref={containerRef} className={styles.stage}
-      onMouseDown={(e) => { moved.current = false; onMouseDown(e); }}
+      onMouseDown={(e) => { moved.current = false; setMenu(null); onMouseDown(e); }}
       onMouseMove={() => { if (drag.current) moved.current = true; }}
       onClick={(e) => { if (!moved.current) onClick(e); }}
       onDoubleClick={fit}>
       <canvas ref={canvasRef} className={styles.canvas} />
       {!ready && <div className={styles.loading}>preparing canvas…</div>}
       <div className={styles.hint}>scroll = zoom · drag = pan · dbl-click = reset</div>
+      {menu && (
+        <div className={styles.picker} style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.pickerHead}>{menu.items.length} objects here</div>
+          {menu.items.map((o) => (
+            <button key={o._id} type="button"
+              className={o._id === selectedId ? `${styles.pickerItem} ${styles.pickerItemSel}` : styles.pickerItem}
+              onClick={() => { onSelectObject(o._id); setMenu(null); }}>
+              {objectLabel(o)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
