@@ -442,6 +442,11 @@ function renderFrameSvg(recording, frameIndex, t, options) {
 				underLayer.push(tombstoneSvg(object));
 				continue;
 			}
+			if (object.type === 'constructionSite') {
+				// planned structure: light grey translucent circle
+				visual.circle(object.x, object.y, { radius: 0.4, fill: '#d3d3d3', opacity: 0.7 });
+				continue;
+			}
 			if (STRUCTURE_TYPES_DRAWN.indexOf(object.type) !== -1 || object.type === 'source'
 				|| object.type === 'mineral') {
 				if (object.type === 'source') {
@@ -495,6 +500,17 @@ function renderFrameSvg(recording, frameIndex, t, options) {
 					if (linkLog && linkLog.transferEnergy) {
 						effectLayer.push(beamSvg(object.x, object.y,
 							linkLog.transferEnergy.x, linkLog.transferEnergy.y, '#ffe25a', 0.12, t));
+					}
+				} else if (object.type === 'tower') {
+					visual.structure(object.x, object.y, 'tower', { fillFraction: energyFillFraction(object) });
+					// tower attack/heal/repair beams: actionLog lives on the
+					// structure doc (keys are a subset of the creep ones, so the
+					// creep effect renderer draws them identically). Prefer the
+					// next frame's log (the transition being animated), like links.
+					// Skipped for the canvas background — it draws these live.
+					if (!staticSceneOnly) {
+						const nextDoc = nextById ? nextById[object._id] : null;
+						drawEffects(overlay, effectLayer, nextDoc || object, object.x, object.y, t, staticActions);
 					}
 				} else {
 					visual.structure(object.x, object.y, object.type);

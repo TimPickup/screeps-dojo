@@ -77,7 +77,7 @@ export class SpriteCache {
 // energy fills is accepted (SVG mode is exact).
 const STRUCT_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
   'factory', 'observer', 'nuker', 'powerSpawn', 'container', 'road', 'rampart', 'constructedWall',
-  'controller', 'invaderCore', 'keeperLair', 'extractor', 'source', 'mineral']);
+  'controller', 'invaderCore', 'keeperLair', 'extractor', 'source', 'mineral', 'constructionSite']);
 
 export function epochKey(frame: Frame): string {
   const parts: string[] = [];
