@@ -1,4 +1,4 @@
-import type { Recording, FrameObject, StageLayout } from '../api/types';
+import type { Recording, Frame, FrameObject, StageLayout } from '../api/types';
 import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry';
 import { SpriteCache, BackgroundCache, epochKey } from './caches';
 
@@ -37,6 +37,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
 
   const nextById = next ? indexById(next.objects) : null;
   const baseById = indexById(base.objects);
+  // tiles each creep transferred/withdrew with this tick, for the nod (below)
+  const nodTargets = next ? transferNods(next, nextById!) : {};
 
   // 2) creeps (interpolated) + HP + effects
   for (const obj of base.objects) {
@@ -50,8 +52,9 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
         const tp = tPos(sub as number);
         x = lerp(obj.x, nl.x, tp); y = lerp(obj.y, nl.y, tp);
         actionSrc = n;
-        // work/attack bob during the action half
-        const bobT = (n.actionLog && ((n.actionLog as any).harvest || (n.actionLog as any).attack));
+        // work/attack bob during the action half; transfer/withdraw nod toward
+        // the tile the creep exchanged with (nodTargets — pickup isn't recorded)
+        const bobT = (n.actionLog && ((n.actionLog as any).harvest || (n.actionLog as any).attack)) || nodTargets[obj._id];
         if (bobT) {
           const dx = bobT.x - x, dy = bobT.y - y, d = Math.hypot(dx, dy);
           if (d > 0) { const amp = 0.15 * Math.sin(Math.PI * tFx(sub as number)); x += amp * dx / d; y += amp * dy / d; }
@@ -94,6 +97,17 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     // transition being animated), matching the link-beam approach.
     const nextDoc = nextById ? nextById[obj._id] : null;
     drawEffects(ctx, (nextDoc || obj) as FrameObject, p.wx, p.wy, sub, off, obj.room);
+  }
+
+  // 2c) spawns: live energy core. Like towers, spawns are baked into the per-
+  //     epoch background (which is energy-blind), but the background draws only
+  //     the dark base — so the yellow core (scaled by fill, hidden when empty)
+  //     is painted here on top and stays accurate as the spawn fills/drains.
+  for (const obj of base.objects) {
+    if (obj.type !== 'spawn') continue;
+    const p = wpos(obj.room, obj.x, obj.y);
+    if (!p) continue;
+    drawSpawnFill(ctx, obj, p.wx, p.wy);
   }
 
   // 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
@@ -199,6 +213,52 @@ function drawTowerFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number
   ctx.fillStyle = '#FFE87B';
   ctx.fillRect(cx - 0.4, cy + 0.3 - h, 0.8, h);
   ctx.restore();
+}
+
+// Yellow energy core over a spawn's dark base (the base is drawn by the static
+// background). Radius scales with store.energy / capacity and is hidden when
+// empty — matches lib/RoomVisual's spawn core: circle radius 0.40 * fraction.
+function drawSpawnFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number) {
+  const cap = (o.storeCapacityResource as Record<string, number> | undefined)?.energy;
+  if (!cap || cap <= 0) return;
+  const energy = (o.store && (o.store as Record<string, number>).energy) || 0;
+  const frac = Math.max(0, Math.min(1, energy / cap));
+  if (frac <= 0) return;
+  ctx.save();
+  ctx.fillStyle = '#FFE87B';
+  ctx.beginPath(); ctx.arc(wx + 0.5, wy + 0.5, 0.40 * frac, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// Creeps that transferred/withdrew this tick, mapped to the tile they exchanged
+// with, so the sprite can lean toward it (a "nod"). The engine records these
+// ONLY as EVENT_TRANSFER (12) in the room event log — transfer sets
+// objectId=creep, targetId=target; withdraw reverses them — so neither appears
+// in actionLog. Read from the NEXT frame's log (the transition being animated).
+// Pickup emits no event, so it produces no nod.
+function transferNods(frame: Frame, byId: Record<string, FrameObject>): Record<string, { x: number; y: number }> {
+  const acc: Record<string, { sx: number; sy: number; n: number }> = {};
+  if (!frame.eventLog) return {};
+  for (const room of Object.keys(frame.eventLog)) {
+    const events = frame.eventLog[room];
+    if (!Array.isArray(events)) continue;
+    for (const ev of events as Array<{ event: number; objectId: string; data?: { targetId?: string } }>) {
+      if (!ev || ev.event !== 12) continue; // EVENT_TRANSFER
+      const a = byId[ev.objectId];
+      const b = ev.data && ev.data.targetId ? byId[ev.data.targetId] : undefined;
+      let creep: FrameObject | undefined, target: FrameObject | undefined;
+      if (a && a.type === 'creep') { creep = a; target = b; }
+      else if (b && b.type === 'creep') { creep = b; target = a; }
+      if (!creep || !target) continue;
+      // A creep can transfer AND withdraw in the same tick (two events) — lean
+      // toward the average of every tile it exchanged with, not just the last.
+      const e = acc[creep._id] || (acc[creep._id] = { sx: 0, sy: 0, n: 0 });
+      e.sx += target.x; e.sy += target.y; e.n++;
+    }
+  }
+  const nods: Record<string, { x: number; y: number }> = {};
+  for (const id in acc) nods[id] = { x: acc[id].sx / acc[id].n, y: acc[id].sy / acc[id].n };
+  return nods;
 }
 
 function drawSay(ctx: CanvasRenderingContext2D, message: string, wx: number, wy: number) {

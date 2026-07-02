@@ -10,7 +10,7 @@ const { FakeRoomVisual, installRoomVisualLibrary } = require('./fakeRoomVisual')
 const { generateCreepSvg, countBodyParts } = require('./creepSprite');
 const { elementToSvg, svgEscape } = require('./svgPrimitives');
 const { roomNameToXY } = require('../mapFormat');
-const { CONTROLLER_LEVELS } = require('@screeps/common/lib/constants');
+const { CONTROLLER_LEVELS, EVENT_TRANSFER } = require('@screeps/common/lib/constants');
 
 const TILE_COLORS = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
 const ROOM_BACKGROUND = '#2b2b2b';
@@ -187,6 +187,35 @@ function indexById(objects) {
 	const byId = {};
 	for (const object of objects) byId[object._id] = object;
 	return byId;
+}
+
+// Creeps that transferred/withdrew this tick, mapped to the tile they exchanged
+// with, so the sprite can lean toward it (a "nod") like the harvest/attack bob.
+// The engine records these ONLY as EVENT_TRANSFER in the room event log —
+// transfer sets objectId=creep, targetId=target; withdraw reverses them — so
+// neither appears in actionLog. Read from the NEXT frame's log (the transition
+// being animated). Pickup emits no event, so it produces no nod.
+function transferNods(frame, byId, roomName) {
+	const acc = {};
+	if (!frame || !frame.eventLog || !byId) return {};
+	const events = frame.eventLog[roomName];
+	if (!Array.isArray(events)) return {};
+	for (const ev of events) {
+		if (!ev || ev.event !== EVENT_TRANSFER) continue;
+		const a = byId[ev.objectId];
+		const b = ev.data ? byId[ev.data.targetId] : null;
+		let creep = null, target = null;
+		if (a && a.type === 'creep') { creep = a; target = b; }
+		else if (b && b.type === 'creep') { creep = b; target = a; }
+		if (!creep || !target) continue;
+		// A creep can transfer AND withdraw in the same tick (two events) — lean
+		// toward the average of every tile it exchanged with, not just the last.
+		const e = acc[creep._id] || (acc[creep._id] = { sx: 0, sy: 0, n: 0 });
+		e.sx += target.x; e.sy += target.y; e.n++;
+	}
+	const nods = {};
+	for (const id in acc) nods[id] = { x: acc[id].sx / acc[id].n, y: acc[id].sy / acc[id].n };
+	return nods;
 }
 
 // Creep sprites go on their own raw-SVG layer (between structures and the
@@ -475,7 +504,12 @@ function renderFrameSvg(recording, frameIndex, t, options) {
 					// level number on the overlay so creeps can't hide it
 					overlay.text(String(object.level), object.x, object.y + 0.17, { font: 0.5, color: '#ffffff' });
 				} else if (object.type === 'spawn') {
-					visual.structure(object.x, object.y, 'spawn', { fillFraction: energyFillFraction(object) });
+					// Energy core scales with stored energy (hidden when empty). For the
+					// canvas background (staticSceneOnly — cached per-epoch and energy-
+					// blind) draw the base only; drawFrame.ts paints the live core on
+					// top so it stays accurate as the spawn fills/drains.
+					visual.structure(object.x, object.y, 'spawn',
+						{ fillFraction: staticSceneOnly ? 0 : energyFillFraction(object) });
 					// white progress arc while spawning: spawning = {name,
 					// needTime, spawnTime: start + needTime} (engine create-creep)
 					if (object.spawning && object.spawning.needTime > 0) {
@@ -544,6 +578,8 @@ function renderFrameSvg(recording, frameIndex, t, options) {
 		// creeps/effects/HP/say: skipped for the canvas renderer's static-only
 		// background (it draws those live). lerp toward next frame; fade the dead.
 		if (!staticSceneOnly) {
+		// tiles each creep transferred/withdrew with this tick — leaned into below
+		const nodTargets = transferNods(nextFrame, nextById, roomName);
 		for (const object of baseFrame.objects) {
 			if (object.room !== roomName || object.type !== 'creep') continue;
 			if (object.spawning) {
@@ -566,9 +602,10 @@ function renderFrameSvg(recording, frameIndex, t, options) {
 				let y = lerp(object.y, nextLocalY, t);
 				// work/attack bob: nudge the drawn position toward the action
 				// target so the sprite, HP bar, say bubble, and effect anchors
-				// all lean into the swing together
+				// all lean into the swing together. transfer/withdraw lean the same
+					// way, toward the tile the creep exchanged with (nodTargets).
 				const nextLog = next.actionLog || {};
-				const bobTarget = nextLog.harvest || nextLog.attack;
+				const bobTarget = nextLog.harvest || nextLog.attack || nodTargets[object._id];
 				if (bobTarget) {
 					const bobDx = bobTarget.x - x, bobDy = bobTarget.y - y;
 					const bobDistance = Math.sqrt(bobDx * bobDx + bobDy * bobDy);
