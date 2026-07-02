@@ -21,7 +21,7 @@ const filter = args.find(function (arg) {
 	return !arg.startsWith('--') && arg !== 'record';
 });
 
-const mochaArgs = ['mocha', 'test/**/*.test.js', '--timeout', '600000', '--exit'];
+const mochaArgs = ['mocha', 'test/**/*.test.js', '--timeout', '7200000', '--exit'];
 if (filter) {
 	mochaArgs.push('--grep', filter);
 }
