@@ -1,8 +1,8 @@
-import type { ReactNode } from 'react';
 import type { FrameObject } from '../../api/types';
+import { TYPE_SCHEMA } from './inspectorSchema';
+import { StoreList, OwnerTag, HitsBar, StatRow } from './pieces';
 
 // Body-part colours (engine `type` strings; ranged_attack has the underscore).
-// The six the brief specified, plus carry/heal so full bodies render completely.
 const PART_COLORS: Record<string, string> = {
   tough: '#ffffff',
   work: '#ffe56d',         // yellow
@@ -14,17 +14,16 @@ const PART_COLORS: Record<string, string> = {
   move: '#a9b7c6',         // grey
 };
 
-// Fields rendered explicitly above, or engine-internal/noisy — excluded from the
-// generic "other properties" catch-all so it shows only the extra useful stuff.
-const HANDLED = new Set([
-  '_id', 'type', 'x', 'y', 'room', 'user', 'name', 'body', 'store',
-  'hits', 'hitsMax', 'level', 'progress', 'ageTime', 'fatigue', 'spawning',
-  'cooldown', 'nextSpawnTime',
-  'meta', '$loki', 'actionLog', '_actionLog', '_ticksToLive', 'notifyWhenAttacked',
+// Identity / rendered-elsewhere / engine-internal fields, excluded from the
+// generic "other properties" catch-all. Per-type schema keys are added on top.
+const BASE_HANDLED = new Set([
+  '_id', 'type', 'x', 'y', 'room', 'user', 'name', 'body',
+  'store', 'storeCapacity', 'storeCapacityResource',
+  'hits', 'hitsMax', 'ageTime', '_ticksToLive', 'fatigue', 'spawning',
+  'meta', '$loki', 'actionLog', '_actionLog', 'notifyWhenAttacked',
 ]);
 
 // Up-to-10-per-row grid of coloured part squares (max body is 50 → 5 rows).
-// Damaged parts dim toward transparent; tooltip shows type + remaining hits.
 function BodyGrid({ body }: { body: Array<{ type: string; hits: number }> }) {
   const cell = 15;
   const gap = 2;
@@ -50,61 +49,78 @@ function BodyGrid({ body }: { body: Array<{ type: string; hits: number }> }) {
   );
 }
 
-export function ObjectInspector({ obj, gameTime }: { obj: FrameObject | null; gameTime?: number }) {
+export function ObjectInspector({ obj, gameTime, botUserId }: {
+  obj: FrameObject | null;
+  gameTime?: number;
+  botUserId?: string;
+}) {
   if (!obj) return <div style={{ color: 'var(--muted)' }}>Click an object in the viewer.</div>;
 
-  const row = (k: string, v: ReactNode) => (
-    <div><span style={{ color: 'var(--muted)' }}>{k}</span> {v}</div>
-  );
+  const schema = TYPE_SCHEMA[obj.type];
+  const store = obj.store as Record<string, number> | undefined;
+  const capResource = obj.storeCapacityResource as Record<string, number> | undefined;
+  const capTotal = typeof obj.storeCapacity === 'number' ? obj.storeCapacity : undefined;
+  const showStore = (!schema || schema.showStore !== false) && !!store && Object.keys(store).length > 0;
 
-  const store = obj.store && Object.keys(obj.store).length
-    ? Object.entries(obj.store).map(([r, n]) => r + ':' + n).join(' ')
-    : null;
-
-  // ticksToLive = death tick (ageTime) − now. Creeps/power-creeps carry ageTime;
-  // NPCs without one (e.g. source keepers) live until killed → no TTL shown.
+  // ticksToLive = death tick (ageTime) − now (creeps/power-creeps only).
   const ageTime = typeof obj.ageTime === 'number' ? obj.ageTime : undefined;
   const ticksToLive = ageTime !== undefined && typeof gameTime === 'number' ? ageTime - gameTime : undefined;
 
-  // keeper lair: ticks until the next source keeper spawns.
-  const nextSpawnTime = typeof obj.nextSpawnTime === 'number' ? obj.nextSpawnTime : undefined;
-  const spawnsIn = nextSpawnTime !== undefined && typeof gameTime === 'number' ? nextSpawnTime - gameTime : undefined;
-
   const body = obj.body as Array<{ type: string; hits: number }> | undefined;
 
-  // Catch-all: every remaining primitive/serialisable field not shown above.
+  // Fields already surfaced (identity + this type's schema) — everything else
+  // still shows in the formatted catch-all, so nothing is hidden.
+  const handled = new Set(BASE_HANDLED);
+  if (schema) for (const stat of schema.stats) for (const k of stat.keys) handled.add(k);
+
   const others = Object.entries(obj as Record<string, unknown>)
-    .filter(([k, v]) => !HANDLED.has(k) && v !== null && v !== undefined && typeof v !== 'function')
+    .filter(([k, v]) => !handled.has(k) && v !== null && v !== undefined && typeof v !== 'function')
     .map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]);
 
   return (
     <div style={{ lineHeight: 1.6 }}>
-      {obj.name && row('name', obj.name)}
-      {row('id', obj._id)}
-      {row('type', obj.type)}
-      {obj.user && row('owner', obj.user)}
-      {row('pos', obj.room + ' ' + obj.x + ',' + obj.y)}
-      {(obj.hits !== undefined) && row('hits', obj.hits + '/' + (obj.hitsMax ?? '?'))}
-      {ticksToLive !== undefined && row('ticksToLive', ticksToLive)}
-      {typeof obj.fatigue === 'number' && obj.fatigue > 0 && row('fatigue', obj.fatigue)}
-      {obj.spawning && row('spawning', 'yes')}
-      {typeof obj.cooldown === 'number' && obj.cooldown > 0 && row('cooldown', obj.cooldown)}
-      {spawnsIn !== undefined && row('spawns in', spawnsIn + ' ticks')}
-      {obj.type === 'controller' && obj.level !== undefined && row('level', obj.level)}
-      {store && row('store', store)}
+      {/* header: identity, formatted */}
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{obj.name || obj.type}</div>
+      {obj.name && <StatRow label="type">{obj.type}</StatRow>}
+      {obj.user && <StatRow label="owner"><OwnerTag user={obj.user} botUserId={botUserId} /></StatRow>}
+      <StatRow label="pos">{obj.room + ' ' + obj.x + ',' + obj.y}</StatRow>
+      {obj.hits !== undefined && <StatRow label="hits"><HitsBar hits={obj.hits} hitsMax={obj.hitsMax} /></StatRow>}
+
+      {/* creep vitals */}
+      {ticksToLive !== undefined && <StatRow label="ticksToLive">{ticksToLive}</StatRow>}
+      {typeof obj.fatigue === 'number' && obj.fatigue > 0 && <StatRow label="fatigue">{obj.fatigue}</StatRow>}
+
+      {/* per-type stats */}
+      {schema && schema.stats.map((stat) => {
+        const v = stat.value(obj, gameTime);
+        if (v === null || v === undefined || v === '') return null;
+        return <StatRow key={stat.label} label={stat.label}>{v}</StatRow>;
+      })}
+
+      {/* store */}
+      {showStore && <StoreList store={store!} capResource={capResource} capTotal={capTotal} />}
+
+      {/* creep body */}
       {body && body.length > 0 && (
         <div style={{ marginTop: 4 }}>
           <div style={{ color: 'var(--muted)' }}>body ({body.length})</div>
           <BodyGrid body={body} />
         </div>
       )}
-      {others.length > 0 && (
-        <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          {others.map(([k, v]) => (
-            <div key={k}><span style={{ color: 'var(--muted)' }}>{k}</span> {v}</div>
-          ))}
+
+      {/* id + anything not explicitly handled, formatted (nothing hidden) */}
+      <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--muted)', minWidth: 84 }}>id</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{obj._id}</span>
         </div>
-      )}
+        {others.map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', gap: 8 }}>
+            <span style={{ color: 'var(--muted)', minWidth: 84 }}>{k}</span>
+            <span style={{ wordBreak: 'break-all' }}>{v}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

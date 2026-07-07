@@ -148,7 +148,7 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         </select>
       </div>
 
-      <ConsoleDrawer lines={consoleLines} rightPanel={<ObjectInspector obj={selectedObj} gameTime={frame?.gameTime} />} rightTitle="Inspector" />
+      <ConsoleDrawer lines={consoleLines} rightPanel={<ObjectInspector obj={selectedObj} gameTime={frame?.gameTime} botUserId={recording.meta.botUserId} />} rightTitle="Inspector" />
     </div>
   );
 }
