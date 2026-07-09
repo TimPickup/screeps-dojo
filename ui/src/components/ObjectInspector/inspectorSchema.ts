@@ -73,6 +73,7 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
         if (p === undefined) return null;
         return t ? p + ' / ' + t : String(p);
       } },
+	  { label: 'upgrade blocked', keys: ['upgradeBlocked'], value: (o, gt) => ticksUntil(o, 'upgradeBlocked', gt) },
       { label: 'downgrade in', keys: ['downgradeTime'], value: (o, gt) => ticksUntil(o, 'downgradeTime', gt) },
       { label: 'safe mode', keys: ['safeMode'], value: (o, gt) => ticksUntil(o, 'safeMode', gt) },
       { label: 'reserved by', keys: ['reservation'], value: (o) => {
