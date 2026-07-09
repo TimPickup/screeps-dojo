@@ -97,7 +97,10 @@ export function drawStaticStructures(ctx: CanvasRenderingContext2D, frame: Frame
       } else if (o.type === 'mineral') {
         circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.35, fill: '#ffffff', opacity: 0.6 });
       } else if (o.type === 'controller') {
-        if (!o.user && !((o.level ?? 0) > 0)) continue; // loader scaffold: draw nothing
+        // Skip ONLY the engine's (0,0) scaffold controller (auto-injected for
+        // rooms whose map has no controller); a real unclaimed controller sits
+        // at a true position and must still render (dark disc + level "0").
+        if (o.x === 0 && o.y === 0 && !o.user && !((o.level ?? 0) > 0)) continue;
         circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.6, fill: '#181818', stroke: '#888888', strokeWidth: 0.05 });
         text(ctx, String(o.level ?? 0), o.x + 0.5, o.y + 0.5 + 0.17, { font: 0.5, fill: '#ffffff' });
       } else if (o.type === 'constructionSite') {

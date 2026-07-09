@@ -240,6 +240,15 @@ body { background: #1a1a1a; color: #cccccc; font-family: monospace; font-size: 1
 							<option value="X">X</option>
 						</select>
 					</div>
+					<div class="prop-row" id="prop-density-row">
+						<label>density</label>
+						<select id="prop-density">
+							<option value="1">1</option>
+							<option value="2">2</option>
+							<option value="3">3</option>
+							<option value="4">4</option>
+						</select>
+					</div>
 					<button id="delete-btn">Delete</button>
 				</div>
 				<div id="no-sel-msg" style="color:#555;font-size:11px;padding:4px 0;">Click a placed object to edit</div>
@@ -968,6 +977,15 @@ RoomVisual.prototype.structure = function(x,y,type,opts={}){
 				fill: colors.gray,
 				opacity: opts.opacity
 			})
+			// dojo extension: with opts.fillFraction (0..1) the body's grey core
+			// fills bottom-up with energy-yellow so store fill reads at a glance.
+			if (opts.fillFraction !== undefined && opts.fillFraction > 0) {
+				const h = 0.6 * Math.max(0, Math.min(1, opts.fillFraction))
+				this.rect(x-0.4, y+0.3-h, 0.8, h, {
+					fill: colors.energy,
+					opacity: opts.opacity
+				})
+			}
 			this.rect(x-0.2,y-0.9,0.4,0.5,{
 				fill: colors.light,
 				stroke: colors.dark,
@@ -1485,6 +1503,7 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 		terrain: makeDefaultTerrain(),
 		structures: [],   // {type, x, y, owner?, store?, level?, mineralType?, flagName?}
 		flags: [],        // {name, x, y}
+		extra: {},        // top-level map fields the editor doesn't model (e.g. creeps) — preserved verbatim across load/save
 		selectedIdx: -1,  // index into structures or flags (selectedKind distinguishes)
 		selectedKind: null, // 'structure' | 'flag'
 		activeTool: 'select', // 'select' | 'terrain' | 'object'
@@ -1523,11 +1542,29 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 	var propFlagnameRow = document.getElementById('prop-flagname-row');
 	var propLevelRow = document.getElementById('prop-level-row');
 	var propMineralRow = document.getElementById('prop-mineral-row');
+	var propDensityRow = document.getElementById('prop-density-row');
 	var propOwner = document.getElementById('prop-owner');
 	var propStore = document.getElementById('prop-store');
 	var propFlagname = document.getElementById('prop-flagname');
 	var propLevel = document.getElementById('prop-level');
 	var propMineral = document.getElementById('prop-mineral');
+	var propDensity = document.getElementById('prop-density');
+
+	// Sources and minerals carry a 24-hex-char id in the canonical map format
+	// (matching live-server object ids like "6a1c343dd05a7c237d188b4c") so creep
+	// names that encode a source/mineral id still resolve. New ones authored in
+	// the editor get a fresh random id.
+	function randomObjectId() {
+		var hex = '';
+		if (window.crypto && window.crypto.getRandomValues) {
+			var buf = new Uint8Array(12);
+			window.crypto.getRandomValues(buf);
+			for (var i = 0; i < buf.length; i++) hex += ('0' + buf[i].toString(16)).slice(-2);
+		} else {
+			while (hex.length < 24) hex += Math.floor(Math.random() * 16).toString(16);
+		}
+		return hex;
+	}
 
 	// ---- SVG helpers ----
 	function svgEl(tag, attrs) {
@@ -1798,7 +1835,7 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 		propsPanel.classList.remove('hidden');
 		noSelMsg.style.display = 'none';
 		// hide all rows first
-		[propOwnerRow, propStoreRow, propCapacityRow, propFlagnameRow, propLevelRow, propMineralRow].forEach(function (r) {
+		[propOwnerRow, propStoreRow, propCapacityRow, propFlagnameRow, propLevelRow, propMineralRow, propDensityRow].forEach(function (r) {
 			r.style.display = 'none';
 		});
 
@@ -1833,6 +1870,8 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 		if (obj.type === 'mineral') {
 			propMineralRow.style.display = 'flex';
 			propMineral.value = obj.mineralType || 'H';
+			propDensityRow.style.display = 'flex';
+			propDensity.value = String(obj.density || 3);
 		}
 	}
 
@@ -1933,7 +1972,8 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 			if (OWNS_OWNER.indexOf(type) !== -1 && type !== 'controller') obj.owner = 'me';
 			if (HAS_STORE.indexOf(type) !== -1) obj.store = {};
 			if (type === 'controller') obj.level = 0;
-			if (type === 'mineral') obj.mineralType = 'H';
+			if (type === 'mineral') { obj.mineralType = 'H'; obj.density = 3; }
+			if (type === 'source' || type === 'mineral') obj.id = randomObjectId();
 			state.structures.push(obj);
 		}
 
@@ -1957,25 +1997,65 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 
 	// ---- JSON export/import ----
 	function buildMapJson() {
-		var map = {
-			room: state.room,
-			terrain: state.terrain.slice(),
-			structures: state.structures.map(function (o) {
+		// Sources, minerals and the controller are modelled internally as
+		// structures[] entries (so they render and are selectable), but the
+		// canonical map format the engine consumes emits them as top-level
+		// `sources`/`minerals` arrays and a top-level `controller`. Partition
+		// them out here so editor output matches a live-server export.
+		// fields the editor owns for a structure; everything else on the model
+		// object is preserved verbatim (see the structure branch below).
+		var STRUCT_MANAGED = { type: 1, x: 1, y: 1, owner: 1, store: 1, level: 1,
+			id: 1, mineralType: 1, density: 1, energy: 1, energyCapacity: 1, mineralAmount: 1 };
+		var structures = [];
+		var sources = [];
+		var minerals = [];
+		var controller = null;
+		state.structures.forEach(function (o) {
+			if (o.type === 'source') {
+				if (!o.id) o.id = randomObjectId();
+				var src = { x: o.x, y: o.y, id: o.id };
+				if (o.energy != null) src.energy = o.energy;
+				if (o.energyCapacity != null) src.energyCapacity = o.energyCapacity;
+				sources.push(src);
+			} else if (o.type === 'mineral') {
+				if (!o.id) o.id = randomObjectId();
+				var min = { x: o.x, y: o.y, mineralType: o.mineralType || 'H', density: o.density || 3, id: o.id };
+				if (o.mineralAmount != null) min.mineralAmount = o.mineralAmount;
+				minerals.push(min);
+			} else if (o.type === 'controller') {
+				controller = { x: o.x, y: o.y };
+				if (o.owner != null) controller.owner = o.owner;
+				if (o.level != null && o.level !== 0) controller.level = o.level;
+			} else {
 				var s = { type: o.type, x: o.x, y: o.y };
+				// Carry through fields the editor doesn't model (hits, name,
+				// notifyWhenAttacked, storeCapacity*, ... on imported structures) so a
+				// load/save round-trip is lossless — otherwise opening an imported map
+				// and saving would silently strip its structure metadata. Editor-managed
+				// fields (owner/store/level) are normalised explicitly below.
+				Object.keys(o).forEach(function (k) {
+					if (!STRUCT_MANAGED[k]) s[k] = o[k];
+				});
 				if (o.owner != null) s.owner = o.owner;
 				if (o.store != null && Object.keys(o.store).length > 0) s.store = o.store;
 				if (o.level != null && o.level !== 0) s.level = o.level;
-				if (o.mineralType != null) s.mineralType = o.mineralType;
-				return s;
-			}),
+				structures.push(s);
+			}
+		});
+		var map = {
+			room: state.room,
+			terrain: state.terrain.slice(),
+			structures: structures,
 		};
-		// Add sources, controller, minerals separately from structures for format compatibility
-		// The map format (scout-flee/map.json) only has: room, terrain, structures, flags
-		// Sources, controller, minerals are included in structures[] but also separately if needed
-		// Looking at map.json: it just has structures:[] and flags:[]. Keep compact.
 		map.flags = state.flags.map(function (f) {
 			return { name: f.name, x: f.x, y: f.y };
 		});
+		if (sources.length) map.sources = sources;
+		if (minerals.length) map.minerals = minerals;
+		if (controller) map.controller = controller;
+		// Re-emit fields the editor doesn't model (creeps, etc.) captured on load,
+		// after the modelled fields so the canonical key order stays stable.
+		Object.keys(state.extra).forEach(function (k) { map[k] = state.extra[k]; });
 		return map;
 	}
 
@@ -2001,11 +2081,44 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 			state.terrain = map.terrain.slice();
 			state.structures = (map.structures || []).map(function (s) {
 				var o = Object.assign({}, s);
+				// a source/mineral authored the legacy way (inside structures[])
+				// gets an id so it round-trips into the top-level array on save
+				if ((o.type === 'source' || o.type === 'mineral') && !o.id) o.id = randomObjectId();
 				return o;
 			});
+			// Fold the canonical top-level sources/minerals/controller into the
+			// structures[] model so they render and can be edited. On save
+			// buildMapJson() partitions them back out to top level.
+			(map.sources || []).forEach(function (s) {
+				var o = { type: 'source', x: s.x, y: s.y, id: s.id || randomObjectId() };
+				if (s.energy != null) o.energy = s.energy;
+				if (s.energyCapacity != null) o.energyCapacity = s.energyCapacity;
+				state.structures.push(o);
+			});
+			(map.minerals || []).forEach(function (m) {
+				var o = { type: 'mineral', x: m.x, y: m.y, id: m.id || randomObjectId(),
+					mineralType: m.mineralType || 'H', density: m.density || 3 };
+				if (m.mineralAmount != null) o.mineralAmount = m.mineralAmount;
+				state.structures.push(o);
+			});
+			// top-level controller wins; skip if a structures[] controller already exists
+			if (map.controller && !state.structures.some(function (o) { return o.type === 'controller'; })) {
+				var c = map.controller;
+				var co = { type: 'controller', x: c.x, y: c.y };
+				if (c.owner != null) co.owner = c.owner;
+				if (c.level != null) co.level = c.level;
+				state.structures.push(co);
+			}
 			state.flags = (map.flags || []).map(function (f) {
 				return { name: f.name, x: f.x, y: f.y };
 			});
+			// Stash any top-level fields the editor doesn't model (creeps, and
+			// anything added to the map format later) so a load/save round-trip
+			// never silently drops them. sources/minerals/controller are modelled
+			// (folded into structures[] above), so they're excluded here.
+			var MODELLED = { room: 1, terrain: 1, structures: 1, flags: 1, sources: 1, minerals: 1, controller: 1 };
+			state.extra = {};
+			Object.keys(map).forEach(function (k) { if (!MODELLED[k]) state.extra[k] = map[k]; });
 			roomInput.value = state.room;
 			clearSelection();
 			fullRender();
@@ -2116,6 +2229,12 @@ window.DOJO_INVADER_SVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0
 	propMineral.addEventListener('change', function () {
 		if (state.selectedKind !== 'structure') return;
 		state.structures[state.selectedIdx].mineralType = propMineral.value;
+		updateJsonExport();
+	});
+
+	propDensity.addEventListener('change', function () {
+		if (state.selectedKind !== 'structure') return;
+		state.structures[state.selectedIdx].density = Number(propDensity.value);
 		updateJsonExport();
 	});
 

@@ -9,6 +9,32 @@ function normalizedJson(s: string): string {
   try { return JSON.stringify(JSON.parse(s)); } catch { return s; }
 }
 
+// Deep key-sorted stringify that also prunes "empty" values (null, [], {}) so
+// two maps that differ only in key order, whitespace, or the empty-vs-absent
+// distinction (the editor emits `flags: []`; an imported map omits the key
+// entirely) compare equal — while a genuine content change (e.g. the editor
+// generating source/mineral ids, or migrating sources to the top-level array)
+// still does not. Used only to decide whether opening a map is a real repair.
+function canonicalize(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonicalize);
+  if (v && typeof v === 'object') {
+    const src = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(src).sort()) {
+      const cv = canonicalize(src[k]);
+      if (cv === null || cv === undefined) continue;
+      if (Array.isArray(cv) && cv.length === 0) continue;
+      if (typeof cv === 'object' && !Array.isArray(cv) && Object.keys(cv).length === 0) continue;
+      out[k] = cv;
+    }
+    return out;
+  }
+  return v;
+}
+function canonicalJson(s: string): string {
+  try { return JSON.stringify(canonicalize(JSON.parse(s))); } catch { return s; }
+}
+
 function langFor(name: string): string {
   if (name.endsWith('.js')) return 'javascript';
   if (name.endsWith('.json')) return 'json';
@@ -70,12 +96,18 @@ export function EditTab({ scenario }: { scenario: string }) {
         iframeRef.current?.contentWindow?.postMessage({ type: 'dojoLoadMap', map: savedContent }, '*');
       } else if (e.data.type === 'dojoMapChanged') {
         if (loadingRef.current) {
-          // The editor re-serialises a loaded map into its own canonical form
-          // (drops import-only fields, reorders keys). Rebaseline so simply
-          // opening a map isn't reported as "unsaved changes".
           loadingRef.current = false;
-          setSavedContent(e.data.map);
           setMapDraft(e.data.map);
+          // The editor re-serialises a loaded map into its canonical form. If
+          // that's purely cosmetic (key order / whitespace) rebaseline so simply
+          // opening a map isn't reported as "unsaved changes". But if the editor
+          // had to REPAIR the map — generate missing source/mineral ids, migrate
+          // legacy structures[] sources to the top-level sources/minerals arrays —
+          // the echo differs semantically from disk; keep the on-disk content as
+          // the saved baseline so the repair shows as dirty and can be saved.
+          if (canonicalJson(e.data.map) === canonicalJson(savedContent)) {
+            setSavedContent(e.data.map);
+          }
         } else {
           setMapDraft(e.data.map);
         }
