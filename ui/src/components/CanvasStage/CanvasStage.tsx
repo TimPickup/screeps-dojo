@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Recording, StageLayout, FrameObject } from '../../api/types';
-import { api } from '../../api/client';
-import { SpriteCache, BackgroundCache, epochKey } from '../../canvas/caches';
+import { SpriteCache, StaticLayers } from '../../canvas/caches';
 import { drawFrame } from '../../canvas/drawFrame';
 import styles from './CanvasStage.module.css';
 
@@ -48,7 +47,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
   const fittedRef = useRef<StageLayout | null>(null);
-  const caches = useRef<{ sprites: SpriteCache; backgrounds: BackgroundCache } | null>(null);
+  const caches = useRef<{ sprites: SpriteCache; layers: StaticLayers } | null>(null);
   const playhead = useRef(0);
   const lastTs = useRef(0);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
@@ -66,12 +65,11 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
     let cancelled = false;
     setReady(false);
     const sprites = new SpriteCache(recording.meta.botUserId);
-    const backgrounds = new BackgroundCache((frameIndex) => api.scene(relPath, frameIndex), layout);
-    caches.current = { sprites, backgrounds };
+    const layers = new StaticLayers(recording, layout); // synchronous — no server call
+    caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
     (async () => {
       await sprites.prewarm(recording);
-      await backgrounds.ensure(0, epochKey(recording.frames[0]));
       if (!cancelled) setReady(true);
     })();
     return () => { cancelled = true; };
@@ -130,7 +128,11 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       ctx.fillRect(0, 0, cv.width, cv.height);
       const s = view.current.scale * dpr;
       ctx.setTransform(s, 0, 0, s, view.current.tx * dpr, view.current.ty * dpr);
-      if (c) drawFrame(ctx, recording, drawTick, st.playing ? sub : null, { sprites: c.sprites, backgrounds: c.backgrounds, layout, showVisuals: st.showVisuals });
+      if (c) {
+        const f0 = recording.frames[Math.min(drawTick, count - 1)];
+        c.layers.sync(f0);
+        drawFrame(ctx, recording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals });
+      }
 
       // selection ring
       if (st.selectedId) {

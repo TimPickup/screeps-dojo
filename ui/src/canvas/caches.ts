@@ -2,6 +2,7 @@ import type { Frame, FrameObject, Recording, StageLayout } from '../api/types';
 import { generateCreepSvg, countBodyParts } from '../render/creepSprite';
 import { INVADER_INNER, INVADER_VIEWBOX } from '../render/invaderAsset';
 import { svgToImage } from './rasterize';
+import { buildTerrainCanvas, buildStructureCanvas, STATIC_RES } from './staticLayers';
 
 const NPC_USERS = new Set(['2', '3']);
 const CREEP_SIZE_TILES = 1.25;
@@ -89,30 +90,28 @@ export function epochKey(frame: Frame): string {
   return parts.join('|');
 }
 
-export class BackgroundCache {
-  private byKey = new Map<string, HTMLImageElement>();
-  private pending = new Map<string, Promise<HTMLImageElement | null>>();
+export class StaticLayers {
+  terrain: HTMLCanvasElement;
+  structure: HTMLCanvasElement;
+  private key: string;
+  private layout: StageLayout;
+  private res: number;
 
-  constructor(private fetchScene: (frameIndex: number) => Promise<{ svg: string }>, private layout: StageLayout) {}
-
-  // returns the background image for a frame's epoch, or null if not ready yet
-  get(frameIndex: number, key: string): HTMLImageElement | null {
-    const img = this.byKey.get(key);
-    if (img) return img;
-    if (!this.pending.has(key)) {
-      const p = this.fetchScene(frameIndex)
-        .then((r) => svgToImage(r.svg))
-        .then((im) => { this.byKey.set(key, im); return im; })
-        .catch(() => null);
-      this.pending.set(key, p);
-    }
-    return null;
+  constructor(recording: Recording, layout: StageLayout, res = STATIC_RES) {
+    this.layout = layout;
+    this.res = res;
+    this.terrain = buildTerrainCanvas(recording, layout, res);
+    const first = recording.frames[0];
+    this.key = epochKey(first);
+    this.structure = buildStructureCanvas(first, layout, res);
   }
 
-  // ensure a frame's epoch background is loaded (awaitable, for first paint)
-  async ensure(frameIndex: number, key: string): Promise<HTMLImageElement | null> {
-    if (this.byKey.has(key)) return this.byKey.get(key)!;
-    this.get(frameIndex, key);
-    return (await this.pending.get(key)) || null;
+  // Rebuild the structure layer only when the structure set changes.
+  sync(frame: Frame): void {
+    const k = epochKey(frame);
+    if (k !== this.key) {
+      this.key = k;
+      this.structure = buildStructureCanvas(frame, this.layout, this.res);
+    }
   }
 }

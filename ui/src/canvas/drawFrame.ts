@@ -1,12 +1,16 @@
 import type { Recording, Frame, FrameObject, StageLayout } from '../api/types';
 import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry';
-import { SpriteCache, BackgroundCache, epochKey } from './caches';
+import { SpriteCache, StaticLayers } from './caches';
+import {
+  drawExtensionFill, drawLinkFill, drawStorageFill, drawContainerFill,
+  drawSourceCore, drawControllerProgress, drawSpawnProgress, drawTombstone, drawDroppedResource,
+} from './dynamic';
 
 const S = 1.25; // CREEP_SIZE_TILES
 
 interface DrawOpts {
   sprites: SpriteCache;
-  backgrounds: BackgroundCache;
+  layers: StaticLayers;
   layout: StageLayout;
   showVisuals: boolean;
 }
@@ -15,7 +19,7 @@ interface DrawOpts {
 // matching the SVG renderer's staticActions; a number ∈ [0,1) = animating).
 // Works in TILE coordinates — the caller has applied the world→screen transform.
 export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, tick: number, sub: number | null, opts: DrawOpts) {
-  const { sprites, backgrounds, layout } = opts;
+  const { sprites, layout } = opts;
   const frames = recording.frames;
   const count = frames.length;
   const i = Math.max(0, Math.min(count - 1, tick));
@@ -25,9 +29,9 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
 
-  // 1) static background (per epoch)
-  const bg = backgrounds.get(i, epochKey(base));
-  if (bg) ctx.drawImage(bg, 0, 0, colsTiles, rowsTiles);
+  // 1) static layers (client-side, synchronous — never black)
+  ctx.drawImage(opts.layers.terrain, 0, 0, colsTiles, rowsTiles);
+  ctx.drawImage(opts.layers.structure, 0, 0, colsTiles, rowsTiles);
 
   // world tile coords for a room-local position
   const wpos = (room: string, x: number, y: number) => {
@@ -42,7 +46,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
 
   // 2) creeps (interpolated) + HP + effects
   for (const obj of base.objects) {
-    if (obj.type !== 'creep' || obj.spawning) continue;
+    if (obj.type !== 'creep') continue;
+    if (obj.spawning) {
+      const p2 = wpos(obj.room, obj.x, obj.y);
+      if (!p2) continue;
+      const sp = sprites.isNpc(obj) ? sprites.invaderSprite() : sprites.creepSprite(obj);
+      drawSprite(ctx, sp, p2.wx, p2.wy, 0, 1, sprites.isNpc(obj));
+      continue;
+    }
     let x = obj.x, y = obj.y, room = obj.room, opacity = 1;
     let actionSrc: FrameObject = obj;
     if (next) {
@@ -108,6 +119,44 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     const p = wpos(obj.room, obj.x, obj.y);
     if (!p) continue;
     drawSpawnFill(ctx, obj, p.wx, p.wy);
+  }
+
+  // 2d) live structure fills, source cores, controller progress, spawn arcs,
+  //     link beams — all energy-blind in the baked structure layer, so drawn here.
+  for (const obj of base.objects) {
+    const p = wpos(obj.room, obj.x, obj.y);
+    if (!p) continue;
+    const cx = p.wx + 0.5, cy = p.wy + 0.5;
+    switch (obj.type) {
+      case 'extension': drawExtensionFill(ctx, obj, cx, cy); break;
+      case 'storage': drawStorageFill(ctx, obj, cx, cy); break;
+      case 'container': drawContainerFill(ctx, obj, cx, cy); break;
+      case 'source': drawSourceCore(ctx, obj, cx, cy); break;
+      case 'controller': drawControllerProgress(ctx, obj, cx, cy); break;
+      case 'link': {
+        drawLinkFill(ctx, obj, cx, cy);
+        const nextDoc = nextById ? nextById[obj._id] : null;
+        const log = ((nextDoc || obj).actionLog as any);
+        if (log && log.transferEnergy) {
+          const o2 = off[obj.room];
+          const tx = o2.col * 50 + log.transferEnergy.x + 0.5, ty = o2.row * 50 + log.transferEnergy.y + 0.5;
+          ctx.save(); ctx.strokeStyle = '#ffe25a'; ctx.lineWidth = 0.12; ctx.globalAlpha = 0.85; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.restore();
+        }
+        break;
+      }
+      case 'spawn':
+        drawSpawnProgress(ctx, obj as FrameObject, cx, cy, base.gameTime, sub === null ? 0 : sub);
+        break;
+      case 'tombstone': drawTombstone(ctx, cx, cy); break;
+      case 'energy': case 'resource': {
+        const store = (obj.store as Record<string, number> | undefined) || {};
+        let amt = 0; for (const k of Object.keys(store)) amt += store[k];
+        const rt = (obj.resourceType as string) || (Object.keys(store)[0]) || 'energy';
+        drawDroppedResource(ctx, cx, cy, amt, rt);
+        break;
+      }
+    }
   }
 
   // 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
@@ -300,6 +349,7 @@ function drawEffects(ctx: CanvasRenderingContext2D, creep: FrameObject, wx: numb
   if (a.harvest) beam(a.harvest, '#ffe87b', 0.1);
   if (a.build) beam(a.build, '#ffffff', 0.1);
   if (a.repair) beam(a.repair, '#9aa0aa', 0.08);
+  if (a.dismantle) beam(a.dismantle, '#d18b2a', 0.1);
   if (a.upgradeController) beam(a.upgradeController, '#ffe25a', 0.12);
   if (a.heal) {
     if (a.heal.x === creep.x && a.heal.y === creep.y) ring(ctx, { tx: cx, ty: cy }, sub === null ? 0.6 : 0.55 + 0.1 * Math.sin(Math.PI * fx), '#5cff6a');

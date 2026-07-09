@@ -30,9 +30,6 @@ export const api = {
   renderedRecording: (relPath: string) =>
     jget<{ layout: import('./types').StageLayout; frames: string[]; visualLayers: string[] }>(
       '/api/recordings/rendered?path=' + encodeURIComponent(relPath)),
-  scene: (relPath: string, frame: number) =>
-    jget<{ svg: string; layout: import('./types').StageLayout }>(
-      '/api/recordings/scene?path=' + encodeURIComponent(relPath) + '&frame=' + frame),
   run: (scenario: string, record = false) =>
     jpost<{ jobId: string }>('/api/run', { scenario, record }),
   test: (scenario: string, record = false) =>
