@@ -21,7 +21,7 @@
 // expect() to capture pass/fail (options.runExpect) for the Replays badge.
 const path = require('path');
 const assert = require('assert');
-const DojoWorld = require('./dojoWorld');
+const { createWorld } = require('./drivers');
 const { createRecorder } = require('./recording');
 const { getMockEngineFeatures } = require('./serverBoot');
 
@@ -55,7 +55,9 @@ async function runScenario(scenarioDir, options) {
 	if (typeof scenario.setup !== 'function') throw new Error(scenarioDir + ': setup(world) is required');
 	if (typeof scenario.expect !== 'function') throw new Error(scenarioDir + ': expect(result, assert) is required');
 
-	const world = new DojoWorld();
+	// engine driver seam: options.engine / DOJO_ENGINE pick the world
+	// implementation (src/drivers.js); mockup is the default and only built-in
+	const world = createWorld(options.engine);
 	const consoleLines = [];
 	let lastConsoleLen = 0;
 	const recordingEnabled = options.record === true || scenario.record === true || process.env.DOJO_RECORD === '1';
