@@ -1,0 +1,26 @@
+--- a/build/runtime.bundle.js
++++ b/build/runtime.bundle.js
+@@ -28400,11 +28400,11 @@
+             return nowCpuTime() + intents.cpu - startTime;
+         };
+ 
+-        if(!mapGrid) {
++        if(!mapGrid && (!data.dojoRoomGuard || data.accessibleRooms)) {
+             mapGrid = new WorldMapGrid(systemFunctions.JSON.parse(data.accessibleRooms), staticTerrainData);
+         }
+ 
+-        data.mapGrid = mapGrid;
++        data.mapGrid = mapGrid || new WorldMapGrid([], staticTerrainData);
+         data.staticTerrainData = staticTerrainData;
+         data.customObjectPrototypes = customObjectPrototypes;
+ 
+@@ -45673,7 +45673,8 @@
+     var toX, toY;
+     let _visual;
+ 
+-    const accessibleRooms = JSON.parse(runtimeData.accessibleRooms);
++    const accessibleRooms = runtimeData.dojoRoomGuard && !runtimeData.accessibleRooms ? [] :
++        JSON.parse(runtimeData.accessibleRooms);
+ 
+     function describeExits(roomName) {
+         if(!/^(W|E)\d+(N|S)\d+$/.test(roomName)) {

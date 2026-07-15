@@ -1,0 +1,31 @@
+--- a/lib/rpc.js
++++ b/lib/rpc.js
+@@ -1,6 +1,9 @@
+ const { Writable } = require('stream');
+ const q = require('q');
+ const { EventEmitter } = require('events');
++const v8 = require('v8');
++const dojoFeatures = require('./dojo-features');
++const useV8Rpc = dojoFeatures.isEnabled('rpcV8');
+ 
+ class JSONFrameStream extends Writable {
+ 
+@@ -39,14 +42,16 @@
+             buffer.copy(this.frame.data, this.frame.pointer, 0, length);
+             this.frame.pointer += length;
+             if (this.frame.pointer == this.frame.size) {
+-                this.handler(JSON.parse(this.frame.data.toString('utf8')));
++                this.handler(useV8Rpc ? v8.deserialize(this.frame.data) :
++                    JSON.parse(this.frame.data.toString('utf8')));
+                 this.frame = null;
+             }
+             return this._parse(buffer.slice(length));
+         }
+     }
+     static makeFrame(obj) {
+-        var data = Buffer.from(JSON.stringify(obj), 'utf8');
++        var data = useV8Rpc ? v8.serialize(obj) :
++            Buffer.from(JSON.stringify(obj), 'utf8');
+         var length = Buffer.alloc(4);
+         length.writeUInt32BE(data.length);
+         return Buffer.concat([length, data]);

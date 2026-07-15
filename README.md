@@ -62,6 +62,35 @@ what you want for CI:
 (`npm run ui` does the build + install steps automatically; you only need these
 if you prefer the command line or are wiring up CI.)
 
+### Optional fast mock engine
+
+Dojo installs a set of runtime-selectable optimizations for the bundled Screeps
+mock engine. They are **on by default**; an unset master switch enables every
+optimization. The explicit equivalent is:
+
+    DOJO_FAST_MOCK_ENGINE=1
+
+Each optimization can be selected independently:
+
+    DOJO_FAST_MOCK_ENGINE_RPC_V8=1
+    DOJO_FAST_MOCK_ENGINE_CODE_CACHE=1
+    DOJO_FAST_MOCK_ENGINE_ROOM_GUARD=1
+    DOJO_FAST_MOCK_ENGINE_IN_PROCESS=1
+    DOJO_FAST_MOCK_ENGINE_RESET_ACTIVE_ROOMS=1
+
+An explicit individual `0` or `1` overrides the master. For example, this uses
+every optimization except in-process execution:
+
+    DOJO_FAST_MOCK_ENGINE=1
+    DOJO_FAST_MOCK_ENGINE_IN_PROCESS=0
+
+Unset individual values inherit the master. Changes apply when the `dojo`/`ui`
+container is recreated. Verify the installed dependency patches with
+`npm run verify:mock-engine-patches` inside the container. Stock multiprocess
+mode remains the supported fallback and can always be selected with:
+
+    DOJO_FAST_MOCK_ENGINE=0
+
 ## Writing a scenario
 
 `scenarios/` is **your** workspace — it ships empty and is git-ignored, so your
@@ -185,8 +214,11 @@ Everything is pinned: `screeps` (feat-node24 beta), `@screeps/*` overrides,
 `screeps-server-mockup` (git commit SHA), base image digest. To upgrade:
 
 1. Bump ONE pin in `package.json` (or the Dockerfile digest).
-2. `npm run install:dojo` then `npm run smoke` — the canary.
-3. If green, `npm test`. Commit the pin + lockfile together.
+2. Update the expected versions/hashes in `server-mock-patches/manifest.json`
+   and regenerate any patch whose pristine source changed.
+3. `npm run install:dojo`, `npm run verify:mock-engine-patches`, then
+   `npm run smoke` — the canary.
+4. If green, run both stock and fast smoke modes, then `npm test`.
 
 ## License
 

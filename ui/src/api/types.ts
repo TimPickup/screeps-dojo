@@ -76,7 +76,7 @@ export interface LiveFrame {
 }
 
 export type JobEvent =
-  | { type: 'start'; scenario: string; maxTicks: number; botUserId: string }
+  | { type: 'start'; scenario: string; maxTicks: number; botUserId: string; mockEngineFeatures?: Record<string, boolean> }
   | { type: 'terrain'; terrain: Record<string, string[]>; botUserId: string }
   | { type: 'layout'; layout: StageLayout }
   | { type: 'console'; lines: string[] }

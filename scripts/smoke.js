@@ -4,9 +4,12 @@
 // server, runs a bot for 5 ticks, asserts time advances and console arrives.
 // Boot workaround (STORAGE_HOST, storage child env) lives in src/serverBoot.js.
 
-const { createServer, TerrainMatrix } = require('../src/serverBoot');
+process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
+
+const { createServer, TerrainMatrix, getMockEngineFeatures } = require('../src/serverBoot');
 
 async function main() {
+	console.log('[dojo] mock engine features: ' + JSON.stringify(getMockEngineFeatures()));
 	const server = createServer();
 
 	try {

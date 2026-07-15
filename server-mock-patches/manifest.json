@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "packages": {
+    "@screeps/common": "2.16.0",
+    "@screeps/driver": "5.3.0",
+    "@screeps/engine": "4.3.0",
+    "screeps-server-mockup": "1.5.1"
+  },
+  "operations": [
+    {
+      "type": "copy",
+      "package": "@screeps/common",
+      "source": "server-mock-patches/lib/dojo-features.js",
+      "target": "lib/dojo-features.js",
+      "pristineSha256": null,
+      "patchedSha256": "59bfb8d0490270a2ff12ed9afdc7f07872316882df8b57493c46813023267ee1"
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/common",
+      "patch": "server-mock-patches/01-rpc-v8-encoding.patch",
+      "targets": [
+        {
+          "path": "lib/rpc.js",
+          "pristineSha256": "a801f8354bd2217531ec007700e73a0983de3ab87a8ebe6675c4f625c48f7d4c",
+          "patchedSha256": "e5571391b48c93c12d50f3e2144676deaf913090a5d9552fa2b3810fceca8986"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/common",
+      "patch": "server-mock-patches/04-common-inprocess-storage.patch",
+      "targets": [
+        {
+          "path": "lib/storage.js",
+          "pristineSha256": "fe8a6e2958a2c2d226dfcce716aed9e9bc6eeabf2fe4d7b5b42cc797f2cba18c",
+          "patchedSha256": "71cec2d5be4c554f73ecec02a55d8bf5b53dbed93753c5758ea2e21d9c27c716"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/driver",
+      "patch": "server-mock-patches/02-driver-runtime-data.patch",
+      "targets": [
+        {
+          "path": "lib/runtime/data.js",
+          "pristineSha256": "ffbc0e1059ba83585ea0a006f5e230544820e097e3d35a4c821111439fd84e08",
+          "patchedSha256": "cdbbadfe2427e44e809f94eb65859b2b2254e3aaadfc2b69b20919f37ca34a9e"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/driver",
+      "patch": "server-mock-patches/03-driver-runtime-bundle.patch",
+      "targets": [
+        {
+          "path": "build/runtime.bundle.js",
+          "pristineSha256": "3785a1da2abb742f467f0c1a606e16799203e407e7d047e97a7e5369879f27b9",
+          "patchedSha256": "39678467a3dbfbb194fea1fdcfedf8900f5fc061d6d1e1fa3bb696bb47ee8e1e"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/driver",
+      "patch": "server-mock-patches/05-driver-multi-role.patch",
+      "targets": [
+        {
+          "path": "lib/index.js",
+          "pristineSha256": "2080ac77155c822451534ffd1794a2732de9f999bcf0074853e38aea12a15e44",
+          "patchedSha256": "42620fbb8ec01315e0da1e8dcd1c8c0c56041cfc3467167f850d305df3d30893"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/engine",
+      "patch": "server-mock-patches/06-engine-runner-exports.patch",
+      "targets": [
+        {
+          "path": "src/runner.js",
+          "pristineSha256": "e7e209f2627908f2a01302e54c2617d0b3e0699ffccbaac81c74f8217f2e093d",
+          "patchedSha256": "65bdcfbfaf64876bd20ecf31b3a8785d3646450a39b9a40050890c032db01799"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/engine",
+      "patch": "server-mock-patches/07-engine-processor-exports.patch",
+      "targets": [
+        {
+          "path": "src/processor.js",
+          "pristineSha256": "9dee13d3021087d3d2f5287b87cbc1b7658a5ded4c03032cbb85fc15d0bd8918",
+          "patchedSha256": "06aceacca224d9f35192c7993912b07a222d05a1bb2b4381a157ddd98f017561"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "screeps-server-mockup",
+      "patch": "server-mock-patches/08-mockup-inprocess.patch",
+      "targets": [
+        {
+          "path": "dist/src/inProcessEngine.js",
+          "pristineSha256": null,
+          "patchedSha256": "10126c8081055b5d202f04786fdc917bd08483bafaa54e0eafc6b50ded4dbd97"
+        },
+        {
+          "path": "dist/src/screepsServer.js",
+          "pristineSha256": "838ec9cb819f9999cd2e9a8df59632262080357adc2011844ddbf6a38e0ad588",
+          "patchedSha256": "5b72cedf798bb91e007020a3e1b419cd4cef19bc140acfa629297b86302817d1"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "screeps-server-mockup",
+      "patch": "server-mock-patches/09-mockup-reset-active-rooms.patch",
+      "targets": [
+        {
+          "path": "dist/src/world.js",
+          "pristineSha256": "f0ad6365cdd39f87daf04a85082e10b37a3c9811f975fbbb485417b11263b9cf",
+          "patchedSha256": "3cb549bc1846bf529a4eea3d2c88ef6adc08f4553672e4a02101c60c0f13c497"
+        }
+      ]
+    }
+  ],
+  "snapshot": {
+    "package": "@screeps/driver",
+    "source": "build/runtime.bundle.js",
+    "generator": "make-runtime-snapshot.js",
+    "output": "build/runtime.snapshot.bin",
+    "stamp": "build/.dojo-runtime-source.sha256"
+  }
+}

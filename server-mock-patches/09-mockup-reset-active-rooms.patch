@@ -1,0 +1,17 @@
+--- a/dist/src/world.js
++++ b/dist/src/world.js
+@@ -43,6 +43,7 @@
+ const terrainMatrix_1 = __importDefault(require("./terrainMatrix"));
+ const user_1 = __importDefault(require("./user"));
++const dojoFeatures = require('@screeps/common/lib/dojo-features');
+ // Terrain string for room completely filled with walls
+ const walled = '1'.repeat(2500);
+ class World {
+@@ -146,6 +147,8 @@
+         const { db, env } = await this.load();
+         // Clear database
+         await Promise.all(_.map(db, (col) => col.clear()));
++        if (dojoFeatures.isEnabled('resetActiveRooms'))
++            await env.del(env.keys.ACTIVE_ROOMS);
+         await env.set(env.keys.GAMETIME, 1);
+         // Insert invaders and sourcekeeper users

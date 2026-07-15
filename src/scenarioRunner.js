@@ -23,6 +23,7 @@ const path = require('path');
 const assert = require('assert');
 const DojoWorld = require('./dojoWorld');
 const { createRecorder } = require('./recording');
+const { getMockEngineFeatures } = require('./serverBoot');
 
 const DEFAULT_TICK_TIMEOUT_MS = 60000;
 
@@ -128,7 +129,10 @@ async function runScenario(scenarioDir, options) {
 		}
 
 		let state = await world.readState();
-		emit({ type: 'start', scenario: path.basename(scenarioDir), maxTicks: scenario.maxTicks, botUserId: world.botUserId });
+		emit({
+			type: 'start', scenario: path.basename(scenarioDir), maxTicks: scenario.maxTicks,
+			botUserId: world.botUserId, mockEngineFeatures: getMockEngineFeatures()
+		});
 
 		// terrain is captured once (it never changes); feed both the recorder
 		// and the live stream so the live preview can draw rooms.

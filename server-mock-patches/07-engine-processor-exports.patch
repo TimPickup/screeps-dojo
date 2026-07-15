@@ -1,0 +1,35 @@
+--- a/src/processor.js
++++ b/src/processor.js
+@@ -536,7 +536,8 @@
+ }
+ 
+ 
+-driver.connect('processor')
++function start() {
++return driver.connect('processor')
+     .then(() => driver.queue.create('rooms', 'read'))
+     .catch((error) => {
+         console.error('Error connecting to driver:', error);
+@@ -590,9 +591,14 @@
+         }
+ 
+         loop();
+ 
+     });
++}
+ 
+ 
+-if(typeof self == 'undefined') {
++if(require.main === module) {
++    start();
++    if(typeof self == 'undefined') {
+     setInterval(() => {
+         var rejections = q.getUnhandledReasons();
+@@ -600,4 +606,8 @@
+         rejections.forEach((i) => console.error('Unhandled rejection:', i));
+         q.resetUnhandledRejections();
+     }, 1000);
++    }
+ }
++
++module.exports = {processRoom, start};

@@ -1,0 +1,103 @@
+--- a/lib/runtime/data.js
++++ b/lib/runtime/data.js
+@@ -2,6 +2,7 @@
+     queue = require('../queue'),
+     EventEmitter = require('events').EventEmitter,
+     common = require('@screeps/common'),
++    dojoFeatures = require('@screeps/common/lib/dojo-features'),
+     db = common.storage.db,
+     env = common.storage.env,
+     config = common.configManager.config,
+@@ -13,7 +14,8 @@
+     driver = require('../index'),
+     accessibleRoomsCache = {
+-        timestamp: 0
++        timestamp: 0,
++        loading: null
+     },
+     roomStatusDataCache = {
+         expireTimestamp: 0,
+@@ -26,7 +28,52 @@
+     cachedMarketHistory = {
+         time: 0,
+         history: {}
+-    };
++    },
++    cachedUserCode = new Map();
++
++function getUserCode(userId) {
++    if(!dojoFeatures.isEnabled('codeCache')) {
++        return db['users.code'].findOne({$and: [{user: userId}, {activeWorld: true}]});
++    }
++
++    let entry = cachedUserCode.get(userId);
++    if(!entry) {
++        entry = {generation: 0, loading: null, loaded: false, value: null, subscribed: false};
++        cachedUserCode.set(userId, entry);
++    }
++    if(!entry.subscribed) {
++        common.storage.pubsub.subscribe(`user:${userId}/code`, () => {
++            entry.generation++;
++            entry.loading = null;
++            entry.loaded = false;
++            entry.value = null;
++        });
++        entry.subscribed = true;
++    }
++    if(entry.loaded) return q.when(entry.value);
++    if(entry.loading) return entry.loading;
++
++    const generation = entry.generation;
++    const loading = db['users.code'].findOne({$and: [{user: userId}, {activeWorld: true}]})
++        .then(doc => {
++            if(generation !== entry.generation) return getUserCode(userId);
++            entry.value = doc ? {
++                modules: Object.assign({}, doc.modules || {}),
++                timestamp: doc.timestamp
++            } : null;
++            entry.loaded = true;
++            return entry.value;
++        })
++        .finally(() => {
++            if(entry.loading === loading) entry.loading = null;
++        });
++    entry.loading = loading;
++    return loading;
++}
+ 
+ function getCachedMarketOrders(gameTime) {
+@@ -70,6 +117,17 @@
+ }
+ 
+ function getAccessibleRooms() {
++    if(dojoFeatures.isEnabled('roomGuard')) {
++        if(Date.now() > accessibleRoomsCache.timestamp + 60*1000 && !accessibleRoomsCache.loading) {
++            accessibleRoomsCache.loading = env.get(env.keys.ACCESSIBLE_ROOMS).then(data => {
++                accessibleRoomsCache.data = data;
++                accessibleRoomsCache.timestamp = Date.now();
++                return data;
++            }).finally(() => accessibleRoomsCache.loading = null);
++        }
++        return accessibleRoomsCache.loading || q.when(accessibleRoomsCache.data);
++    }
++
+     if(Date.now() > accessibleRoomsCache.timestamp + 60*1000) {
+         accessibleRoomsCache.timestamp = Date.now();
+         return env.get(env.keys.ACCESSIBLE_ROOMS).then(data => {
+@@ -128,7 +186,7 @@
+ 
+             return q.all([
+                 db.users.findOne({_id: userId}),
+-                db['users.code'].findOne({$and: [{user: userId}, {activeWorld: true}]}),
++                getUserCode(userId),
+                 env.get(env.keys.MEMORY+userId),
+                 db['users.console'].find({user: userId}),
+                 common.getGametime(),
+@@ -205,6 +263,7 @@
+                 roomObjects: _.extend(driver.mapById(result[6]), userObjects),
+                 flags: result[10],
+                 accessibleRooms: result[7],
++                dojoRoomGuard: dojoFeatures.isEnabled('roomGuard'),
+                 roomStatusData: result[13],
+                 transactions: {
+                     outgoing: result[8],

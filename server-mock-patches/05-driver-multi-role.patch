@@ -1,0 +1,101 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -92,46 +92,67 @@
+ const pathFinderFactory = require('./path-finder');
+ exports.pathFinder = pathFinderFactory.create(require('../native/build/Release/native'));
+ 
+-exports.connect = function(processType) {
+-
+-    common.configManager.load();
+-
+-    return common.storage._connect()
+-    .then(() => {
+-
+-        if (processType == 'runner') {
++const processTypeInitializers = new Map();
++
++function initProcessType(processType) {
++    if(!processType) return q.when();
++    if(processTypeInitializers.has(processType)) return processTypeInitializers.get(processType);
++
++    const promise = q.when().then(() => {
++        if(processType == 'runner') {
+             runtimeUserVm.init();
+             pubsub.subscribe(pubsub.keys.RUNTIME_RESTART, () => {
+                 console.log('runtime restart signal');
+                 runtimeUserVm.clearAll();
+             });
++            return;
+         }
+ 
+-        if (processType == 'runtime') {
+-        }
+-
+-        if (processType == 'processor') {
+-            getAllTerrainData()
+-                .then(rooms => pathFinderFactory.init(require('../native/build/Release/native'), rooms));
++        if(processType == 'processor') {
++            return getAllTerrainData()
++                .then(rooms => pathFinderFactory.init(require('../native/build/Release/native'), rooms));
+         }
+ 
+-        if (processType == 'main') {
++        if(processType == 'main') {
+             const setTickRate = function setTickRate(value) {
+                 if(value && !!parseInt(value)) {
+                     config.engine.mainLoopMinDuration = value;
+                     console.log(`Tick rate set to ${value}ms`);
+                     return q.when(value);
+-                } else {
++                }
++                else {
+                     return env.set(env.keys.MAIN_LOOP_MIN_DURATION, config.engine.mainLoopMinDuration);
+                 }
+             };
+ 
+-            env.get(env.keys.MAIN_LOOP_MIN_DURATION)
+-                .then(setTickRate);
+-
+-            pubsub.subscribe('setTickRate', setTickRate);
++            return env.get(env.keys.MAIN_LOOP_MIN_DURATION)
++                .then(setTickRate)
++                .then(() => pubsub.subscribe('setTickRate', setTickRate));
+         }
+-    })
++    });
++    processTypeInitializers.set(processType, promise);
++    promise.catch(() => {
++        if(processTypeInitializers.get(processType) === promise) processTypeInitializers.delete(processType);
++    });
++    return promise;
++}
++
++function updateWorldSize() {
++    return db.rooms.find({}, {_id: true})
+-    .then(() => db.rooms.find({}, {_id: true}))
+     .then(common.calcWorldSize)
+-    .then(_worldSize => worldSize = _worldSize)
++    .then(_worldSize => worldSize = _worldSize);
++}
++
++exports.connect = function(processType) {
++    common.configManager.load();
++    return common.storage._connect()
++    .then(() => initProcessType(processType))
++    .then(updateWorldSize)
+     .then(() => {
+         config.engine.emit('init', processType);
+         return true;
+     });
+ };
++
++exports.connectRoles = function(processTypes) {
++    return q.all(processTypes.map(initProcessType))
++        .then(updateWorldSize)
++        .then(() => {
++            processTypes.forEach(processType => config.engine.emit('init', processType));
++            return true;
++        });
++};
+ 
+ exports.getAllUsers = function() {

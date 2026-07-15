@@ -1,0 +1,34 @@
+--- a/src/runner.js
++++ b/src/runner.js
+@@ -48,7 +48,8 @@
+     }
+ }
+ 
+-driver.connect('runner')
++function start() {
++return driver.connect('runner')
+     .then(() => driver.queue.create('users', 'read'))
+     .catch((error) => {
+         console.error('Error connecting to driver:', error);
+@@ -75,7 +76,12 @@
+                 .finally(() => driver.config.emit('runnerLoopStage','finish', userId));
+         });
+ 
+     });
++}
+ 
+ 
+-if(typeof self == 'undefined') {
++if(require.main === module) {
++    start();
++    if(typeof self == 'undefined') {
+     setInterval(() => {
+         var rejections = q.getUnhandledReasons();
+@@ -84,5 +90,9 @@
+         rejections.forEach((i) => console.error('Unhandled rejection:', i));
+         q.resetUnhandledRejections();
+     }, 1000);
++    }
+ }
+ 
++module.exports = {runUser, start};

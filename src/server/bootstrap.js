@@ -22,7 +22,11 @@ const state = { phase: 'ready', subscribers: new Set() };
 // which would otherwise be reported as ready and then crash every run-child with
 // "Cannot find module 'screeps-server-mockup'".
 function isInstalled() {
-	try { require.resolve('screeps-server-mockup', { paths: [REPO_ROOT] }); return true; }
+	try {
+		require.resolve('screeps-server-mockup', { paths: [REPO_ROOT] });
+		require('../../tools/mockEnginePatches.cjs').run('check', { repoRoot: REPO_ROOT });
+		return true;
+	}
 	catch (e) { return false; }
 }
 

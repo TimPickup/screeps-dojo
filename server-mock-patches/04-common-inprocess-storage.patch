@@ -1,0 +1,137 @@
+--- a/lib/storage.js
++++ b/lib/storage.js
+@@ -2,6 +2,8 @@
+ const net = require('net');
+ const config = require('./config-manager').config;
+ const { RpcClient } = require('./rpc');
++const v8 = require('v8');
++const dojoFeatures = require('./dojo-features');
+ 
+ config.common.dbCollections = [
+@@ -59,12 +61,135 @@
+     }
+ };
+ 
++function cloneRpcValue(value) {
++    return v8.deserialize(v8.serialize(value));
++}
++
++function cbPromisify(fn, args) {
++    var defer = q.defer();
++    var callArgs = args.slice();
++    callArgs.push(function(err, result) {
++        if(err) defer.reject(err);
++        else defer.resolve(result);
++    });
++    try {
++        fn.apply(null, callArgs);
++    }
++    catch(error) {
++        defer.reject(error);
++    }
++    return defer.promise;
++}
++
++function callCloned(fn, args) {
++    return cbPromisify(fn, cloneRpcValue(args)).then(cloneRpcValue);
++}
++
++function connectInProcess() {
++    if(exports._connected) return q.when();
++    if(!process.env.DB_PATH) throw new Error('DB_PATH environment variable is not set!');
++
++    console.log('Connecting to storage (in-process)');
++    require('@screeps/storage/lib/index');
++    var databaseMethods = require('@screeps/storage/lib/db');
++    var queueMethods = require('@screeps/storage/lib/queue');
++    var pubsubModule = require('@screeps/storage/lib/pubsub');
++    var pubsubConnection = pubsubModule.create();
++
++    require('./config-manager').load();
++
++    function wrapCollection(collectionName) {
++        var wrap = {};
++        ['find', 'findOne', 'by', 'clear', 'count', 'ensureIndex', 'removeWhere', 'insert'].forEach(method => {
++            wrap[method] = function() {
++                return callCloned(databaseMethods.dbRequest, [
++                    collectionName, method, Array.prototype.slice.call(arguments)
++                ]);
++            };
++        });
++        wrap.update = function(query, update, params) {
++            return callCloned(databaseMethods.dbUpdate, [collectionName, query, update, params]);
++        };
++        wrap.bulk = function(bulk) {
++            return callCloned(databaseMethods.dbBulk, [collectionName, bulk]);
++        };
++        wrap.findEx = function(query, opts) {
++            return callCloned(databaseMethods.dbFindEx, [collectionName, query, opts]);
++        };
++        return wrap;
++    }
++
++    function assignClonedMethods(target, source, methods) {
++        methods.forEach(function(method) {
++            target[method.name] = function() {
++                var args = method.prefix.concat(Array.prototype.slice.call(arguments));
++                return callCloned(source[method.source], args);
++            };
++        });
++    }
++
++    return config.storage.loadDb().then(() => {
++        config.common.dbCollections.forEach(name => exports.db[name] = wrapCollection(name));
++        exports.resetAllData = () => callCloned(databaseMethods.dbResetAllData, []);
++
++        assignClonedMethods(exports.queue, queueMethods, [
++            {name: 'fetch', source: 'queueFetch', prefix: []},
++            {name: 'add', source: 'queueAdd', prefix: []},
++            {name: 'addMulti', source: 'queueAddMulti', prefix: []},
++            {name: 'markDone', source: 'queueMarkDone', prefix: []},
++            {name: 'whenAllDone', source: 'queueWhenAllDone', prefix: []},
++            {name: 'reset', source: 'queueReset', prefix: []}
++        ]);
++
++        assignClonedMethods(exports.env, databaseMethods, [
++            {name: 'get', source: 'dbEnvGet', prefix: []},
++            {name: 'mget', source: 'dbEnvMget', prefix: []},
++            {name: 'set', source: 'dbEnvSet', prefix: []},
++            {name: 'setex', source: 'dbEnvSetex', prefix: []},
++            {name: 'expire', source: 'dbEnvExpire', prefix: []},
++            {name: 'ttl', source: 'dbEnvTtl', prefix: []},
++            {name: 'del', source: 'dbEnvDel', prefix: []},
++            {name: 'hmget', source: 'dbEnvHmget', prefix: []},
++            {name: 'hmset', source: 'dbEnvHmset', prefix: []},
++            {name: 'hget', source: 'dbEnvHget', prefix: []},
++            {name: 'hset', source: 'dbEnvHset', prefix: []},
++            {name: 'sadd', source: 'dbEnvSadd', prefix: []},
++            {name: 'smembers', source: 'dbEnvSmembers', prefix: []}
++        ]);
++
++        Object.assign(exports.pubsub, {
++            publish(channel, data) {
++                return callCloned(pubsubConnection.methods.publish, [channel, data]);
++            },
++            subscribe(channel, cb) {
++                return pubsubConnection.methods.subscribe(channel, function(message) {
++                    cb.apply({channel: message.channel}, [cloneRpcValue(message.data)]);
++                });
++            }
++        });
++
++        exports._connected = true;
++        exports._inProcess = true;
++    });
++}
++
+ exports._connect = function storageConnect() {
+ 
+     if(exports._connected) {
+         return q.when();
+     }
+ 
++    if(dojoFeatures.isEnabled('inProcess')) return connectInProcess();
++
+     if(!process.env.STORAGE_PORT) {
+         throw new Error('STORAGE_PORT environment variable is not set!');
+     }

@@ -1,0 +1,188 @@
+diff --git a/dist/src/inProcessEngine.js b/dist/src/inProcessEngine.js
+new file mode 100644
+--- /dev/null
++++ b/dist/src/inProcessEngine.js
+@@ -0,0 +1,74 @@
++"use strict";
++const q = require("q");
++const _ = require("lodash");
++const driver = require("@screeps/driver");
++const runner = require("@screeps/engine/src/runner");
++const processor = require("@screeps/engine/src/processor");
++
++async function runUsers(userIds) {
++    for (const userId of userIds) {
++        driver.config.emit("runnerLoopStage", "start");
++        try {
++            await runner.runUser(userId);
++        }
++        finally {
++            driver.config.emit("runnerLoopStage", "finish", userId);
++        }
++    }
++}
++
++async function runRoom(roomId) {
++    driver.config.emit("processorLoopStage", "start");
++    try {
++        const result = await q.all([
++            driver.getRoomIntents(roomId),
++            driver.getRoomObjects(roomId),
++            driver.getRoomTerrain(roomId),
++            driver.getGameTime(),
++            driver.getRoomInfo(roomId),
++            driver.getRoomFlags(roomId),
++        ]);
++        driver.config.emit("processorLoopStage", "getRoomData", roomId);
++        try {
++            driver.config.emit("processorLoopStage", "processRoom", roomId);
++            await processor.processRoom(roomId, {
++                intents: result[0],
++                roomObjects: result[1].objects,
++                users: result[1].users,
++                roomTerrain: result[2],
++                gameTime: result[3],
++                roomInfo: result[4],
++                flags: result[5],
++            });
++        }
++        catch (error) {
++            console.error("Error processing room " + roomId + ":", _.isObject(error) ? error.stack || error : error);
++        }
++        await driver.clearRoomIntents(roomId);
++    }
++    finally {
++        driver.config.emit("processorLoopStage", "finish", roomId);
++    }
++}
++
++async function runRooms(roomIds) {
++    for (const roomId of roomIds) await runRoom(roomId);
++}
++
++module.exports = {runUsers, runRooms, runRoom};
+diff --git a/dist/src/screepsServer.js b/dist/src/screepsServer.js
+--- a/dist/src/screepsServer.js
++++ b/dist/src/screepsServer.js
+@@ -47,6 +47,7 @@
+ const world_1 = __importDefault(require("./world"));
+ const common = require('@screeps/common');
+ const driver = require('@screeps/driver');
++const dojoFeatures = require('@screeps/common/lib/dojo-features');
+ const ASSETS_PATH = path.join(__dirname, '..', '..', 'assets');
+ const MOD_FILE = 'mods.json';
+ const DB_FILE = 'db.json';
+@@ -116,23 +117,32 @@
+             fs.copyAsync(path.join(ASSETS_PATH, DB_FILE), path.join(this.opts.path, DB_FILE)),
+             fs.copyAsync(path.join(ASSETS_PATH, MOD_FILE), path.join(this.opts.path, MOD_FILE)),
+         ]);
+-        // Start storage process
+-        this.emit('info', 'Starting storage process.');
+-        const library = path.resolve(path.dirname(require.resolve('@screeps/storage')), '../bin/start.js');
+-        const process = await this.startProcess('storage', library, {
+-            DB_PATH: path.resolve(this.opts.path, DB_FILE),
+-            MODFILE: path.resolve(this.opts.path, MOD_FILE),
+-            STORAGE_PORT: `${this.opts.port}`,
+-        });
+-        await new Promise((resolve, reject) => {
+-            const timeout = setTimeout(() => reject(new Error('Could not launch the storage process (timeout).')), 5000);
+-            process.on('message', (message) => {
+-                if (message === 'storageLaunched') {
+-                    clearTimeout(timeout);
+-                    resolve();
+-                }
++        const dbPath = path.resolve(this.opts.path, DB_FILE);
++        const modPath = path.resolve(this.opts.path, MOD_FILE);
++        this.inProcess = dojoFeatures.isEnabled('inProcess');
++        process.env.DB_PATH = dbPath;
++        process.env.MODFILE = modPath;
++        if (!this.inProcess) {
++            this.emit('info', 'Starting storage process.');
++            const library = path.resolve(path.dirname(require.resolve('@screeps/storage')), '../bin/start.js');
++            const storageProcess = await this.startProcess('storage', library, {
++                DB_PATH: dbPath,
++                MODFILE: modPath,
++                STORAGE_PORT: `${this.opts.port}`,
+             });
+-        });
++            await new Promise((resolve, reject) => {
++                const timeout = setTimeout(() => reject(new Error('Could not launch the storage process (timeout).')), 5000);
++                storageProcess.on('message', (message) => {
++                    if (message === 'storageLaunched') {
++                        clearTimeout(timeout);
++                        resolve();
++                    }
++                });
++            });
++        }
++        else this.emit('info', 'Starting storage in-process.');
+         // Connect to storage process
+         try {
+             const oldLog = console.log;
+@@ -140,8 +150,10 @@
+             await driver.connect('main');
+             console.log = oldLog; // re-enable console
+-            this.usersQueue = await driver.queue.create('users');
+-            this.roomsQueue = await driver.queue.create('rooms');
++            if (!this.inProcess) {
++                this.usersQueue = await driver.queue.create('users');
++                this.roomsQueue = await driver.queue.create('rooms');
++            }
+             this.connected = true;
+         }
+@@ -158,12 +170,22 @@
+         await driver.notifyTickStarted();
+         const users = await driver.getAllUsers();
+-        await this.usersQueue.addMulti(_.map(users, (user) => user._id.toString()));
+-        await this.usersQueue.whenAllDone();
++        const userIds = _.map(users, (user) => user._id.toString());
++        if (this.inProcess)
++            await require('./inProcessEngine').runUsers(userIds);
++        else {
++            await this.usersQueue.addMulti(userIds);
++            await this.usersQueue.whenAllDone();
++        }
+         const rooms = await driver.getAllRoomsNames() || [];
+-        await this.roomsQueue.addMulti(rooms);
+-        await this.roomsQueue.whenAllDone();
++        if (this.inProcess)
++            await require('./inProcessEngine').runRooms(rooms);
++        else {
++            await this.roomsQueue.addMulti(rooms);
++            await this.roomsQueue.whenAllDone();
++        }
+         await driver.commitDbBulk();
+@@ -206,19 +228,25 @@
+         if (!this.connected) {
+             await this.connect();
+         }
+-        this.emit('info', 'Starting engine processes.');
+-        this.startProcess('engine_runner', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'runner.js'), {
+-            DRIVER_MODULE: '@screeps/driver',
+-            MODFILE: path.resolve(this.opts.path, DB_FILE),
+-            STORAGE_PORT: `${this.opts.port}`,
+-        });
+-        this.startProcess('engine_processor', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'processor.js'), {
+-            DRIVER_MODULE: '@screeps/driver',
+-            MODFILE: path.resolve(this.opts.path, DB_FILE),
+-            STORAGE_PORT: `${this.opts.port}`,
+-        });
++        if (this.inProcess) {
++            this.emit('info', 'Starting engine in-process.');
++            await driver.connectRoles(['runner', 'processor']);
++        }
++        else {
++            this.emit('info', 'Starting engine processes.');
++            this.startProcess('engine_runner', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'runner.js'), {
++                DRIVER_MODULE: '@screeps/driver',
++                MODFILE: path.resolve(this.opts.path, MOD_FILE),
++                STORAGE_PORT: `${this.opts.port}`,
++            });
++            this.startProcess('engine_processor', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'processor.js'), {
++                DRIVER_MODULE: '@screeps/driver',
++                MODFILE: path.resolve(this.opts.path, MOD_FILE),
++                STORAGE_PORT: `${this.opts.port}`,
++            });
++        }
+         // Need to pre-initiailize the Room Status cache
+         await driver.updateAccessibleRoomsList();

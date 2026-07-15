@@ -7,9 +7,11 @@
 // explicit, non-inherited env).
 process.env.STORAGE_HOST = '127.0.0.1';
 
+const mockEngineFeatures = require('./mockEngineFeatures');
 const { ScreepsServer, TerrainMatrix } = require('screeps-server-mockup');
 
 function configureChildEnv(name, childEnv) {
+	mockEngineFeatures.copyPublicEnv(process.env, childEnv);
 	if (name === 'storage') childEnv.STORAGE_HOST = '127.0.0.1';
 	// @screeps/driver's accessibleRooms cache is not safe during its first
 	// concurrent read: one runner worker advances the cache timestamp before the
@@ -20,7 +22,20 @@ function configureChildEnv(name, childEnv) {
 	return childEnv;
 }
 
+function getMockEngineFeatures(env) {
+	return mockEngineFeatures.resolveAll(env || process.env);
+}
+
+function assertInProcessIsolation(env) {
+	env = env || process.env;
+	if (mockEngineFeatures.isEnabled('inProcess', env)
+		&& env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED !== '1') {
+		throw new Error('Fast mock-engine in-process mode requires a dedicated scenario or smoke process');
+	}
+}
+
 function createServer() {
+	assertInProcessIsolation(process.env);
 	const server = new ScreepsServer();
 	const origStartProcess = server.startProcess.bind(server);
 	server.startProcess = function patchedStartProcess(name, execPath, childEnv) {
@@ -32,5 +47,7 @@ function createServer() {
 module.exports = {
 	createServer: createServer,
 	configureChildEnv: configureChildEnv,
+	getMockEngineFeatures: getMockEngineFeatures,
+	assertInProcessIsolation: assertInProcessIsolation,
 	TerrainMatrix: TerrainMatrix
 };

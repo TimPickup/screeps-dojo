@@ -5,6 +5,8 @@
 	"private": true,
 	"license": "MIT",
 	"scripts": {
+		"postinstall": "node tools/mockEnginePatches.cjs apply",
+		"verify:mock-engine-patches": "node tools/mockEnginePatches.cjs check",
 		"build": "docker compose build",
 		"clean": "node scripts/clean.js",
 		"import-room": "docker compose run --rm dojo node scripts/importRoom.js",

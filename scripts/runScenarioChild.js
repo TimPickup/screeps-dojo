@@ -13,6 +13,8 @@
 //   fork: node scripts/runScenarioChild.js <scenarioDir> [record]
 //   parent -> child:  { type: 'abort' }
 //   child  -> parent: { ev: <runner event, frame events gain .svg> } ... { done: true }
+process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
+
 const { runScenario } = require('../src/scenarioRunner');
 const { renderFrameSvg, computeLayout } = require('../src/render/frameRenderer');
 
