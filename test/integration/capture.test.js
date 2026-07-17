@@ -3,6 +3,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+// constructed directly on purpose (not via src/drivers.js): this suite tests
+// the mockup driver itself, below the engine seam
 const DojoWorld = require('../../src/dojoWorld');
 
 describe('capture API', function () {

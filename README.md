@@ -128,6 +128,15 @@ room the scenario didn't load, so single-room scenarios don't trip pathfinding.
 Enemies can be scripted bots (deterministic, recommended for regressions) or
 real engine-driven invaders (user `'2'` objects — the engine AI works here).
 
+## Engines
+
+Scenarios run on the vanilla engine (screeps-server-mockup) by default. The
+runner reaches the world only through the driver contract documented at the top
+of `src/dojoWorld.js` — lifecycle, world setup, bot control, observation — and
+picks the implementation by name via `DOJO_ENGINE` in `.env` (default `mockup`,
+currently the only engine). The seam exists so alternative engine backends can
+plug in behind the same contract without scenarios changing.
+
 ## Recording and rendering replays
 
 The GUI records and replays for you. From the CLI, add the `record` keyword to
