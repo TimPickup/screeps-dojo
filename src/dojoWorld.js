@@ -13,6 +13,10 @@ const NPC_USER_IDS = { invader: '2', sourceKeeper: '3' };
 // ENERGY_REGEN_TIME (300) — far too long for a combat sandbox; respawn after a
 // keeper dies still follows the engine's normal 300-tick cycle.
 const KEEPER_FIRST_SPAWN_DELAY = 5;
+// How long a dormant room sleeps between forced processing passes (see
+// activateSimRooms). Vanilla's roomsForceUpdate uses 90 + up to 20 random
+// jitter; a deterministic 100 keeps scenario runs reproducible.
+const FORCE_UPDATE_INTERVAL = 100;
 
 // Engine-required fields for objects defined in a map's structures[] array
 // (the editor exports sources/spawns/etc. that way). Without these the engine
@@ -92,28 +96,61 @@ class DojoWorld {
 	}
 
 	async tick() {
-		await this.activateNpcRooms();
+		await this.activateSimRooms();
 		await this.server.tick();
 	}
 
-	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set,
-	// which is filled from player intents (and a room's own prior-tick activity).
-	// NPC rooms — source-keeper lairs, invader cores — carry no player intents,
-	// so without a nudge the engine never simulates them: keeper lairs never tick
-	// (nextSpawnTime stays null forever) and no source keepers / invaders spawn.
-	// The real backend keeps such rooms permanently active; we mirror that by
-	// re-seeding every room that holds a keeper lair, an invader core, or any
-	// NPC-owned (user '2'/'3') object back into ACTIVE_ROOMS before each tick.
-	// ACTIVE_ROOMS is drained as the processor reads it, so this must run every
-	// tick, before server.tick().
-	async activateNpcRooms() {
+	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set
+	// — drained by the driver as it reads it — and addBot seeds only the
+	// bot's HOME room. A real server maintains the set from three sources:
+	// (1) the processor re-activates any room its own in-use predicate
+	//     matches — owned controller, player-owned objects, dropped energy,
+	//     tombstones, nukes, portals (engine processor.js). The mockup runs
+	//     the same processor, so this works here untouched.
+	// (2) player intents activate their target rooms (driver saveUserIntents
+	//     — also already working here).
+	// (3) backend cron jobs: roomsForceUpdate wakes every DORMANT room every
+	//     90-110 ticks so absolute-time mechanics (source regen, decay,
+	//     controller downgrade) still advance, and NPC rooms — keeper lairs,
+	//     invader cores, whose user-'2'/'3' objects the processor's predicate
+	//     deliberately ignores — are kept alive by the stronghold/invader
+	//     crons (backend-local cronjobs.js).
+	// The mockup has no backend crons, so without help NPC rooms never tick
+	// at all (keeper lairs never spawn keepers) and a dormant room is frozen
+	// FOREVER instead of for ~100 ticks: creeps placed there never age — the
+	// engine never even stamps ageTime — sources never regenerate,
+	// controllers never downgrade. Play the missing cron role here, before
+	// every tick: re-seed NPC rooms, and force-update dormant rooms on the
+	// vanilla cadence. A room with no nextForceUpdateTime yet is due
+	// immediately — that is how every loaded room gets its first processing
+	// pass, after which the engine's own predicate (1) keeps the in-use ones
+	// hot. The cadence is a deterministic 100 ticks where the real cron
+	// jitters (90 + up to 20): a test harness wants reproducible runs.
+	async activateSimRooms() {
 		const { db, env } = await this.world.load();
+		const gameTime = await this.world.gameTime;
+
+		// (3a) NPC rooms: keeper lairs, invader cores, or any NPC-owned object.
 		const npcObjects = await db['rooms.objects'].find({
 			$or: [{ type: 'keeperLair' }, { type: 'invaderCore' }, { user: '2' }, { user: '3' }]
 		});
-		const rooms = new Set();
-		for (const object of npcObjects) if (object.room) rooms.add(object.room);
-		for (const room of rooms) await env.sadd(env.keys.ACTIVE_ROOMS, room);
+		const npcRooms = new Set();
+		for (const object of npcObjects) if (object.room) npcRooms.add(object.room);
+		for (const room of npcRooms) await env.sadd(env.keys.ACTIVE_ROOMS, room);
+
+		// (3b) force-update dormant rooms (backend-local roomsForceUpdate).
+		// Whatever is missing from ACTIVE_ROOMS right now was not re-activated
+		// by the engine at the end of last tick — it is dormant.
+		const activeRooms = new Set(await env.smembers(env.keys.ACTIVE_ROOMS));
+		const rooms = await db.rooms.find({});
+		for (const room of rooms) {
+			if (activeRooms.has(room._id)) continue;
+			if (!room.nextForceUpdateTime || gameTime >= room.nextForceUpdateTime) {
+				await env.sadd(env.keys.ACTIVE_ROOMS, room._id);
+				await db.rooms.update({ _id: room._id },
+					{ $set: { nextForceUpdateTime: gameTime + FORCE_UPDATE_INTERVAL } });
+			}
+		}
 	}
 
 	// --- world building -------------------------------------------------
@@ -172,7 +209,12 @@ class DojoWorld {
 			this.sealExteriorExits(maps);
 		}
 		for (const map of maps) {
-			await this.world.addRoom(map.room);
+			// setRoom rather than addRoom: addRoom stamps `active: true` on the
+			// room doc, and the engine re-activates any room whose doc carries
+			// that flag every time it is processed (processor.js "may be set in
+			// intents") — saveRoomInfo $sets fields and never removes one, so
+			// the flag is sticky and the room can never go dormant.
+			await this.world.setRoom(map.room, 'normal', false);
 			const terrain = new TerrainMatrix();
 			for (const tile of parseTerrain(map.terrain)) terrain.set(tile.x, tile.y, tile.type);
 			await this.world.setTerrain(map.room, terrain);
@@ -481,6 +523,11 @@ class DojoWorld {
 			store: {}, storeCapacity: carryParts * CARRY_CAPACITY,
 			fatigue: 0, spawning: false, notifyWhenAttacked: false
 		});
+		// A creep dropped into a DORMANT room must wake it, or it sits frozen
+		// for up to FORCE_UPDATE_INTERVAL ticks — the real backend's
+		// world-mutating API calls utils.activateRoom for the same reason.
+		const { env } = await this.world.load();
+		await env.sadd(env.keys.ACTIVE_ROOMS, creepOptions.room);
 	}
 
 	// Flags are NOT room objects: one doc per (user, room) in 'rooms.flags',
