@@ -419,16 +419,26 @@ class DojoWorld {
 		}
 
 		const bot = await this.addMainBot(opts);
+		// Remember the bootstrap Spawn1's doc id NOW, while it is the only spawn
+		// in the world — the map's own spawn may legitimately be named 'Spawn1'
+		// too (the natural name for a home spawn), so the cleanup below must
+		// remove exactly this doc, never match by name.
+		let bootstrapSpawnId = null;
+		if (adoptHome) {
+			const { db } = await this.world.load();
+			const bootstrap = await db['rooms.objects'].findOne({ room: home.room, type: 'spawn', x: home.x, y: home.y });
+			bootstrapSpawnId = bootstrap ? bootstrap._id : null;
+		}
 		if (options && options.memory !== undefined) await this.seedMemory(options.memory);
 		if (options && options.segments !== undefined) await this.seedSegments(options.segments);
 		await this.placeMapObjects(maps);
 		await this.applyMapControllers(maps);
 
-		if (adoptHome) {
+		if (adoptHome && bootstrapSpawnId !== null) {
 			// addBot's bootstrap Spawn1 now overlaps the map's real spawn; remove
-			// the placeholder so only the map-defined (named) spawn remains.
+			// the placeholder so only the map-defined spawn remains.
 			const { db } = await this.world.load();
-			await db['rooms.objects'].removeWhere({ room: home.room, type: 'spawn', name: 'Spawn1', x: home.x, y: home.y });
+			await db['rooms.objects'].removeWhere({ _id: bootstrapSpawnId });
 		}
 		return bot;
 	}

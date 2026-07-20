@@ -72,3 +72,39 @@ describe('DojoWorld', function () {
 		assert.strictEqual(state.creeps.ET, undefined, 'ET must not appear in creeps');
 	});
 });
+
+describe('DojoWorld spawn adoption', function () {
+	this.timeout(600000);
+	let world;
+
+	after(function () {
+		if (world) world.stop();
+	});
+
+	// Regression: adopting a map spawn places a bootstrap 'Spawn1' on the same
+	// tile and removes it after placeMapObjects. A map spawn that is ITSELF
+	// named 'Spawn1' (the natural name for a home spawn) must survive that
+	// cleanup — a name-based removal deletes both docs and the scenario
+	// silently starts with no spawn at all.
+	it('keeps a map spawn named Spawn1 on the adopted home tile', async function () {
+		world = new DojoWorld();
+		await world.reset();
+		const map = JSON.parse(fs.readFileSync(
+			path.join(__dirname, '..', '..', 'test', 'fixtures', 'scout-flee-map.json'), 'utf8'));
+		map.structures = [
+			// store energy 123 tells the map's spawn apart from the bootstrap
+			// (which starts with the stock 300)
+			{ type: 'spawn', x: 10, y: 25, owner: 'me', name: 'Spawn1', store: { energy: 123 } }
+		];
+		world.modules = { main: 'module.exports.loop = function () {};' };
+		// no botOptions: the map spawn is adopted as the bot home
+		await world.loadScenarioMaps([map]);
+		const { db } = await world.world.load();
+		const spawns = await db['rooms.objects'].find({ room: 'W0N0', type: 'spawn' });
+		assert.strictEqual(spawns.length, 1,
+			'exactly one spawn should remain after adoption, got ' + spawns.length);
+		assert.strictEqual(spawns[0].name, 'Spawn1');
+		assert.strictEqual(spawns[0].store.energy, 123,
+			'the surviving spawn should be the map-defined one, not the bootstrap');
+	});
+});
