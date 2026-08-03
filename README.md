@@ -53,11 +53,20 @@ published only to your host loopback (127.0.0.1), never the network.
 The GUI just drives the same engine — everything is available headless, which is
 what you want for CI:
 
-    npm run build          # build the container image (first time)
-    npm run install:dojo   # install the server toolchain in the container
-    npm run smoke          # boots the server, runs a bot 5 ticks -> "SMOKE OK"
-    npm test               # run every scenario in scenarios/
-    npm test -- walk-to-flag   # run just one (filter matches scenario names)
+    npm run build             # build the container image (first time)
+    npm run install:dojo      # install the server toolchain in the container
+    npm run smoke             # boots the server, runs a bot 5 ticks -> "SMOKE OK"
+    npm test                  # run internal tests and every scenario
+    npm run test:internal     # unit + import + integration tests; no scenarios
+    npm run test:unit         # fast unit tests only
+    npm run test:integration  # integration tests only
+    npm run test:scenarios    # every scenario in scenarios/
+    npm run test:ui           # UI Vitest suite
+
+Filter a run by its Mocha test or scenario name with a trailing bare word:
+
+    npm run test:scenarios -- walk-to-flag
+    npm run test:integration -- DojoWorld
 
 (`npm run ui` does the build + install steps automatically; you only need these
 if you prefer the command line or are wiring up CI.)
