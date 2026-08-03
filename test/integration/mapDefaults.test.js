@@ -6,6 +6,8 @@
 process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
 
 const assert = require('assert');
+// constructed directly on purpose (not via src/drivers.js): this suite tests
+// the mockup driver itself, below the engine seam
 const DojoWorld = require('../../src/dojoWorld');
 
 // Maps authored in the editor put EVERYTHING in structures[] — the loader

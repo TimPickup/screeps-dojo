@@ -2,6 +2,23 @@
 
 // Facade over screeps-server-mockup (spec §3): the only file that touches
 // mockup/server internals. Runner, loader, and (later) recorder use this API.
+//
+// The public surface below is also the ENGINE DRIVER CONTRACT (issue #1): the
+// runner and scenarios reach the world ONLY through these methods, so an
+// alternative engine backend is a class implementing the same surface,
+// registered in src/drivers.js and selected via DOJO_ENGINE. Grouped:
+//
+//   lifecycle     reset, start, stop, tick
+//   world setup   loadScenarioMaps, createRoomsFromMaps, placeMapObjects,
+//                 addCreep, addSpawn, addFlag, removeSpawns,
+//                 seedMemory, seedSegments
+//   bot control   addMainBot, addEnemyBot, evalInBot, takeBotErrors
+//   observation   readState, captureFrame, captureTerrain
+//
+// The runner also touches three properties: `modules` (it assigns the
+// scenario's bot code before setup() runs), `bot` (the main-bot User, an
+// EventEmitter with a 'console' event) and `botUserId`. Everything else on
+// this class is mockup-specific implementation detail, not contract.
 const { createServer, TerrainMatrix } = require('./serverBoot');
 const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
 

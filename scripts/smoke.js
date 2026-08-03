@@ -3,6 +3,9 @@
 // Stage-1 smoke test and dependency-upgrade canary (spec §11): boots the
 // server, runs a bot for 5 ticks, asserts time advances and console arrives.
 // Boot workaround (STORAGE_HOST, storage child env) lives in src/serverBoot.js.
+// Intentionally engine-specific: builds on serverBoot directly, BELOW the
+// driver seam (src/drivers.js), so it stays a mockup boot canary no matter
+// what DOJO_ENGINE selects.
 
 process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
 
