@@ -1,5 +1,10 @@
 'use strict';
 
+// Mocha hosts this suite's mock servers sequentially in one dedicated
+// process — the isolation the fast mock-engine's in-process mode asserts
+// (src/serverBoot.js); declare it, like smoke.js and runScenarioChild.js do.
+process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
+
 const assert = require('assert');
 const { createServer, TerrainMatrix } = require('../../src/serverBoot');
 
