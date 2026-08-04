@@ -167,7 +167,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
       if (!o) continue;
       // +0.5: RoomVisual coords are tile-centred (svgPrimitives.elementToSvg adds
       // +0.5 to every coordinate); match that so canvas visuals align with SVG.
-      drawUserVisuals(ctx, base.visuals[room] as string, o.col * 50 + 0.5, o.row * 50 + 0.5);
+      drawUserVisuals(ctx, base.visuals[room], o.col * 50 + 0.5, o.row * 50 + 0.5);
     }
   }
 }
