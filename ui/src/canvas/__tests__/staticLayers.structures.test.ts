@@ -22,12 +22,23 @@ describe('drawStaticStructures', () => {
     expect(log.filter((c) => c.op === 'arc').length).toBe(1);
   });
 
-  it('draws an unowned level-0 controller as nothing (loader scaffold)', () => {
+  // Only the engine's (0,0) scaffold controller — auto-injected for a room whose
+  // map defines none — is invisible. A real unclaimed controller sits at a true
+  // position and has to be drawn, or an unowned room looks empty in a replay.
+  it('skips the (0,0) scaffold controller', () => {
+    const { ctx, log } = mockCtx();
+    drawStaticStructures(ctx, frameWith([
+      { _id: 'ctrl', type: 'controller', room: 'W1N1', x: 0, y: 0, level: 0 },
+    ]), layout);
+    expect(log.filter((c) => c.op === 'arc').length).toBe(0);
+  });
+
+  it('draws a real unclaimed level-0 controller', () => {
     const { ctx, log } = mockCtx();
     drawStaticStructures(ctx, frameWith([
       { _id: 'ctrl', type: 'controller', room: 'W1N1', x: 25, y: 25, level: 0 },
     ]), layout);
-    expect(log.filter((c) => c.op === 'arc').length).toBe(0);
+    expect(log.filter((c) => c.op === 'arc').length).toBe(1);
   });
 
   it('draws an owned controller base + level number', () => {

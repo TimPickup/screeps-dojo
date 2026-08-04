@@ -13,3 +13,5 @@
 .consoleBlock { margin-top: 16px; border-top: 1px solid var(--line2); padding-top: 8px; }
 .consoleHead { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px; }
 .cline { color: var(--text-dim); white-space: pre-wrap; font-size: 12px; }
+/* '⚠' lines: harness warnings and bot errors — see api/consoleLines.ts */
+.cwarning { color: #f0b429; background: rgba(240, 180, 41, 0.08); border-left: 2px solid #f0b429; padding-left: 6px; white-space: pre-wrap; font-size: 12px; }

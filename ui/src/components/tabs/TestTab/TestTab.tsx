@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client';
 import { useJobStream } from '../../../hooks/useJobStream';
+import { isWarningLine } from '../../../api/consoleLines';
 import styles from './TestTab.module.css';
 
 export function TestTab({ scenario }: { scenario: string }) {
@@ -43,7 +44,9 @@ export function TestTab({ scenario }: { scenario: string }) {
         {stream.console.length > 0 && (
           <div className={styles.consoleBlock}>
             <div className={styles.consoleHead}>console</div>
-            {stream.console.map((l, i) => <div key={i} className={styles.cline}>{l}</div>)}
+            {stream.console.map((l, i) => (
+              <div key={i} className={isWarningLine(l) ? styles.cwarning : styles.cline}>{l}</div>
+            ))}
           </div>
         )}
       </div>

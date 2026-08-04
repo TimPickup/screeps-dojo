@@ -121,6 +121,30 @@ See `examples/README.md` for a guided tour. A scenario is a directory
   replay imported state, pass saved Memory/segments in the third (options)
   argument: `world.loadScenarioMaps([map], botOptions, { memory:
   require('./memory.json'), segments: require('./segments.json') })`.
+
+  Anything else goes in with `world.addObject(room, type, x, y, attributes)`,
+  which fills in the engine-required fields for the type, resolves `owner`
+  (`'me'`, `'invader'`, `'sourceKeeper'`, or a user id) to `user`, turns the
+  relative clocks you think in (`ticksToDecay` on roads/containers/ramparts,
+  `ticksToRegeneration` on sources/minerals) into the absolute deadlines the
+  engine reads — seeding the engine's own default when you pass neither — wakes
+  the room so the engine actually processes it, and returns the new object's id.
+  `addCreep`/`addSpawn` are shortcuts for the types that need more than a
+  defaults table — same code path, so `addObject(room, 'creep', x, y, {...})`
+  builds an identical creep.
+
+  To change or delete what is already there, `world.updateObject(query,
+  changes)` and `world.removeObject(query)` take a selector (`{ room, type }`,
+  `{ _id }`, `{ name }`) and return how many objects they touched. `changes` is
+  plain fields (wrapped in `$set` for you) or an operator document (`{ $inc:
+  ... }`); the same `owner` and relative-clock conveniences apply, except that
+  an update never *defaults* a clock — bumping a rampart's hits won't reset its
+  decay. Both wake the room, because a change the engine never processes is one
+  the bot never sees.
+
+  Reaching past all this to the raw `world.world.addRoomObject` prints a one-off
+  warning naming your line; if you really want a hand-written doc,
+  `world.world.addRoomObjectUnchecked(...)` says so out loud and stays quiet.
 - `maxTicks` — required safety cap.
 - `until(state)` — optional early end condition, evaluated on a DB snapshot
   after every tick (`state.creeps`, `state.hostileCreeps`, `state.flags`,
@@ -131,7 +155,12 @@ See `examples/README.md` for a guided tour. A scenario is a directory
 
 Maps are JSON (see `examples/walk-to-flag/map.json`): `terrain` is 50 strings of
 50 chars (`.` plain, `~` swamp, `#` wall), plus `structures`, `sources`,
-`controller`, `minerals`, `flags`. Multi-room maps validate shared edges
+`controller`, `minerals`, `flags`, `creeps`. A map creep is loaded through
+`world.addCreep` and takes the same fields: `name`, `x`, `y`, `body` and
+optionally `owner`, `store`, `hits`/`hitsMax`, `boosts` (part type → compound,
+e.g. `{ tough: 'XGHO2', move: 'XZHO2' }`) and `ticksToLive` (or an absolute
+`ageTime`; the default is the engine lifetime for the body — 600 ticks for a
+CLAIM body, 1500 otherwise). Multi-room maps validate shared edges
 (`autoMirror` option available); the loader auto-seals any exit that leads to a
 room the scenario didn't load, so single-room scenarios don't trip pathfinding.
 Enemies can be scripted bots (deterministic, recommended for regressions) or

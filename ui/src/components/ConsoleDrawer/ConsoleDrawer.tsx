@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { isWarningLine } from '../../api/consoleLines';
 import styles from './ConsoleDrawer.module.css';
 
 export interface ConsoleDrawerProps {
@@ -49,7 +50,11 @@ export function ConsoleDrawer({ lines, title = 'Console', rightPanel, rightTitle
         <div className={styles.body} style={{ height }}>
           <div className={styles.console} ref={bodyRef}>
             {lines.length === 0 ? <div className={styles.empty}>— no console output —</div> :
-              lines.map((l, i) => <div key={i} className={styles.line}>{l}</div>)}
+              lines.map((l, i) => (
+                // colour harness warnings and bot errors so they are not lost in
+                // a wall of bot output
+                <div key={i} className={isWarningLine(l) ? styles.warning : styles.line}>{l}</div>
+              ))}
           </div>
           {rightPanel !== undefined && (
             <div className={styles.right}>

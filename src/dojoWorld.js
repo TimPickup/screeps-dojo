@@ -4,15 +4,63 @@
 // mockup/server internals. Runner, loader, and (later) recorder use this API.
 const { createServer, TerrainMatrix } = require('./serverBoot');
 const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
+const warnings = require('./harnessWarnings');
 
+// Not a game constant: the engine hardcodes 100 per part when it builds a body
+// (processor/intents/spawns/create-creep.js). Everything else here comes from
+// the engine's own constants at runtime — see engineConstant().
 const BODY_PART_HITS = 100;
-const CARRY_CAPACITY = 50;
 const NPC_USER_IDS = { invader: '2', sourceKeeper: '3' };
+// Types that are NOT rooms.objects docs — inserting one there is silently
+// inert, so addObject sends the caller to the method that knows better.
+const NON_ROOM_OBJECT_TYPES = { flag: 'addFlag' };
+
+// Placing one of these pins its room permanently active (see keepRoomActive).
+// They are the NPC engines of a room and must keep ticking to do their job —
+// a keeper lair to respawn its keeper, an invader core to deploy and spawn —
+// but the processor's in-use predicate ignores exactly them: a lair carries no
+// user at all, and keepers are user '3', which processor.js excludes by name.
+// Left to the force-update cadence they would fire ~100 ticks late and their
+// creeps would stand frozen in between, which is no use in a benchmark.
+const ALWAYS_ACTIVE_TYPES = { keeperLair: true, invaderCore: true };
+
+// Decay clocks, as ABSOLUTE game ticks: which field a type's deadline lives in
+// (the engine uses two different names) and the ENGINE CONSTANT naming the
+// lifetime to seed when a caller supplies no `ticksToDecay` — resolved from the
+// running server, never copied here. Verified against the engine's own
+// handlers: road/container/rampart re-arm `nextDecayTime` in
+// processor/intents/<type>/tick.js, powerBank/deposit are removed on
+// `decayTime` in processor.js. A type absent here has no decay clock — notably
+// constructedWall, whose `decayTime` means a temporary newbie/respawn wall.
+const DECAY_CLOCKS = {
+	road: { field: 'nextDecayTime', constant: 'ROAD_DECAY_TIME' },
+	// The engine re-arms an owned room's containers at CONTAINER_DECAY_TIME_OWNED
+	// once it sees the controller, which map loading claims only after the
+	// containers are placed — pass ticksToDecay when the first decay tick has to
+	// be exact.
+	container: { field: 'nextDecayTime', constant: 'CONTAINER_DECAY_TIME' },
+	rampart: { field: 'nextDecayTime', constant: 'RAMPART_DECAY_TIME' },
+	powerBank: { field: 'decayTime', constant: 'POWER_BANK_DECAY' },
+	deposit: { field: 'decayTime', constant: 'DEPOSIT_DECAY_TIME' }
+};
+
+// Regeneration clocks for the resource nodes, same absolute-tick idea. Both
+// engine handlers only run the clock while the node is EMPTY (a full source
+// has no pending regeneration), so a default is seeded only when depleted.
+const REGEN_CLOCKS = {
+	source: { field: 'nextRegenerationTime', constant: 'ENERGY_REGEN_TIME' },
+	mineral: { field: 'nextRegenerationTime', constant: 'MINERAL_REGEN_TIME' }
+};
 // Ticks after load until a keeper lair (loaded without an explicit
 // nextSpawnTime) produces its FIRST source keeper. The engine's own default is
 // ENERGY_REGEN_TIME (300) — far too long for a combat sandbox; respawn after a
 // keeper dies still follows the engine's normal 300-tick cycle.
 const KEEPER_FIRST_SPAWN_DELAY = 5;
+
+// How long a dormant room sleeps between forced processing passes (see
+// activateSimRooms). Vanilla's roomsForceUpdate uses 90 + up to 20 random
+// jitter; a deterministic 100 keeps scenario runs reproducible.
+const FORCE_UPDATE_INTERVAL = 100;
 
 // Engine-required fields for objects defined in a map's structures[] array
 // (the editor exports sources/spawns/etc. that way). Without these the engine
@@ -29,7 +77,7 @@ function structureDefaults(type, spawnIndex) {
 				hits: 5000, hitsMax: 5000, spawning: null, notifyWhenAttacked: true
 			};
 		case 'source':
-			return { energy: 1000, energyCapacity: 1000, ticksToRegeneration: 300 };
+			return { energy: 1000, energyCapacity: 1000 };
 		case 'extension':
 			return {
 				store: { energy: 0 }, storeCapacityResource: { energy: 50 },
@@ -61,7 +109,7 @@ function structureDefaults(type, spawnIndex) {
 		case 'nuker':
 			return { store: {}, storeCapacityResource: { energy: 300000, G: 5000 }, hits: 1000, hitsMax: 1000, notifyWhenAttacked: true };
 		case 'mineral':
-			return { mineralType: 'H', density: 3, mineralAmount: 3000 };
+			return { mineralType: 'H', density: 3 };
 		default:
 			return {};
 	}
@@ -84,7 +132,16 @@ class DojoWorld {
 	}
 
 	async start() {
-		await this.server.start();
+		// The engine writes to the same collections the raw-access guard watches,
+		// and in the fast in-process mode it does so in THIS process — so the
+		// guard stands down while the engine is the one running (see
+		// src/harnessWarnings.js).
+		warnings.suspend();
+		try {
+			await this.server.start();
+		} finally {
+			warnings.resume();
+		}
 	}
 
 	stop() {
@@ -92,28 +149,65 @@ class DojoWorld {
 	}
 
 	async tick() {
-		await this.activateNpcRooms();
-		await this.server.tick();
+		await this.activateSimRooms();
+		warnings.suspend();
+		try {
+			await this.server.tick();
+		} finally {
+			warnings.resume();
+		}
 	}
 
-	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set,
-	// which is filled from player intents (and a room's own prior-tick activity).
-	// NPC rooms — source-keeper lairs, invader cores — carry no player intents,
-	// so without a nudge the engine never simulates them: keeper lairs never tick
-	// (nextSpawnTime stays null forever) and no source keepers / invaders spawn.
-	// The real backend keeps such rooms permanently active; we mirror that by
-	// re-seeding every room that holds a keeper lair, an invader core, or any
-	// NPC-owned (user '2'/'3') object back into ACTIVE_ROOMS before each tick.
-	// ACTIVE_ROOMS is drained as the processor reads it, so this must run every
-	// tick, before server.tick().
-	async activateNpcRooms() {
+	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set
+	// — the driver DRAINS that set as it reads it (getAllRoomsNames), so it is
+	// a work list for one tick, never a lasting state.
+	//
+	// A real server refills the set from three sources:
+	// (1) the processor re-activates any room its own in-use predicate
+	//     matches — owned controller, player-owned objects, dropped energy,
+	//     tombstones, nukes, portals (engine processor.js). The mockup runs
+	//     the same processor, so this works here untouched.
+	// (2) player intents activate their target rooms (driver saveUserIntents
+	//     — also already working here).
+	// (3) backend cron jobs: roomsForceUpdate wakes every DORMANT room every
+	//     90-110 ticks so absolute-time mechanics (source regen, decay,
+	//     controller downgrade) still advance, and NPC rooms — keeper lairs,
+	//     invader cores, whose user-'2'/'3' objects the processor's predicate
+	//     deliberately ignores — are kept alive by the stronghold/invader
+	//     crons (backend-local cronjobs.js).
+	//
+	// The mockup has no crons at all, so (3) is missing entirely: a dormant
+	// room would be frozen FOREVER rather than for ~100 ticks — creeps left
+	// there never age (the engine never even stamps ageTime), sources never
+	// regenerate, controllers never downgrade, keeper lairs never spawn. This
+	// plays the roomsForceUpdate role before every tick, on a deterministic
+	// 100-tick cadence where the real cron jitters (90 + up to 20), because a
+	// test harness wants reproducible runs.
+	//
+	// A room's FIRST pass is not this method's job: addObject/addCreep already
+	// wake a room when something is placed in it, and placeMapObjects wakes
+	// every room it loads. So a room seen here with no alarm yet is only armed,
+	// not activated — otherwise every inert room in the world would be
+	// processed once at startup for nothing.
+	//
+	// NPC rooms do NOT rely on this: a keeper lair or invader core pins its
+	// room permanently active when it is placed (see keepRoomActive), so it
+	// runs every tick instead of stuttering on the 100-tick cadence.
+	async activateSimRooms() {
 		const { db, env } = await this.world.load();
-		const npcObjects = await db['rooms.objects'].find({
-			$or: [{ type: 'keeperLair' }, { type: 'invaderCore' }, { user: '2' }, { user: '3' }]
-		});
-		const rooms = new Set();
-		for (const object of npcObjects) if (object.room) rooms.add(object.room);
-		for (const room of rooms) await env.sadd(env.keys.ACTIVE_ROOMS, room);
+		const gameTime = await this.world.gameTime;
+
+		// Whatever is missing from ACTIVE_ROOMS right now was not re-activated
+		// by the engine at the end of last tick — it is dormant.
+		const activeRooms = new Set(await env.smembers(env.keys.ACTIVE_ROOMS));
+		const rooms = await db.rooms.find({});
+		for (const room of rooms) {
+			if (activeRooms.has(room._id)) continue;
+			if (!room.nextForceUpdateTime || gameTime >= room.nextForceUpdateTime) {
+				if (room.nextForceUpdateTime) await env.sadd(env.keys.ACTIVE_ROOMS, room._id);
+				await db.rooms.update({ _id: room._id }, { $set: { nextForceUpdateTime: gameTime + FORCE_UPDATE_INTERVAL } });
+			}
+		}
 	}
 
 	// --- world building -------------------------------------------------
@@ -172,7 +266,12 @@ class DojoWorld {
 			this.sealExteriorExits(maps);
 		}
 		for (const map of maps) {
-			await this.world.addRoom(map.room);
+			// setRoom rather than addRoom: addRoom stamps `active: true` on the
+			// room doc, and the engine re-activates any room whose doc carries
+			// that flag every time it is processed (processor.js "may be set in
+			// intents") — saveRoomInfo $sets fields and never removes one, so
+			// the flag is sticky and the room can never go dormant.
+			await this.world.setRoom(map.room,'normal',false);
 			const terrain = new TerrainMatrix();
 			for (const tile of parseTerrain(map.terrain)) terrain.set(tile.x, tile.y, tile.type);
 			await this.world.setTerrain(map.room, terrain);
@@ -187,12 +286,17 @@ class DojoWorld {
 				return entry.type === 'controller';
 			});
 			const controller = map.controller || structuresController;
+			// Unchecked (not addObject) on purpose: this runs BEFORE the bot
+			// exists, so there is no owner to resolve yet — applyMapControllers
+			// claims them afterwards — and a controller has neither type defaults
+			// nor a clock. Waking the room here would be pointless too: nothing
+			// else is in it yet.
 			if (controller) {
-				await this.world.addRoomObject(map.room, 'controller', controller.x, controller.y, {
+				await this.world.addRoomObjectUnchecked(map.room, 'controller', controller.x, controller.y, {
 					level: controller.level || 0, progress: 0
 				});
 			} else {
-				await this.world.addRoomObject(map.room, 'controller', 0, 0, { level: 0 });
+				await this.world.addRoomObjectUnchecked(map.room, 'controller', 0, 0, { level: 0 });
 			}
 		}
 	}
@@ -224,8 +328,7 @@ class DojoWorld {
 		// screeps-server-mockup sets safeMode: 20000 on the controller when addBot
 		// runs, which prevents invader attacks for 20000 ticks — clear it so the
 		// sim reflects real-world conditions (spec §3: harness must not mask bugs).
-		const { db } = await this.world.load();
-		await db['rooms.objects'].update({ room: options.room, type: 'controller' }, { $set: { safeMode: 0 } });
+		await this.updateObject({ room: options.room, type: 'controller' }, { safeMode: 0 });
 		return this.bot;
 	}
 
@@ -266,19 +369,19 @@ class DojoWorld {
 	// the bot to start spawnless (e.g. probing a base plan with vision from a
 	// creep, then placing the spawn where the bot's own planner wants it).
 	async removeSpawns(room) {
-		const { db } = await this.world.load();
-		await db['rooms.objects'].removeWhere({ room: room, type: 'spawn' });
+		return this.removeObject({ room: room, type: 'spawn' });
 	}
 
 	// Inserts a spawn mid-run (the sandbox equivalent of a player placing
-	// their first spawn). Same doc shape addBot uses.
+	// their first spawn). Same doc shape addBot uses. Returns the new _id.
 	async addSpawn(spawnOptions) {
 		const userId = spawnOptions.user === undefined ? this.botUserId : this.resolveOwner(spawnOptions.user);
 		if (!userId) throw new Error('addSpawn: no user (add the main bot first or pass user)');
-		await this.world.addRoomObject(spawnOptions.room, 'spawn', spawnOptions.x, spawnOptions.y, {
+		return this.addObject(spawnOptions.room, 'spawn', spawnOptions.x, spawnOptions.y, {
 			user: userId, name: spawnOptions.name || 'Spawn1',
 			store: { energy: 300 }, storeCapacityResource: { energy: 300 },
-			hits: 5000, hitsMax: 5000, spawning: null, notifyWhenAttacked: true
+			hits: 5000, hitsMax: 5000, spawning: null, notifyWhenAttacked: true,
+			activate: spawnOptions.activate
 		});
 	}
 
@@ -327,21 +430,19 @@ class DojoWorld {
 		// fire their first keeper (see the keeperLair handling below).
 		const firstKeeperSpawn = (await this.world.gameTime) + KEEPER_FIRST_SPAWN_DELAY;
 		for (const map of maps) {
+			// Every object goes through addObject/addCreep so a map-loaded world is
+			// built exactly like a scenario-built one — same type defaults, same
+			// owner resolution. Activation is deferred to one call per room at the
+			// end rather than one per object.
 			for (const structure of map.structures || []) {
 				// controllers were placed in createRoomsFromMaps (addBot needs
 				// one to exist and claims it itself) — skip to avoid duplicates
 				if (structure.type === 'controller') continue;
-				const attributes = Object.assign(
-					{},
-					structureDefaults(structure.type, spawnIndex),
-					structure
-				);
-				if (structure.type === 'spawn' && !structure.name) spawnIndex++;
-				delete attributes.type;
-				delete attributes.x;
-				delete attributes.y;
-				delete attributes.owner;
-				if (structure.owner !== undefined) attributes.user = this.resolveOwner(structure.owner);
+				const attributes = Object.assign({}, structure, { activate: false });
+				if (structure.type === 'spawn' && !structure.name) {
+					attributes.name = 'Spawn' + spawnIndex;
+					spawnIndex++;
+				}
 				// Never load a spawn stuck mid-spawn: an imported in-progress `spawning`
 				// object references the live server's game time, which never elapses in
 				// the sim, so the spawn jams forever and the colony can't replace creeps.
@@ -358,42 +459,29 @@ class DojoWorld {
 				if (structure.type === 'keeperLair' && (attributes.nextSpawnTime === null || attributes.nextSpawnTime === undefined)) {
 					attributes.nextSpawnTime = firstKeeperSpawn;
 				}
-				await this.world.addRoomObject(map.room, structure.type, structure.x, structure.y, attributes);
+				await this.addObject(map.room, structure.type, structure.x, structure.y, attributes);
 			}
+			// sources/minerals: the map entry IS the attribute set (its `id` keeps
+			// the live server's object id, which creep names encode).
 			for (const source of map.sources || []) {
-				const sourceAttrs = {
-					energy: source.energy !== undefined ? source.energy : 1000,
-					energyCapacity: source.energyCapacity !== undefined ? source.energyCapacity : 1000,
-					ticksToRegeneration: 300
-				};
-				// keep the live id so creep names that encode it still resolve via getObjectById
-				if (source.id) sourceAttrs._id = source.id;
-				await this.world.addRoomObject(map.room, 'source', source.x, source.y, sourceAttrs);
+				await this.addObject(map.room, 'source', source.x, source.y,
+					Object.assign({}, source, { activate: false }));
 			}
 			for (const mineral of map.minerals || []) {
-				const mineralAttrs = {
-					mineralType: mineral.mineralType, density: mineral.density || 3,
-					mineralAmount: mineral.mineralAmount || 3000
-				};
-				if (mineral.id) mineralAttrs._id = mineral.id;
-				await this.world.addRoomObject(map.room, 'mineral', mineral.x, mineral.y, mineralAttrs);
+				await this.addObject(map.room, 'mineral', mineral.x, mineral.y,
+					Object.assign({}, mineral, { activate: false }));
 			}
 			for (const flag of map.flags || []) {
 				await this.addFlag(flag.name, map.room, flag.x, flag.y, flag);
 			}
 			for (const creep of map.creeps || []) {
-				const userId = this.resolveOwner(creep.owner === undefined ? 'me' : creep.owner);
-				const bodyParts = creep.body.map(function (type) { return { type: type, hits: BODY_PART_HITS }; });
-				const carryParts = creep.body.filter(function (type) { return type === 'carry'; }).length;
-				await this.world.addRoomObject(map.room, 'creep', creep.x, creep.y, {
-					user: userId, name: creep.name,
-					body: bodyParts,
-					hits: creep.hits !== undefined ? creep.hits : bodyParts.length * BODY_PART_HITS,
-					hitsMax: creep.hitsMax !== undefined ? creep.hitsMax : bodyParts.length * BODY_PART_HITS,
-					store: creep.store || {}, storeCapacity: carryParts * CARRY_CAPACITY,
-					fatigue: 0, spawning: false, notifyWhenAttacked: false
-				});
+				await this.addCreep(Object.assign({}, creep, {
+					room: map.room,
+					owner: creep.owner === undefined ? 'me' : creep.owner,
+					activate: false
+				}));
 			}
+			await this.activateRoom(map.room);
 		}
 	}
 
@@ -437,8 +525,7 @@ class DojoWorld {
 		if (adoptHome && bootstrapSpawnId !== null) {
 			// addBot's bootstrap Spawn1 now overlaps the map's real spawn; remove
 			// the placeholder so only the map-defined spawn remains.
-			const { db } = await this.world.load();
-			await db['rooms.objects'].removeWhere({ _id: bootstrapSpawnId });
+			await this.removeObject({ _id: bootstrapSpawnId });
 		}
 		return bot;
 	}
@@ -470,27 +557,299 @@ class DojoWorld {
 			const set = claimed
 				? { user: this.resolveOwner(c.owner), level: c.level || 1, progress: 0 }
 				: { user: null, level: 0, progress: 0, reservation: null, downgradeTime: null };
-			await db['rooms.objects'].update({ room: map.room, type: 'controller' }, { $set: set });
+			await this.updateObject({ room: map.room, type: 'controller' }, set);
 		}
 	}
 
 	// --- direct object placement ----------------------------------------
 
+	// The general form of addCreep/addSpawn: insert ONE object into a room with
+	// the engine-required fields for its type filled in (structureDefaults), its
+	// owner resolved to a user id, and the room woken so the engine actually
+	// processes it. Returns the new object's _id.
+	//
+	// Signature mirrors the mockup's world.addRoomObject on purpose — prefer this
+	// one: the raw call skips defaults and room activation, so an object added
+	// through it can sit inert in a dormant room forever.
+	//
+	// `attributes` are engine doc fields plus four conveniences:
+	//   owner    — 'me' | 'invader' | 'sourceKeeper' | user id, resolved to `user`
+	//              (an explicit `user` wins, as in addCreep)
+	//   id       — the live server's id, kept as `_id` (map imports rely on this)
+	//   amount   — dropped resources: stored in the field the engine reads
+	//   activate — false to skip waking the room (bulk loads that wake it once)
+	// plus the relative clocks `ticksToDecay` (road/container/rampart/powerBank/
+	// deposit) and `ticksToRegeneration` (source/mineral), which become the
+	// absolute deadlines the engine reads — see applyClocks for the defaults.
+	// A map's own structures[]/sources[] entry can be passed straight through:
+	// its type/x/y keys are dropped rather than written into the doc.
+	async addObject(room, type, x, y, attributes) {
+		if (NON_ROOM_OBJECT_TYPES[type]) {
+			throw new Error('addObject: ' + type + ' is not a room object — use '
+				+ NON_ROOM_OBJECT_TYPES[type] + '() instead');
+		}
+		const doc = Object.assign({}, attributes);
+		const activate = doc.activate !== false;
+		delete doc.activate;
+		// Creeps need a body, boosts and a death clock built for them, so the
+		// generic path is just a spelling of addCreep — same code, same doc.
+		if (type === 'creep') {
+			return this.addCreep(Object.assign(doc, { room: room, x: x, y: y, activate: activate }));
+		}
+		delete doc.type;
+		delete doc.x;
+		delete doc.y;
+		if (doc.id !== undefined) { doc._id = doc.id; delete doc.id; }
+		const owner = doc.user !== undefined ? doc.user : doc.owner;
+		delete doc.owner;
+		if (owner !== undefined) doc.user = this.resolveOwner(owner);
+		// A dropped pile stores its size in a field NAMED after the resource
+		// ('energy: 200'); the runtime's `.amount` getter reads o[o.resourceType]
+		// (engine game/resources.js), so a literal `amount` field is ignored and
+		// then goes stale as the engine mutates the real one.
+		if (doc.amount !== undefined) {
+			doc[doc.resourceType || 'energy'] = doc.amount;
+			delete doc.amount;
+		}
+		const withDefaults = Object.assign({}, structureDefaults(type, 1), doc);
+		await this.applyClocks(type, withDefaults);
+		const result = await this.world.addRoomObjectUnchecked(room, type, x, y, withDefaults);
+		// An NPC engine pins its room regardless of `activate` — that flag only
+		// defers the immediate wake (bulk loads wake the room once at the end),
+		// while pinning is a standing property of what was just placed.
+		if (ALWAYS_ACTIVE_TYPES[type]) await this.keepRoomActive(room);
+		if (activate) await this.activateRoom(room);
+		return result && result._id;
+	}
+
+	// Edits objects already in the world — the counterpart to addObject, and the
+	// reason a scenario no longer needs the db. `query` is a rooms.objects
+	// selector ({ room, type }, { _id }, { name }...); `changes` is either plain
+	// fields, which are wrapped in $set for you, or an explicit operator document
+	// ({ $set: ... }, { $inc: ... }) whose $set half gets the same treatment.
+	//
+	// Applies addObject's input conveniences against each matched object's own
+	// type: `owner` resolved to a user id, `amount` written to the field the
+	// runtime reads, and relative clocks turned absolute. Clocks are only
+	// converted here, never defaulted — bumping a rampart's hits must not also
+	// reset its decay deadline.
+	//
+	// Wakes every room it touched, because a change the engine never processes
+	// is a change the bot never sees. Returns how many objects were updated.
+	async updateObject(query, changes) {
+		const { db } = await this.world.load();
+		const matched = await db['rooms.objects'].find(query);
+		const rooms = new Set();
+		for (const doc of matched) {
+			await db['rooms.objects'].updateUnchecked({ _id: doc._id }, await this.buildUpdate(doc, changes));
+			if (doc.room) rooms.add(doc.room);
+		}
+		for (const room of rooms) await this.activateRoom(room);
+		return matched.length;
+	}
+
+	// The update document for one matched object: normalizes the fields being
+	// set and leaves any other operator ($inc, $unset...) untouched.
+	async buildUpdate(doc, changes) {
+		const hasOperators = Object.keys(changes).some(function (key) { return key.charAt(0) === '$'; });
+		const fields = Object.assign({}, hasOperators ? changes.$set : changes);
+		if (fields.owner !== undefined) {
+			fields.user = this.resolveOwner(fields.owner);
+			delete fields.owner;
+		}
+		if (fields.amount !== undefined) {
+			fields[fields.resourceType || doc.resourceType || 'energy'] = fields.amount;
+			delete fields.amount;
+		}
+		await this.applyClocks(doc.type, fields, false);
+		if (!hasOperators) return { $set: fields };
+		return Object.assign({}, changes, Object.keys(fields).length ? { $set: fields } : {});
+	}
+
+	// Deletes objects and wakes the rooms they were in: the engine has to run a
+	// tick to notice a structure is gone. Same selector as updateObject; returns
+	// how many objects were removed.
+	async removeObject(query) {
+		const { db } = await this.world.load();
+		const matched = await db['rooms.objects'].find(query);
+		if (!matched.length) return 0;
+		await db['rooms.objects'].removeWhereUnchecked(query);
+		const rooms = new Set();
+		for (const doc of matched) if (doc.room) rooms.add(doc.room);
+		for (const room of rooms) await this.activateRoom(room);
+		return matched.length;
+	}
+
+	// Converts the relative clocks a scenario thinks in (`ticksToDecay`,
+	// `ticksToRegeneration`) into the absolute game ticks the engine reads.
+	// Mutates doc. `seedDefaults` fills in the engine's own lifetime when the
+	// caller gives neither — right for a NEW object, wrong for an update, where
+	// it would silently reset the clock of every road you touched for some
+	// unrelated reason.
+	//
+	// Not cosmetic: every decay handler fires on
+	// `!object.nextDecayTime || gameTime >= object.nextDecayTime-1`, so a road,
+	// container or rampart loaded WITHOUT a clock takes a decay hit on the very
+	// first tick its room is processed, and only then gets a proper clock — an
+	// imported base quietly loses a slice of its walls at tick 1. powerBank and
+	// deposit are worse: they are removed when `gameTime >= decayTime-1`, and
+	// `null - 1` is -1, so a null decayTime deletes the object immediately.
+	async applyClocks(type, doc, seedDefaults) {
+		const decay = DECAY_CLOCKS[type];
+		const regen = REGEN_CLOCKS[type];
+		if (!decay && !regen) return;
+		const seed = seedDefaults !== false;
+		// One gameTime read at most, and only when a clock is actually in play.
+		let gameTime = null;
+		const now = async () => (gameTime === null ? (gameTime = await this.world.gameTime) : gameTime);
+		if (decay) {
+			if (doc.ticksToDecay !== undefined) {
+				doc[decay.field] = (await now()) + doc.ticksToDecay;
+			} else if (seed && (doc[decay.field] === undefined || doc[decay.field] === null)) {
+				doc[decay.field] = (await now()) + this.engineConstant(decay.constant);
+			}
+		}
+		if (regen) {
+			// A full node has nothing pending — the engine's handlers only run
+			// their clock while it is empty, so seeding one would just show a
+			// bogus ticksToRegeneration to the bot.
+			const depleted = type === 'source'
+				? (doc.energy || 0) < (doc.energyCapacity || 0)
+				: !(doc.mineralAmount > 0);
+			if (doc.ticksToRegeneration !== undefined) {
+				doc[regen.field] = (await now()) + doc.ticksToRegeneration;
+			} else if (seed && depleted && doc[regen.field] === undefined) {
+				doc[regen.field] = (await now()) + this.engineConstant(regen.constant);
+			}
+		}
+		delete doc.ticksToDecay;
+		delete doc.ticksToRegeneration;
+	}
+
+	// Places a creep directly, no spawn involved. The doc mirrors the one the
+	// engine's own spawn intent writes, plus the two fields only a pre-placed
+	// creep needs:
+	//   ageTime — the engine backfills a full lifetime on the first tick it
+	//     processes a creep that has none, so omitting it still dies on time,
+	//     but `creep.ticksToLive` reads undefined until then and a
+	//     partially-aged creep is impossible to set up. We always stamp it.
+	//   boost   — a scenario creep can never have visited a lab, so boosted
+	//     parts have to be born boosted.
+	// Options: room, x, y, name, body (required); user/owner, boosts,
+	// ticksToLive or ageTime, store, hits, hitsMax, activate (all optional).
+	// Returns the new creep's _id.
 	async addCreep(creepOptions) {
 		if (!creepOptions.name) throw new Error('addCreep: name is required');
-		const userId = creepOptions.user === undefined ? this.botUserId : this.resolveOwner(creepOptions.user);
+		if (!Array.isArray(creepOptions.body) || creepOptions.body.length === 0) {
+			throw new Error('addCreep: body is required (' + creepOptions.name + ')');
+		}
+		const owner = creepOptions.user !== undefined ? creepOptions.user : creepOptions.owner;
+		const userId = owner === undefined ? this.botUserId : this.resolveOwner(owner);
 		if (!userId) throw new Error('addCreep: no user (add the main bot first or pass user)');
-		const bodyParts = creepOptions.body.map(function (type) {
-			return { type: type, hits: BODY_PART_HITS };
-		});
-		const carryParts = creepOptions.body.filter(function (type) { return type === 'carry'; }).length;
-		await this.world.addRoomObject(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, {
+		const bodyParts = this.buildCreepBody(creepOptions.body, creepOptions.boosts);
+		const fullHits = bodyParts.length * BODY_PART_HITS;
+		const result = await this.world.addRoomObjectUnchecked(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, {
 			user: userId, name: creepOptions.name,
 			body: bodyParts,
-			hits: bodyParts.length * BODY_PART_HITS, hitsMax: bodyParts.length * BODY_PART_HITS,
-			store: {}, storeCapacity: carryParts * CARRY_CAPACITY,
+			hits: creepOptions.hits !== undefined ? creepOptions.hits : fullHits,
+			hitsMax: creepOptions.hitsMax !== undefined ? creepOptions.hitsMax : fullHits,
+			store: creepOptions.store || {},
+			// storeCapacity ONLY, never storeCapacityResource: the latter marks an
+			// object as holding a fixed set of resource types (extensions, towers),
+			// and on a creep it makes store.getCapacity()/getFreeCapacity() return
+			// null and every non-listed resource read as capacity 0.
+			storeCapacity: this.creepStoreCapacity(bodyParts),
+			ageTime: await this.creepAgeTime(bodyParts, creepOptions),
 			fatigue: 0, spawning: false, notifyWhenAttacked: false
 		});
+		// The engine only simulates rooms in ACTIVE_ROOMS, so a creep dropped
+		// into a room nothing else keeps hot would sit frozen until that room's
+		// next force update.
+		if (creepOptions.activate !== false) await this.activateRoom(creepOptions.room);
+		return result && result._id;
+	}
+
+	// Body in the engine's doc shape. A `body` entry is either a part type
+	// ('work') or an already-built { type, boost } object; `boosts` maps a part
+	// TYPE to the compound every part of that type carries
+	// ({ tough: 'XGHO2', move: 'XZHO2' }). A boost on the entry itself wins.
+	buildCreepBody(body, boosts) {
+		return (body || []).map(function (part) {
+			const type = typeof part === 'string' ? part : part.type;
+			const boost = (part && part.boost !== undefined) ? part.boost
+				: (boosts ? boosts[type] : undefined);
+			const built = { type: type, hits: BODY_PART_HITS };
+			if (boost) built.boost = boost;
+			return built;
+		});
+	}
+
+	// One engine constant, by name, from the running server (@screeps/common) —
+	// so dojo never keeps its own copy of a game number the server can change
+	// under it. Throws rather than falling back to a stale literal: a silently
+	// wrong lifetime or capacity is far harder to spot than a missing constant.
+	engineConstant(name) {
+		const value = this.server.constants ? this.server.constants[name] : undefined;
+		if (value === undefined) {
+			throw new Error('engine constant ' + name + ' is unavailable from the server');
+		}
+		return value;
+	}
+
+	// Carry capacity of a built body, honouring carry boosts (the engine's own
+	// BOOSTS.carry[compound].capacity multiplier).
+	creepStoreCapacity(bodyParts) {
+		const carryCapacity = this.engineConstant('CARRY_CAPACITY');
+		const boostTable = this.engineConstant('BOOSTS').carry || {};
+		let capacity = 0;
+		for (const part of bodyParts) {
+			if (part.type !== 'carry') continue;
+			const boost = part.boost ? boostTable[part.boost] : null;
+			capacity += carryCapacity * ((boost && boost.capacity) || 1);
+		}
+		return capacity;
+	}
+
+	// Absolute tick the creep dies on: an explicit `ageTime` wins, else
+	// `ticksToLive` counted from now, else the engine lifetime for this body.
+	async creepAgeTime(bodyParts, options) {
+		if (options.ageTime !== undefined) return options.ageTime;
+		const hasClaim = bodyParts.some(function (part) { return part.type === 'claim'; });
+		const ticksToLive = options.ticksToLive !== undefined ? options.ticksToLive
+			: this.engineConstant(hasClaim ? 'CREEP_CLAIM_LIFE_TIME' : 'CREEP_LIFE_TIME');
+		return (await this.world.gameTime) + ticksToLive;
+	}
+
+	// Wakes a room for the next tick. ACTIVE_ROOMS is the engine's per-tick
+	// work list: a dormant room (or one no player intent has ever touched)
+	// ignores whatever we drop into it until something re-activates it, which
+	// is why the real backend activates a room from its world-mutating API.
+	// One tick only: ACTIVE_ROOMS is drained as the driver reads it. Never set
+	// `db.rooms.active` here — that pins the room forever (see keepRoomActive),
+	// and a one-off wake must let the room fall asleep again.
+	async activateRoom(roomName) {
+		const { env } = await this.world.load();
+		await env.sadd(env.keys.ACTIVE_ROOMS, roomName);
+	}
+
+	// The opposite: pins a room active permanently, at a one-off cost of a
+	// single field write and nothing per tick.
+	//
+	// The processor reads the room's own doc each time it processes the room
+	// (driver getRoomInfo -> db.rooms.findOne) and re-activates it for the next
+	// tick when the doc carries `active`:
+	//     if (roomInfo.active) { activateRoom = true; delete roomInfo.active; }   // processor.js
+	// That `delete` cannot clear the STORED flag, because the doc is persisted
+	// with `saveRoomInfo = db.rooms.update({_id}, {$set: roomInfo})` and `$set`
+	// never unsets a key that is simply absent. So the flag survives every pass
+	// and the room re-activates itself for as long as it is set — the engine
+	// does the work, we pay nothing per tick.
+	//
+	// Undo it with an explicit `$set: { active: false }`; nothing else will.
+	async keepRoomActive(roomName) {
+		const { db } = await this.world.load();
+		await db.rooms.update({ _id: roomName }, { $set: { active: true } });
+		await this.activateRoom(roomName);
 	}
 
 	// Flags are NOT room objects: one doc per (user, room) in 'rooms.flags',

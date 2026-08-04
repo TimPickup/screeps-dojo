@@ -28,9 +28,8 @@ module.exports = {
 		await world.loadScenarioMaps([loadMap('W1N1'), loadMap('W0N1')], { room: 'W1N1', x: 25, y: 25 });
 
 		// Make sure the starting spawn is full (300/300 energy):
-		const { db } = await world.world.load();
-		await db['rooms.objects'].update({ room: 'W1N1', type: 'spawn' },
-			{ $set: { store: { energy: 300 }, storeCapacityResource: { energy: 300 } } });
+		await world.updateObject({ room: 'W1N1', type: 'spawn' },
+			{ store: { energy: 290 } });
 
 		// A starter worker creep next to the spawn:
 		await world.addCreep({ room: 'W1N1', x: 26, y: 25, name: 'A', body: ['move', 'work', 'carry'] });
@@ -39,7 +38,13 @@ module.exports = {
 		await world.addCreep({room: 'W0N1', x: 30, y: 25, name: 'invader1', body: ['ranged_attack','attack','move','move'], user: 2 });
 
 		// Add a flag for the bot to target:
-		// await world.addFlag({ room: 'W0N1', x: 25, y: 25, name: 'goal' });
+		// await world.addFlag('goal', 'W0N1', 25, 25, {});
+
+		// Anything else — towers, containers, dropped energy, a keeper lair:
+		// await world.addObject('W1N1', 'container', 24, 25, {});
+		// ...and to edit or delete what is already there:
+		// await world.updateObject({ room: 'W1N1', type: 'tower' }, { store: { energy: 1000 } });
+		// await world.removeObject({ room: 'W1N1', type: 'rampart' });
 	},
 
 	until: function (state) {
