@@ -131,10 +131,20 @@ See `examples/README.md` for a guided tour. A scenario is a directory
   the room so the engine actually processes it, and returns the new object's id.
   `addCreep`/`addSpawn` are shortcuts for the types that need more than a
   defaults table — same code path, so `addObject(room, 'creep', x, y, {...})`
-  builds an identical creep. Calling the raw `world.world.addRoomObject` does
-  none of that and prints a one-off warning naming your line; if you really want
-  a hand-written doc, `world.world.addRoomObjectUnchecked(...)` says so out loud
-  and stays quiet.
+  builds an identical creep.
+
+  To change or delete what is already there, `world.updateObject(query,
+  changes)` and `world.removeObject(query)` take a selector (`{ room, type }`,
+  `{ _id }`, `{ name }`) and return how many objects they touched. `changes` is
+  plain fields (wrapped in `$set` for you) or an operator document (`{ $inc:
+  ... }`); the same `owner` and relative-clock conveniences apply, except that
+  an update never *defaults* a clock — bumping a rampart's hits won't reset its
+  decay. Both wake the room, because a change the engine never processes is one
+  the bot never sees.
+
+  Reaching past all this to the raw `world.world.addRoomObject` prints a one-off
+  warning naming your line; if you really want a hand-written doc,
+  `world.world.addRoomObjectUnchecked(...)` says so out loud and stays quiet.
 - `maxTicks` — required safety cap.
 - `until(state)` — optional early end condition, evaluated on a DB snapshot
   after every tick (`state.creeps`, `state.hostileCreeps`, `state.flags`,

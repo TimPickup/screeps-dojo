@@ -9,6 +9,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const DojoWorld = require('../../src/dojoWorld');
+const harnessWarnings = require('../../src/harnessWarnings');
 
 // Fully walled 50x50 room — walls on both sides of a shared edge are a
 // valid (if impassable) edge pair, which is all these suites need.
@@ -297,6 +298,132 @@ describe('DojoWorld addObject', function () {
 	});
 });
 
+// The other half of the facade: editing and deleting what is already there,
+// which is what scenarios used to drop into the db for.
+describe('DojoWorld updateObject / removeObject', function () {
+	this.timeout(600000);
+	let world;
+
+	before(async function () {
+		world = new DojoWorld();
+		await world.reset();
+		world.modules = { main: 'module.exports.loop = function () {};' };
+		await world.loadScenarioMaps([walledRoom('W0N0')], { room: 'W0N0', x: 10, y: 10 });
+	});
+
+	after(function () {
+		if (world) world.stop();
+	});
+
+	it('updates plain fields, wakes the room and counts what it changed', async function () {
+		const id = await world.addObject('W0N0', 'tower', 30, 30, { owner: 'me' });
+		const { db, env } = await world.world.load();
+		await env.del(env.keys.ACTIVE_ROOMS);
+		const changed = await world.updateObject({ _id: id }, { store: { energy: 500 } });
+		const doc = await db['rooms.objects'].findOne({ _id: id });
+		assert.strictEqual(changed, 1, 'updateObject should report how many objects it touched');
+		assert.deepStrictEqual(doc.store, { energy: 500 });
+		const active = (await env.smembers(env.keys.ACTIVE_ROOMS)) || [];
+		assert.ok(active.includes('W0N0'), 'an edit the engine never processes is one the bot never sees');
+	});
+
+	// A selector can hit several objects at once — that is the point of
+	// { room, type } — and each is normalised against its own type.
+	it('updates every object a selector matches', async function () {
+		await world.addObject('W0N0', 'extension', 31, 30, { owner: 'me' });
+		await world.addObject('W0N0', 'extension', 32, 30, { owner: 'me' });
+		const changed = await world.updateObject({ room: 'W0N0', type: 'extension' }, { hits: 42 });
+		const { db } = await world.world.load();
+		const docs = await db['rooms.objects'].find({ room: 'W0N0', type: 'extension' });
+		assert.strictEqual(changed, 2);
+		assert.deepStrictEqual(docs.map(function (d) { return d.hits; }), [42, 42]);
+	});
+
+	it('passes an explicit operator document through', async function () {
+		const id = await world.addObject('W0N0', 'tower', 33, 30, { owner: 'me', hits: 1000 });
+		await world.updateObject({ _id: id }, { $inc: { hits: 5 } });
+		const { db } = await world.world.load();
+		const doc = await db['rooms.objects'].findOne({ _id: id });
+		assert.strictEqual(doc.hits, 1005);
+	});
+
+	it('resolves owner and converts relative clocks on update', async function () {
+		const id = await world.addObject('W0N0', 'rampart', 34, 30, { owner: 'me' });
+		const gameTime = await world.world.gameTime;
+		await world.updateObject({ _id: id }, { owner: 'invader', ticksToDecay: 7 });
+		const { db } = await world.world.load();
+		const doc = await db['rooms.objects'].findOne({ _id: id });
+		assert.strictEqual(doc.user, '2', "'invader' should resolve to the NPC user id");
+		assert.strictEqual(doc.owner, undefined, 'owner is an input, not a doc field');
+		assert.strictEqual(doc.nextDecayTime - gameTime, 7);
+	});
+
+	// Unlike a new object, an update must never DEFAULT a clock: bumping a
+	// rampart's hits cannot silently restart its decay deadline.
+	it('leaves an untouched clock alone', async function () {
+		const id = await world.addObject('W0N0', 'road', 35, 30, { ticksToDecay: 250 });
+		const { db } = await world.world.load();
+		const before = (await db['rooms.objects'].findOne({ _id: id })).nextDecayTime;
+		await world.updateObject({ _id: id }, { hits: 4000 });
+		const after = (await db['rooms.objects'].findOne({ _id: id })).nextDecayTime;
+		assert.strictEqual(after, before, 'an unrelated edit must not reset the decay clock');
+	});
+
+	it('removes objects, wakes the room and counts what it deleted', async function () {
+		await world.addObject('W0N0', 'container', 36, 30, {});
+		await world.addObject('W0N0', 'container', 37, 30, {});
+		const { db, env } = await world.world.load();
+		await env.del(env.keys.ACTIVE_ROOMS);
+		const removed = await world.removeObject({ room: 'W0N0', type: 'container' });
+		const left = await db['rooms.objects'].find({ room: 'W0N0', type: 'container' });
+		assert.strictEqual(removed, 2);
+		assert.strictEqual(left.length, 0);
+		const active = (await env.smembers(env.keys.ACTIVE_ROOMS)) || [];
+		assert.ok(active.includes('W0N0'), 'the engine needs a tick to notice a structure is gone');
+	});
+
+	it('reports zero when a selector matches nothing', async function () {
+		assert.strictEqual(await world.removeObject({ room: 'W0N0', type: 'nuker' }), 0);
+		assert.strictEqual(await world.updateObject({ room: 'W0N0', type: 'nuker' }, { hits: 1 }), 0);
+	});
+
+	// Going around the facade is easy to do by accident and silent in its
+	// effects, so the raw collection writes are guarded: the warning is queued
+	// as a console line, which is how it reaches the GUI and the recording.
+	it('warns when a scenario writes to rooms.objects by hand', async function () {
+		const id = await world.addObject('W0N0', 'tower', 38, 30, { owner: 'me' });
+		const { db } = await world.world.load();
+		harnessWarnings.reset();
+
+		// raw-access-ok: this test exists to prove the guard fires
+		await db['rooms.objects'].update({ _id: id }, { $set: { hits: 7 } });
+		const afterUpdate = harnessWarnings.take();
+		assert.strictEqual(afterUpdate.length, 1, 'a raw update should warn once, got ' + JSON.stringify(afterUpdate));
+		assert.ok(/updateObject/.test(afterUpdate[0]), 'the warning must name the replacement: ' + afterUpdate[0]);
+		assert.ok(afterUpdate[0].startsWith('⚠'), 'and be marked as a warning: ' + afterUpdate[0]);
+
+		// raw-access-ok: same, for the delete half
+		await db['rooms.objects'].removeWhere({ _id: id });
+		const afterRemove = harnessWarnings.take();
+		assert.strictEqual(afterRemove.length, 1);
+		assert.ok(/removeObject/.test(afterRemove[0]), afterRemove[0]);
+	});
+
+	// The facade's own writes go through the *Unchecked methods, and the engine's
+	// writes happen while the guard is suspended — neither may cry wolf, or the
+	// warning becomes noise everyone learns to ignore.
+	it('stays quiet for the facade and for the engine', async function () {
+		harnessWarnings.reset();
+		const id = await world.addObject('W0N0', 'tower', 39, 30, { owner: 'me' });
+		await world.updateObject({ _id: id }, { hits: 9 });
+		await world.removeObject({ _id: id });
+		assert.deepStrictEqual(harnessWarnings.take(), [], 'the facade must not warn about itself');
+
+		await world.tick();
+		assert.deepStrictEqual(harnessWarnings.take(), [], 'the engine writes to these collections too');
+	});
+});
+
 describe('DojoWorld spawn adoption', function () {
 	this.timeout(600000);
 	let world;
@@ -499,7 +626,7 @@ describe('DojoWorld NPC room activation', function () {
 		const lairAfterSpawn = await db['rooms.objects'].findOne({ _id: lair._id });
 		assert.strictEqual(lairAfterSpawn.nextSpawnTime, null,
 			'the lair should have consumed its first-spawn deadline');
-		await db['rooms.objects'].update({ _id: keeper._id }, { $set: { hits: 100 } });
+		await world.updateObject({ _id: keeper._id }, { hits: 100 });
 		await world.tick();
 		const lairRearmed = await db['rooms.objects'].findOne({ _id: lair._id });
 		assert.ok(lairRearmed.nextSpawnTime,

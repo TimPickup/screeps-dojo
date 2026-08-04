@@ -4,6 +4,7 @@
 // mockup/server internals. Runner, loader, and (later) recorder use this API.
 const { createServer, TerrainMatrix } = require('./serverBoot');
 const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
+const warnings = require('./harnessWarnings');
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
@@ -131,7 +132,16 @@ class DojoWorld {
 	}
 
 	async start() {
-		await this.server.start();
+		// The engine writes to the same collections the raw-access guard watches,
+		// and in the fast in-process mode it does so in THIS process — so the
+		// guard stands down while the engine is the one running (see
+		// src/harnessWarnings.js).
+		warnings.suspend();
+		try {
+			await this.server.start();
+		} finally {
+			warnings.resume();
+		}
 	}
 
 	stop() {
@@ -140,7 +150,12 @@ class DojoWorld {
 
 	async tick() {
 		await this.activateSimRooms();
-		await this.server.tick();
+		warnings.suspend();
+		try {
+			await this.server.tick();
+		} finally {
+			warnings.resume();
+		}
 	}
 
 	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set
@@ -313,8 +328,7 @@ class DojoWorld {
 		// screeps-server-mockup sets safeMode: 20000 on the controller when addBot
 		// runs, which prevents invader attacks for 20000 ticks — clear it so the
 		// sim reflects real-world conditions (spec §3: harness must not mask bugs).
-		const { db } = await this.world.load();
-		await db['rooms.objects'].update({ room: options.room, type: 'controller' }, { $set: { safeMode: 0 } });
+		await this.updateObject({ room: options.room, type: 'controller' }, { safeMode: 0 });
 		return this.bot;
 	}
 
@@ -355,8 +369,7 @@ class DojoWorld {
 	// the bot to start spawnless (e.g. probing a base plan with vision from a
 	// creep, then placing the spawn where the bot's own planner wants it).
 	async removeSpawns(room) {
-		const { db } = await this.world.load();
-		await db['rooms.objects'].removeWhere({ room: room, type: 'spawn' });
+		return this.removeObject({ room: room, type: 'spawn' });
 	}
 
 	// Inserts a spawn mid-run (the sandbox equivalent of a player placing
@@ -512,8 +525,7 @@ class DojoWorld {
 		if (adoptHome && bootstrapSpawnId !== null) {
 			// addBot's bootstrap Spawn1 now overlaps the map's real spawn; remove
 			// the placeholder so only the map-defined spawn remains.
-			const { db } = await this.world.load();
-			await db['rooms.objects'].removeWhere({ _id: bootstrapSpawnId });
+			await this.removeObject({ _id: bootstrapSpawnId });
 		}
 		return bot;
 	}
@@ -545,7 +557,7 @@ class DojoWorld {
 			const set = claimed
 				? { user: this.resolveOwner(c.owner), level: c.level || 1, progress: 0 }
 				: { user: null, level: 0, progress: 0, reservation: null, downgradeTime: null };
-			await db['rooms.objects'].update({ room: map.room, type: 'controller' }, { $set: set });
+			await this.updateObject({ room: map.room, type: 'controller' }, set);
 		}
 	}
 
@@ -610,9 +622,70 @@ class DojoWorld {
 		return result && result._id;
 	}
 
+	// Edits objects already in the world — the counterpart to addObject, and the
+	// reason a scenario no longer needs the db. `query` is a rooms.objects
+	// selector ({ room, type }, { _id }, { name }...); `changes` is either plain
+	// fields, which are wrapped in $set for you, or an explicit operator document
+	// ({ $set: ... }, { $inc: ... }) whose $set half gets the same treatment.
+	//
+	// Applies addObject's input conveniences against each matched object's own
+	// type: `owner` resolved to a user id, `amount` written to the field the
+	// runtime reads, and relative clocks turned absolute. Clocks are only
+	// converted here, never defaulted — bumping a rampart's hits must not also
+	// reset its decay deadline.
+	//
+	// Wakes every room it touched, because a change the engine never processes
+	// is a change the bot never sees. Returns how many objects were updated.
+	async updateObject(query, changes) {
+		const { db } = await this.world.load();
+		const matched = await db['rooms.objects'].find(query);
+		const rooms = new Set();
+		for (const doc of matched) {
+			await db['rooms.objects'].updateUnchecked({ _id: doc._id }, await this.buildUpdate(doc, changes));
+			if (doc.room) rooms.add(doc.room);
+		}
+		for (const room of rooms) await this.activateRoom(room);
+		return matched.length;
+	}
+
+	// The update document for one matched object: normalizes the fields being
+	// set and leaves any other operator ($inc, $unset...) untouched.
+	async buildUpdate(doc, changes) {
+		const hasOperators = Object.keys(changes).some(function (key) { return key.charAt(0) === '$'; });
+		const fields = Object.assign({}, hasOperators ? changes.$set : changes);
+		if (fields.owner !== undefined) {
+			fields.user = this.resolveOwner(fields.owner);
+			delete fields.owner;
+		}
+		if (fields.amount !== undefined) {
+			fields[fields.resourceType || doc.resourceType || 'energy'] = fields.amount;
+			delete fields.amount;
+		}
+		await this.applyClocks(doc.type, fields, false);
+		if (!hasOperators) return { $set: fields };
+		return Object.assign({}, changes, Object.keys(fields).length ? { $set: fields } : {});
+	}
+
+	// Deletes objects and wakes the rooms they were in: the engine has to run a
+	// tick to notice a structure is gone. Same selector as updateObject; returns
+	// how many objects were removed.
+	async removeObject(query) {
+		const { db } = await this.world.load();
+		const matched = await db['rooms.objects'].find(query);
+		if (!matched.length) return 0;
+		await db['rooms.objects'].removeWhereUnchecked(query);
+		const rooms = new Set();
+		for (const doc of matched) if (doc.room) rooms.add(doc.room);
+		for (const room of rooms) await this.activateRoom(room);
+		return matched.length;
+	}
+
 	// Converts the relative clocks a scenario thinks in (`ticksToDecay`,
-	// `ticksToRegeneration`) into the absolute game ticks the engine reads, and
-	// seeds the engine's own lifetime when the caller gives neither. Mutates doc.
+	// `ticksToRegeneration`) into the absolute game ticks the engine reads.
+	// Mutates doc. `seedDefaults` fills in the engine's own lifetime when the
+	// caller gives neither — right for a NEW object, wrong for an update, where
+	// it would silently reset the clock of every road you touched for some
+	// unrelated reason.
 	//
 	// Not cosmetic: every decay handler fires on
 	// `!object.nextDecayTime || gameTime >= object.nextDecayTime-1`, so a road,
@@ -621,17 +694,18 @@ class DojoWorld {
 	// imported base quietly loses a slice of its walls at tick 1. powerBank and
 	// deposit are worse: they are removed when `gameTime >= decayTime-1`, and
 	// `null - 1` is -1, so a null decayTime deletes the object immediately.
-	async applyClocks(type, doc) {
+	async applyClocks(type, doc, seedDefaults) {
 		const decay = DECAY_CLOCKS[type];
 		const regen = REGEN_CLOCKS[type];
 		if (!decay && !regen) return;
+		const seed = seedDefaults !== false;
 		// One gameTime read at most, and only when a clock is actually in play.
 		let gameTime = null;
 		const now = async () => (gameTime === null ? (gameTime = await this.world.gameTime) : gameTime);
 		if (decay) {
 			if (doc.ticksToDecay !== undefined) {
 				doc[decay.field] = (await now()) + doc.ticksToDecay;
-			} else if (doc[decay.field] === undefined || doc[decay.field] === null) {
+			} else if (seed && (doc[decay.field] === undefined || doc[decay.field] === null)) {
 				doc[decay.field] = (await now()) + this.engineConstant(decay.constant);
 			}
 		}
@@ -644,7 +718,7 @@ class DojoWorld {
 				: !(doc.mineralAmount > 0);
 			if (doc.ticksToRegeneration !== undefined) {
 				doc[regen.field] = (await now()) + doc.ticksToRegeneration;
-			} else if (depleted && doc[regen.field] === undefined) {
+			} else if (seed && depleted && doc[regen.field] === undefined) {
 				doc[regen.field] = (await now()) + this.engineConstant(regen.constant);
 			}
 		}

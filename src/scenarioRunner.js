@@ -22,6 +22,7 @@
 const path = require('path');
 const assert = require('assert');
 const DojoWorld = require('./dojoWorld');
+const harnessWarnings = require('./harnessWarnings');
 const { createRecorder } = require('./recording');
 const { getMockEngineFeatures } = require('./serverBoot');
 
@@ -101,7 +102,12 @@ async function runScenario(scenarioDir, options) {
 	}
 
 	// Drains console lines accumulated since the last call (per-tick delta).
+	// Harness warnings (raw server access, etc.) join the scenario's own console
+	// here: printed to the container's stdout they reach nobody running from the
+	// GUI, but as console lines they show up live, in `result.console`, and in
+	// the recording.
 	function takeConsoleDelta() {
+		for (const warning of harnessWarnings.take()) consoleLines.push(warning);
 		if (consoleLines.length === lastConsoleLen) return [];
 		const delta = consoleLines.slice(lastConsoleLen);
 		lastConsoleLen = consoleLines.length;
@@ -109,6 +115,7 @@ async function runScenario(scenarioDir, options) {
 	}
 
 	try {
+		harnessWarnings.reset();   // a fresh run starts with a clean slate
 		await world.reset();
 		world.modules = typeof scenario.modules === 'function' ? scenario.modules() : scenario.modules;
 		await scenario.setup(world);
@@ -149,9 +156,12 @@ async function runScenario(scenarioDir, options) {
 		// initial pre-tick frame (for recording and/or live stream)
 		if (recorder || streamFrames) {
 			const frame0 = await world.captureFrame();
-			frame0.console = [];
+			// anything setup() warned about belongs on the first frame, not
+			// blamed on tick 1
+			frame0.console = takeConsoleDelta();
 			if (recorder) recorder.addFrame(frame0);
 			if (streamFrames) emit({ type: 'frame', frame: frame0 });
+			if (frame0.console.length) emit({ type: 'console', lines: frame0.console });
 		}
 
 		const damageTaken = {};

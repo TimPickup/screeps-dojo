@@ -27,13 +27,9 @@ module.exports = {
 		// Load both rooms. The bot's spawn goes at { room, x, y }.
 		await world.loadScenarioMaps([loadMap('W1N1'), loadMap('W0N1')], { room: 'W1N1', x: 25, y: 25 });
 
-		// Make sure the starting spawn is full (300/300 energy). Editing an
-		// EXISTING object still means reaching into the db by hand; placing a new
-		// one should go through world.addObject / world.addCreep, which fill in
-		// the engine-required fields and wake the room for you.
-		const { db } = await world.world.load();
-		await db['rooms.objects'].update({ room: 'W1N1', type: 'spawn' },
-			{ $set: { store: { energy: 300 }, storeCapacityResource: { energy: 300 } } });
+		// Make sure the starting spawn is full (300/300 energy):
+		await world.updateObject({ room: 'W1N1', type: 'spawn' },
+			{ store: { energy: 290 } });
 
 		// A starter worker creep next to the spawn:
 		await world.addCreep({ room: 'W1N1', x: 26, y: 25, name: 'A', body: ['move', 'work', 'carry'] });
@@ -46,6 +42,9 @@ module.exports = {
 
 		// Anything else — towers, containers, dropped energy, a keeper lair:
 		// await world.addObject('W1N1', 'container', 24, 25, {});
+		// ...and to edit or delete what is already there:
+		// await world.updateObject({ room: 'W1N1', type: 'tower' }, { store: { energy: 1000 } });
+		// await world.removeObject({ room: 'W1N1', type: 'rampart' });
 	},
 
 	until: function (state) {
