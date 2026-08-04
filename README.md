@@ -246,6 +246,28 @@ Owners are stored as the loader's tags (`me` / `invader` / `sourceKeeper`) so th
 map loads on any dojo server. Memory and segments are seeded into the bot when
 the scenario's `setup` passes them to `loadScenarioMaps`.
 
+## Updating dojo
+
+Dojo checks once an hour whether a newer version is published (the `version` in
+the repo's `package.json` on `main`). The GUI shows a banner on the scenario
+list and a dot next to the version in the header; the CLI prints a notice at the
+end of a run, after whatever you came for. To update:
+
+    git pull
+    npm run build:ui     # ui/dist is only auto-built when missing, so refresh it
+    npm run build        # only needed when dependencies changed (cached otherwise)
+
+The repo is bind-mounted into the container, so `git pull` alone is enough for
+changes under `src/`, `scripts/` and `test/`. `ui/dist` is git-ignored and stale
+after a pull that touched `ui/src`, and `node_modules` is baked into the image,
+so those two need their build step. Read what changed in
+[CHANGELOG.md](CHANGELOG.md) or on the
+[releases page](https://github.com/TimPickup/screeps-dojo/releases).
+
+Set `DOJO_NO_UPDATE_CHECK=1` to switch the check off, or
+`DOJO_UPDATE_REPO=owner/name` to point a fork at its own upstream. It is
+fail-soft: offline, proxied or rate-limited all mean "say nothing".
+
 ## Updating dependencies
 
 Everything is pinned: `screeps` (feat-node24 beta), `@screeps/*` overrides,

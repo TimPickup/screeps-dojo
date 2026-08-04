@@ -25,4 +25,5 @@ const result = spawnSync(
 	['compose', 'run', '--rm', 'dojo', 'node', 'src/render/renderCli.js'].concat(args),
 	{ stdio: 'inherit', shell: process.platform === 'win32' }
 );
-process.exit(result.status === null ? 1 : result.status);
+const status = result.status === null ? 1 : result.status;
+require('../src/updateCheck').printNotice().then(function () { process.exit(status); });

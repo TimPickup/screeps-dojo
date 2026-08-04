@@ -99,5 +99,7 @@ module.exports = {
 };
 
 if (require.main === module) {
-	process.exit(main(process.argv.slice(2)));
+	const status = main(process.argv.slice(2));
+	// after the run, so a pending update is the last thing on screen
+	require('../src/updateCheck').printNotice().then(function () { process.exit(status); });
 }

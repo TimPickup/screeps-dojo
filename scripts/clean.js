@@ -34,3 +34,4 @@ if (!force) {
 const containerIds = rows.map(function (row) { return row.split('\t')[0]; });
 console.log('[dojo] stopping ' + containerIds.length + ' container(s)');
 spawnSync('docker', ['stop'].concat(containerIds), { stdio: 'inherit', shell: process.platform === 'win32' });
+require('../src/updateCheck').printNotice();

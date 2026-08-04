@@ -74,6 +74,9 @@ const timer = setInterval(function () {
 			console.log('[dojo-ui] server up → ' + URL
 				+ '\n[dojo-ui] (first run installs the toolchain — watch progress on the welcome screen)');
 			openBrowser(URL);
+			// the GUI shows its own update banner, but this process keeps the
+			// terminal, so say it here too
+			require('../src/updateCheck').printNotice();
 		}
 	});
 	req.on('error', function () { /* unreachable yet */ });
