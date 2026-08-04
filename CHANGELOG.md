@@ -5,6 +5,45 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.4.0] — 2026-08-04
+
+Staying current. 0.3.0 could tell you an update existed; this release tells you
+what to do about it, and does it for you.
+
+### Added
+
+- **`npm run update`** — one command to take a new version: pull, rebuild the
+  web UI, rebuild the container image, and restart the GUI if it was running.
+  Every step is skipped or cached when nothing needs it, so running it while
+  already current costs a few seconds and changes nothing. It refuses to pull
+  onto a dirty tree, because a half-merged update is worse than no update.
+- **Update notice in the CLI** — every host launcher (`test`, `render`, `ui`,
+  `clean`) prints a notice *after* the command finishes, so a pending update is
+  the last thing on screen rather than something that scrolled past at the start.
+  Headless users previously had no way to know at all.
+- **The GUI banner now says how to update** — the command, with a copy button,
+  next to a link to the release notes. It is red rather than the theme's green:
+  it is the one banner that wants to read as "act on me".
+
+### Changed
+
+- The version check moved to `src/updateCheck.js`, shared by the GUI server and
+  the CLI, so the banner and the terminal notice cannot disagree about what
+  "newer" means. Short-lived CLI processes cache the answer to
+  `.tmp/update-check.json` on the same one-hour TTL the server keeps in memory,
+  so repeat runs cost nothing. Fail-soft throughout — offline, proxied,
+  rate-limited or mangled all mean "say nothing" — and it never delays or fails
+  the command it follows. `DOJO_NO_UPDATE_CHECK=1` switches it off;
+  `DOJO_UPDATE_REPO=owner/name` points a fork at its own upstream.
+- README gains an **Updating dojo** section: the one-liner, and the by-hand
+  steps for when you want them.
+
+### Fixed
+
+- A `git pull` that touched `ui/src` left you running the **old GUI**: `ui/dist`
+  is git-ignored and was only rebuilt when missing entirely. `npm run update`
+  always refreshes it.
+
 ## [0.3.0] — 2026-08-04
 
 The theme of this release is **fidelity**: objects a scenario places now look
@@ -126,4 +165,5 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.4.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.3.0
