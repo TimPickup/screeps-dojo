@@ -11,6 +11,7 @@
 .fail { color: var(--hostile); font-size: 11px; }
 .refresh { margin-top: 6px; background: transparent; border: none; color: var(--muted); font-size: 11px; text-align: left; padding: 4px 2px; }
 .refresh:hover { color: var(--text); }
+.refresh:disabled, .refresh:disabled:hover { opacity: 0.45; color: var(--muted); cursor: default; }
 .empty { color: var(--muted); font-size: 12px; padding: 8px 2px; line-height: 1.6; }
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
 .welcomeInner { max-width: 480px; text-align: center; }

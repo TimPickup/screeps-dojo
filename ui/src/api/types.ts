@@ -22,6 +22,12 @@ export interface RecordingEntry {
   scenario: string;
   timestamp: string;
   relPath: string;
+  // Derived server-side: the runner's endReason once finalised, or 'running' /
+  // 'interrupted' for a run that never wrote one. 'unknown' when meta is absent.
+  status: string;
+  // null while the count on disk is untrustworthy (meta.ticks is written as 0
+  // before the first tick and only corrected by finalize()).
+  ticks: number | null;
   meta: RecordingMeta | null;
 }
 
