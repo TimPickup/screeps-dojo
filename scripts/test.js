@@ -10,11 +10,17 @@
 //   npm run test:integration              -> run only integration tests
 //   npm run test:scenarios -- scout-flee  -> run one matching scenario
 //   npm test -- scout-flee record         -> same, with replay recording enabled
+//   npm run test:internal -- local        -> run mocha here, without Docker
 //
-// "record" is a bare keyword (not --record) on purpose: PowerShell strips the
-// bare -- token from `npm test -- ...`, after which npm swallows --flags as
-// its own config. Bare words survive both. --record also works from shells
-// that pass it through (cmd, bash).
+// "record" and "local" are bare keywords (not --record/--local) on purpose:
+// PowerShell strips the bare -- token from `npm test -- ...`, after which npm
+// swallows --flags as its own config. Bare words survive both. --record and
+// --local also work from shells that pass them through (cmd, bash).
+//
+// "local" exists for CI, where there is no Docker daemon and node_modules is
+// installed on the runner itself. It deliberately reuses SUITES, so the suite
+// definitions have exactly one home and a new test directory is picked up by
+// both paths at once.
 const { spawnSync } = require('child_process');
 
 const SUITES = Object.freeze({
@@ -32,6 +38,7 @@ const SUITES = Object.freeze({
 function parseArgs(args) {
 	let suite = 'all';
 	let record = false;
+	let local = false;
 	let filter;
 
 	for (let i = 0; i < args.length; i += 1) {
@@ -44,6 +51,8 @@ function parseArgs(args) {
 			suite = arg.slice('--suite='.length);
 		} else if (arg === '--record' || arg === 'record') {
 			record = true;
+		} else if (arg === '--local' || arg === 'local') {
+			local = true;
 		} else if (!arg.startsWith('--') && filter === undefined) {
 			filter = arg;
 		}
@@ -54,7 +63,7 @@ function parseArgs(args) {
 			+ Object.keys(SUITES).join(', ') + ')');
 	}
 
-	return { suite: suite, record: record, filter: filter };
+	return { suite: suite, record: record, local: local, filter: filter };
 }
 
 function buildMochaArgs(options) {
@@ -70,6 +79,20 @@ function buildDockerArgs(options) {
 	return dockerArgs;
 }
 
+// The container passes DOJO_RECORD with `-e`; running here we have to put it on
+// the child's own environment instead. process.env is left untouched.
+function buildLocalEnv(options, env) {
+	if (!options.record) return env;
+	return Object.assign({}, env, { DOJO_RECORD: '1' });
+}
+
+// mocha's own entry point, spawned with process.execPath. Going through the bin
+// directly rather than `npx` keeps a test run off the network and sidesteps any
+// shell re-expansion of the glob arguments — mocha must expand those itself.
+function localMochaBin() {
+	return require.resolve('mocha/bin/mocha.js');
+}
+
 function main(args) {
 	let options;
 	try {
@@ -83,11 +106,19 @@ function main(args) {
 		console.log('[dojo] recording enabled -> recordings/<scenario>/<timestamp>/');
 	}
 
-	const result = spawnSync(
-		'docker',
-		buildDockerArgs(options).concat(buildMochaArgs(options)),
-		{ stdio: 'inherit', shell: process.platform === 'win32' }
-	);
+	// buildMochaArgs() leads with the literal 'mocha', which is the argument
+	// `npx` needs on the container path. Spawning the bin directly, drop it.
+	const result = options.local
+		? spawnSync(
+			process.execPath,
+			[localMochaBin()].concat(buildMochaArgs(options).slice(1)),
+			{ stdio: 'inherit', env: buildLocalEnv(options, process.env) }
+		)
+		: spawnSync(
+			'docker',
+			buildDockerArgs(options).concat(buildMochaArgs(options)),
+			{ stdio: 'inherit', shell: process.platform === 'win32' }
+		);
 	return result.status === null ? 1 : result.status;
 }
 
@@ -95,7 +126,8 @@ module.exports = {
 	SUITES: SUITES,
 	parseArgs: parseArgs,
 	buildMochaArgs: buildMochaArgs,
-	buildDockerArgs: buildDockerArgs
+	buildDockerArgs: buildDockerArgs,
+	buildLocalEnv: buildLocalEnv
 };
 
 if (require.main === module) {

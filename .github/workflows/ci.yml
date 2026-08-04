@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes the older run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Matches Dockerfile:1 (node:24-bookworm). Also part of the cache keys below:
+  # node_modules holds isolated-vm's compiled binding, which is tied to the
+  # Node ABI and must not survive a major-version bump.
+  NODE_VERSION: '24'
+
+jobs:
+  # The dojo runs its tests through `docker compose` locally, because the engine
+  # toolchain is baked into the image. CI runs mocha directly on the runner
+  # instead (scripts/test.js `local`): building the image here would repeat the
+  # slow `npm ci` on every run with no cache to restore it from, whereas a bare
+  # install can be cached wholesale. The runner image is Ubuntu and the base
+  # image is Debian bookworm, but everything the tests touch is either an npm
+  # dependency or Node itself.
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # docker-compose.yml supplies these; a bare runner does not.
+      # src/botModules.js:9 would otherwise look for the bot at /bot.
+      DOJO_BOT_DIR: ${{ github.workspace }}
+      DOJO_FAST_MOCK_ENGINE: '1'
+      # scripts/test.js prints an update notice after every run. Nothing in CI
+      # reads it, and it is a network round trip (src/updateCheck.js:89).
+      DOJO_NO_UPDATE_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Deliberately no `cache: npm`. That caches the download tarballs, so
+          # `npm ci` would still recompile isolated-vm and rebuild
+          # screeps-server-mockup's TypeScript — the two things that actually
+          # cost minutes. Caching node_modules itself is what avoids them.
+
+      - name: Ensure DejaVu fonts
+        # Dockerfile:3 installs these for resvg's SVG text rendering. The runner
+        # image normally ships them; check before paying for an apt update.
+        run: |
+          if ! fc-list : family | grep -qi dejavu; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+          fi
+
+      - name: Restore node_modules
+        id: node-modules
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          # The patch set is in the key on purpose: `postinstall` rewrites files
+          # inside node_modules and generates a runtime snapshot there
+          # (tools/mockEnginePatches.cjs). A cache keyed on the lockfile alone
+          # could serve a tree patched by a manifest that no longer applies.
+          # No restore-keys — a near-miss restore of native modules is worse
+          # than a clean install.
+          key: node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json', 'server-mock-patches/**', 'tools/mockEnginePatches.cjs') }}
+
+      - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        # --foreground-scripts streams the slow native builds, as Dockerfile:18
+        # does, so a cold run shows progress instead of sitting silent.
+        # `postinstall` applies the mock engine patches.
+        run: npm ci --no-audit --no-fund --foreground-scripts
+
+      - name: Verify mock engine patches
+        # Runs on a cache hit too — this is the check that a warm run is not
+        # quietly testing against an unpatched engine.
+        run: npm run verify:mock-engine-patches
+
+      - name: Unit, import and integration tests
+        # `local` is a bare keyword rather than --local; see scripts/test.js.
+        # The scenarios suite is excluded: it runs real bot scenarios and is far
+        # too slow for per-push feedback. Run it locally with `npm run
+        # test:scenarios`.
+        run: npm run test:internal -- local
+
+  ui:
+    name: UI typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore ui/node_modules
+        id: node-modules
+        uses: actions/cache@v5
+        with:
+          path: ui/node_modules
+          key: ui-node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('ui/package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        # `build` gates on this too. Running it as its own step first costs a
+        # few seconds of duplicate tsc and buys a failing step that names the
+        # actual problem.
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
