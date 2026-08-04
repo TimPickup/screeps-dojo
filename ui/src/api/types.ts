@@ -56,6 +56,10 @@ export interface Frame {
   flags: unknown[];
   eventLog?: Record<string, unknown[]>;
   console?: string[];
+  // The bot's own RoomVisual draws, captured per room as the engine's raw
+  // newline-separated command strings (src/dojoWorld.js captureState). Optional:
+  // recordings made before this was captured simply do not carry it.
+  visuals?: Record<string, string>;
 }
 
 export interface Recording {

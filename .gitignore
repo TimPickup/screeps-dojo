@@ -15,3 +15,8 @@ scenarios/*
 
 # Private dev planning docs — kept local, never published.
 docs/superpowers/
+
+# Per-machine Claude Code settings: tool permissions and absolute local paths.
+# Scoped to the .local. file by convention, so a shared .claude/settings.json
+# could still be committed deliberately if the project ever wants one.
+.claude/settings.local.json
