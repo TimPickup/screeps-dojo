@@ -62,6 +62,7 @@ what you want for CI:
     npm run test:integration  # integration tests only
     npm run test:scenarios    # every scenario in scenarios/
     npm run test:ui           # UI Vitest suite
+    npm run update            # pull + rebuild + restart the GUI (see "Updating dojo")
 
 Filter a run by its Mocha test or scenario name with a trailing bare word:
 
@@ -248,20 +249,32 @@ the scenario's `setup` passes them to `loadScenarioMaps`.
 
 ## Updating dojo
 
-Dojo checks once an hour whether a newer version is published (the `version` in
-the repo's `package.json` on `main`). The GUI shows a banner on the scenario
-list and a dot next to the version in the header; the CLI prints a notice at the
-end of a run, after whatever you came for. To update:
+One command, from the project directory:
+
+    npm run update
+
+It pulls, rebuilds the web UI, rebuilds the container image, and restarts the
+GUI if it was running — each step skipped or cached when nothing needs it, so
+running it while already current costs a few seconds and changes nothing. It
+refuses to pull onto a dirty tree; your `scenarios/` workspace is git-ignored,
+so a clean tree is the normal case.
+
+Dojo tells you when there is something to take: it checks once an hour whether a
+newer version is published (the `version` in the repo's `package.json` on
+`main`). The GUI shows a banner on the scenario list with the command and a copy
+button, plus a dot beside the version in the header; the CLI prints a notice at
+the end of a run, after whatever you came for.
+
+Doing it by hand is three steps, because the pieces update differently — the
+repo is bind-mounted, so `git pull` alone covers `src/`, `scripts/` and `test/`,
+while `ui/dist` is git-ignored (and only auto-built when *missing*) and
+`node_modules` is baked into the image:
 
     git pull
-    npm run build:ui     # ui/dist is only auto-built when missing, so refresh it
-    npm run build        # only needed when dependencies changed (cached otherwise)
+    npm run build:ui
+    npm run build
 
-The repo is bind-mounted into the container, so `git pull` alone is enough for
-changes under `src/`, `scripts/` and `test/`. `ui/dist` is git-ignored and stale
-after a pull that touched `ui/src`, and `node_modules` is baked into the image,
-so those two need their build step. Read what changed in
-[CHANGELOG.md](CHANGELOG.md) or on the
+Read what changed in [CHANGELOG.md](CHANGELOG.md) or on the
 [releases page](https://github.com/TimPickup/screeps-dojo/releases).
 
 Set `DOJO_NO_UPDATE_CHECK=1` to switch the check off, or

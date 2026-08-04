@@ -38,8 +38,7 @@ describe('updateCheck', function () {
 			const notice = updateCheck.formatNotice(info);
 			assert.ok(notice.includes('v0.3.0'), notice);
 			assert.ok(notice.includes('v0.2.0'), notice);
-			assert.ok(notice.includes('git pull'), 'must say how to update: ' + notice);
-			assert.ok(notice.includes('npm run build:ui'), 'a pull leaves ui/dist stale: ' + notice);
+			assert.ok(notice.includes('npm run update'), 'must say how to update: ' + notice);
 			assert.ok(notice.includes('/releases'), 'must link the notes: ' + notice);
 		});
 

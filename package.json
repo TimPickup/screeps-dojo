@@ -9,6 +9,7 @@
 		"verify:mock-engine-patches": "node tools/mockEnginePatches.cjs check",
 		"build": "docker compose build",
 		"clean": "node scripts/clean.js",
+		"update": "node scripts/update.js",
 		"import-room": "docker compose run --rm dojo node scripts/importRoom.js",
 		"install:dojo": "docker compose run --rm dojo npm install",
 		"smoke": "docker compose run --rm dojo npm run smoke:inner",

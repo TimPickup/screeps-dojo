@@ -107,7 +107,7 @@ function formatNotice(versionInfo) {
 		'',
 		yellow + bold + '⬆ Screeps Dojo v' + versionInfo.latest + ' is available' + reset
 			+ yellow + ' — you have v' + versionInfo.current + reset,
-		yellow + '  update:  git pull  &&  npm run build:ui  &&  npm run build' + reset,
+		yellow + '  update:  npm run update' + reset,
 		yellow + '  notes:   ' + versionInfo.repoUrl + '/releases' + reset,
 		''
 	].join('\n');

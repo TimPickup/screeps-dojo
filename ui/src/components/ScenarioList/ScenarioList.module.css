@@ -15,8 +15,15 @@
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
 .welcomeInner { max-width: 480px; text-align: center; }
 .welcomeLogo { width: 132px; height: 132px; object-fit: contain; margin-bottom: 16px; }
-.update { margin: 4px auto 16px; padding: 8px 12px; max-width: 420px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--accent); font-size: 13px; }
-.update a { color: var(--accent); font-weight: bold; }
+/* Red, not the theme's green: this is the one banner that wants to read as
+   "act on me" rather than as decoration. */
+.update { margin: 4px auto 16px; padding: 10px 14px; max-width: 460px; background: rgba(229, 83, 75, 0.12); border: 1px solid #e5534b; border-radius: var(--radius); color: #ff8a80; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.update a { color: #ff8a80; font-weight: bold; }
+.updateCmdRow { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.dimLabel { color: var(--text-dim); }
+.updateCmd { background: var(--bg2); border: 1px solid var(--line2); border-radius: 4px; padding: 2px 8px; color: var(--text); font-family: inherit; user-select: all; }
+.updateCopy { background: transparent; border: 1px solid #e5534b; border-radius: 4px; color: #ff8a80; font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.updateCopy:hover { background: rgba(229, 83, 75, 0.2); }
 .welcomeInner h2 { color: var(--text); margin-bottom: 12px; font-weight: normal; }
 .dim { color: var(--muted); line-height: 1.8; }
 .results { margin: 14px auto 0; border-collapse: collapse; }

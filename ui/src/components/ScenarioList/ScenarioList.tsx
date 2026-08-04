@@ -16,6 +16,7 @@ interface Props {
 
 // Landing view: scenario selector on the left, welcome / Test-All on the right.
 export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefresh }: Props) {
+  const [copied, setCopied] = useState(false);
   const createScenario = async () => {
     const name = (window.prompt('New scenario name (letters, numbers, - or _):') || '').trim();
     if (!name) return;
@@ -92,8 +93,28 @@ export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefres
             <h2>Welcome to the Dojo</h2>
             {version?.updateAvailable && (
               <div className={styles.update}>
-                ⬆ A new version (<b>v{version.latest}</b>) is available — you have v{version.current}.{' '}
-                <a href={version.repoUrl} target="_blank" rel="noreferrer">View on GitHub →</a>
+                <div>
+                  ⬆ A new version (<b>v{version.latest}</b>) is available — you have v{version.current}.
+                </div>
+                {/* The GUI runs inside the container and cannot rebuild the image
+                    or restart itself, so it hands over the one command that can. */}
+                <div className={styles.updateCmdRow}>
+                  <span className={styles.dimLabel}>Run in your terminal:</span>
+                  <code className={styles.updateCmd}>npm run update</code>
+                  <button
+                    type="button"
+                    className={styles.updateCopy}
+                    onClick={() => {
+                      navigator.clipboard?.writeText('npm run update').then(
+                        () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
+                        () => {}
+                      );
+                    }}
+                  >{copied ? 'copied' : 'copy'}</button>
+                </div>
+                <div>
+                  <a href={version.repoUrl + '/releases'} target="_blank" rel="noreferrer">What changed →</a>
+                </div>
               </div>
             )}
             <p className={styles.dim}>Pick a scenario on the left to run it live, test it, watch replays, or edit its files.</p>
