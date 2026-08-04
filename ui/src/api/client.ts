@@ -24,7 +24,11 @@ export const api = {
   health: () => jget<{ ok: boolean; ready: boolean }>('/api/health'),
   version: () => jget<{ current: string; latest: string | null; updateAvailable: boolean; repoUrl: string }>('/api/version'),
   scenarios: () => jget<Scenario[]>('/api/scenarios'),
-  recordings: () => jget<RecordingEntry[]>('/api/recordings'),
+  // Always pass a scenario when you have one: the server then walks a single
+  // directory instead of every recording on disk.
+  recordings: (scenario?: string) =>
+    jget<RecordingEntry[]>('/api/recordings'
+      + (scenario ? '?scenario=' + encodeURIComponent(scenario) : '')),
   recording: (relPath: string) =>
     jget<Recording>('/api/recordings/file?path=' + encodeURIComponent(relPath)),
   renderedRecording: (relPath: string) =>

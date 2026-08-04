@@ -6,12 +6,17 @@
 .rowSel { border-color: var(--accent); background: var(--accent-dim); }
 .badgePass { color: var(--accent); font-size: 11px; }
 .badgeFail { color: var(--hostile); font-size: 11px; }
+/* a run still in flight */
+.badgeLive { color: var(--warn); font-size: 11px; }
+/* a run that stopped without ever finalising — killed, crashed, restarted */
+.badgeStale { color: var(--hostile); font-size: 11px; }
 .meta { color: var(--muted); font-size: 11px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .viewerWrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line2); }
 .btn { background: var(--panel2); border: 1px solid var(--line2); color: var(--text-dim); border-radius: var(--radius); padding: 3px 9px; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:disabled, .btn:disabled:hover { opacity: .45; border-color: var(--line2); color: var(--text-dim); cursor: default; }
 .toggleOn { border-color: var(--accent); color: var(--accent); }
 .spacer { margin-left: auto; }
 .canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }

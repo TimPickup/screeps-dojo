@@ -177,38 +177,171 @@ function readRecordingMeta(dir) {
 	return null;
 }
 
-// Lists every recording under root (default the repo recordings/), newest
-// first by directory mtime. Each entry carries the parsed meta (endReason,
-// ticks, and test pass/fail when present) so the GUI can render PASS/FAIL
-// badges without loading frames.
-function listRecordings(root) {
+// How quiet an unfinalised run has to go before we stop calling it "running".
+// A live run appends a frame every tick and the per-tick watchdog fires at 60s
+// (scenarioRunner DEFAULT_TICK_TIMEOUT_MS), so five silent minutes means the
+// process is gone — killed, crashed, or its container restarted — and the run
+// is never coming back to rewrite meta.json.
+const IN_PROGRESS_STALE_MS = 5 * 60 * 1000;
+
+// Finalised recordings are immutable: finalize() writes meta.json once and
+// nothing ever rewrites it. That makes them safe to memoise, which is what
+// keeps the listing cheap on a Docker bind mount where every syscall costs
+// milliseconds. Keyed by absolute run directory. In-progress runs are never
+// cached — they still have a state transition ahead of them.
+const finalizedCache = new Map();
+
+function _clearRecordingCache() { finalizedCache.clear(); }
+
+// Classifies a run from what is on disk. meta.ticks is written as 0 before the
+// first tick and only corrected by finalize(), so for an unfinalised run we
+// report null rather than repeating a 0 that was never true.
+function deriveStatus(dir, meta, hasRecording, hasJournal) {
+	if (!meta || typeof meta.endReason !== 'string') return { status: 'unknown', ticks: null };
+	if (meta.endReason !== 'in-progress') {
+		return { status: meta.endReason, ticks: typeof meta.ticks === 'number' ? meta.ticks : null };
+	}
+	// finalize() assembles recording.json and rewrites meta.json; an in-progress
+	// meta sitting next to a recording.json means it died between the two.
+	if (hasRecording) return { status: 'interrupted', ticks: null };
+	// Only unfinalised runs pay for this stat, and there is rarely more than one.
+	const probe = path.join(dir, hasJournal ? 'frames.ndjson' : 'meta.json');
+	let mtimeMs;
+	try { mtimeMs = fs.statSync(probe).mtimeMs; } catch (e) { return { status: 'interrupted', ticks: null }; }
+	return { status: (Date.now() - mtimeMs) < IN_PROGRESS_STALE_MS ? 'running' : 'interrupted', ticks: null };
+}
+
+// A directory read reports a symlink as a link, whereas the statSync this
+// replaced followed it. Recordings are bulky enough that pointing a scenario's
+// folder at another disk is reasonable, so keep following — only symlinks pay.
+function isDirEntry(entry, full) {
+	if (entry.isDirectory()) return true;
+	if (!entry.isSymbolicLink()) return false;
+	try { return fs.statSync(full).isDirectory(); } catch (e) { return false; }
+}
+
+// Reads one run directory. A single readdir answers "is this a recording?" and
+// "does it have meta?" at once — the old shape cost a statSync plus three
+// existsSync calls to learn the same thing.
+function scanRunDir(scenario, timestamp, dir) {
+	let entries;
+	try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return null; }
+	let hasRecording = false;
+	let hasJournal = false;
+	let hasMeta = false;
+	for (const entry of entries) {
+		if (entry.isDirectory()) continue;
+		if (entry.name === 'recording.json') hasRecording = true;
+		else if (entry.name === 'frames.ndjson') hasJournal = true;
+		else if (entry.name === 'meta.json') hasMeta = true;
+	}
+	if (!hasRecording && !hasJournal) return null;
+	let meta = null;
+	if (hasMeta) {
+		try { meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8')); }
+		catch (e) { meta = null; }
+	}
+	const derived = deriveStatus(dir, meta, hasRecording, hasJournal);
+	return {
+		scenario: scenario,
+		timestamp: timestamp,
+		dir: dir,
+		recordingPath: path.join(dir, 'recording.json'),
+		status: derived.status,
+		ticks: derived.ticks,
+		meta: meta
+	};
+}
+
+// Resolves the scenario filter to a directory.
+//
+// This names a directory that ALREADY EXISTS, so it has to accept whatever the
+// scenario list is willing to show — which is any directory holding a
+// scenario.js, including names with spaces, dots or a leading underscore. The
+// check is therefore structural rather than a character allowlist: exactly one
+// path segment, resolving directly inside the root. Containment is what stops
+// traversal; a character filter was only ever a shortcut to it.
+//
+// (The stricter pattern in routes/scenarios.js governs names the GUI will
+// CREATE, which is a different question and must not be applied here.)
+function resolveScenarioDir(base, scenario) {
+	const reject = function () {
+		const err = new Error('invalid scenario name: ' + scenario);
+		err.statusCode = 400;
+		throw err;
+	};
+	if (!scenario || scenario.indexOf('\0') !== -1) reject();
+	if (scenario === '.' || scenario === '..') reject();
+	if (scenario.indexOf('/') !== -1 || scenario.indexOf('\\') !== -1) reject();
+	if (path.isAbsolute(scenario)) reject();
+	const baseResolved = path.resolve(base);
+	const dir = path.resolve(baseResolved, scenario);
+	// a single segment directly under the root — not merely somewhere beneath it
+	if (path.dirname(dir) !== baseResolved) reject();
+	return dir;
+}
+
+// Lists recordings under root (default the repo recordings/), newest first.
+// options.scenario restricts the walk to one scenario directory — the GUI's
+// Replays tab only ever shows one scenario, and filtering here instead of in
+// the browser is the difference between touching one directory and all of them.
+//
+// Ordering comes from the timestamp directory name (YYYYMMDD-HHMMSS, fixed
+// width, so lexicographic === chronological) rather than a stat per entry.
+//
+// Each entry carries the parsed meta plus a derived status/ticks so the GUI can
+// render badges without loading frames.
+function listRecordings(root, options) {
 	const base = root || RECORDINGS_ROOT;
-	if (!fs.existsSync(base)) return [];
-	const out = [];
-	for (const scenario of fs.readdirSync(base)) {
-		const scenarioDir = path.join(base, scenario);
-		let stat;
-		try { stat = fs.statSync(scenarioDir); } catch (e) { continue; }
-		if (!stat.isDirectory()) continue;
-		for (const timestamp of fs.readdirSync(scenarioDir)) {
-			const dir = path.join(scenarioDir, timestamp);
-			let dstat;
-			try { dstat = fs.statSync(dir); } catch (e) { continue; }
-			if (!dstat.isDirectory()) continue;
-			const hasRecording = fs.existsSync(path.join(dir, 'recording.json'))
-				|| fs.existsSync(path.join(dir, 'frames.ndjson'));
-			if (!hasRecording) continue;
-			out.push({
-				scenario: scenario,
-				timestamp: timestamp,
-				dir: dir,
-				recordingPath: path.join(dir, 'recording.json'),
-				mtime: dstat.mtimeMs,
-				meta: readRecordingMeta(dir)
-			});
+	options = options || {};
+	const wantScenario = options.scenario !== undefined && options.scenario !== null;
+
+	let scenarioDirs;
+	if (wantScenario) {
+		const scenario = String(options.scenario);
+		const dir = resolveScenarioDir(base, scenario);
+		scenarioDirs = [{ name: scenario, dir: dir }];
+	} else {
+		let top;
+		try {
+			top = fs.readdirSync(base, { withFileTypes: true });
+		} catch (e) {
+			// No recordings root yet is normal — nothing has been recorded. Any
+			// other failure (permissions, I/O) is real and must not masquerade as
+			// "no recordings"; the route turns it into a 500 carrying the message.
+			if (e && e.code === 'ENOENT') return [];
+			throw e;
+		}
+		scenarioDirs = [];
+		for (const entry of top) {
+			const dir = path.join(base, entry.name);
+			if (!isDirEntry(entry, dir)) continue;
+			scenarioDirs.push({ name: entry.name, dir: dir });
 		}
 	}
-	out.sort(function (a, b) { return b.mtime - a.mtime; });
+
+	const out = [];
+	for (const scenarioDir of scenarioDirs) {
+		let runs;
+		try { runs = fs.readdirSync(scenarioDir.dir, { withFileTypes: true }); } catch (e) { continue; }
+		for (const run of runs) {
+			const dir = path.join(scenarioDir.dir, run.name);
+			if (!isDirEntry(run, dir)) continue;
+			const cached = finalizedCache.get(dir);
+			if (cached) { out.push(Object.assign({}, cached)); continue; }
+			const entry = scanRunDir(scenarioDir.name, run.name, dir);
+			if (!entry) continue;
+			// 'unknown' stays uncached too: a run mid-creation has no meta yet.
+			if (entry.status !== 'running' && entry.status !== 'interrupted' && entry.status !== 'unknown') {
+				finalizedCache.set(dir, entry);
+			}
+			out.push(entry);
+		}
+	}
+	out.sort(function (a, b) {
+		if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? 1 : -1;
+		return a.scenario < b.scenario ? -1 : (a.scenario > b.scenario ? 1 : 0);
+	});
 	return out;
 }
 
@@ -218,5 +351,7 @@ module.exports = {
 	createRecorder: createRecorder,
 	listRecordings: listRecordings,
 	readRecordingMeta: readRecordingMeta,
+	_clearRecordingCache: _clearRecordingCache,
+	IN_PROGRESS_STALE_MS: IN_PROGRESS_STALE_MS,
 	RECORDINGS_ROOT: RECORDINGS_ROOT
 };

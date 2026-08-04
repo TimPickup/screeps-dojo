@@ -7,16 +7,27 @@ const { pathSafe } = require('../pathSafe');
 function toPosix(p) { return p.split(path.sep).join('/'); }
 
 module.exports = function registerRecordingRoutes(router, ctx) {
+	// ?scenario=<name> restricts the listing to one scenario. The GUI always
+	// passes it; without it this walks every recording on disk, which on a Docker
+	// bind mount costs seconds once a few hundred runs have accumulated.
+	// The name is validated inside listRecordings (allowlist + containment) —
+	// an invalid one throws with statusCode 400 rather than reaching the fs.
 	router.get('/api/recordings', function (req, res) {
-		const list = listRecordings(ctx.recordingsRoot).map(function (r) {
+		const scenario = req.query.get('scenario');
+		const options = scenario === null ? {} : { scenario: scenario };
+		let list;
+		try { list = listRecordings(ctx.recordingsRoot, options); }
+		catch (e) { ctx.sendJson(res, e.statusCode || 500, { error: String((e && e.message) || e) }); return; }
+		ctx.sendJson(res, 200, list.map(function (r) {
 			return {
 				scenario: r.scenario,
 				timestamp: r.timestamp,
 				relPath: toPosix(path.relative(ctx.recordingsRoot, r.recordingPath)),
+				status: r.status,
+				ticks: r.ticks,
 				meta: r.meta
 			};
-		});
-		ctx.sendJson(res, 200, list);
+		}));
 	});
 
 	// Renders every frame of a recording to a full-fidelity SVG (same renderer as

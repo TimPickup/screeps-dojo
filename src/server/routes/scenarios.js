@@ -5,38 +5,80 @@ const path = require('path');
 const { pathSafe } = require('../pathSafe');
 const { createFromTemplate } = require('../scaffold');
 
+// Governs names the GUI will CREATE, keeping new scenario directories tidy.
+// Deliberately NOT applied when reading: the listing below shows any directory
+// holding a scenario.js, whatever it is called, and the recordings filter has to
+// accept those same names (see resolveScenarioDir in src/recording.js).
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+// A directory read reports a symlink as a link, whereas the statSync these
+// replace followed it to its target. Keep that behaviour — a scenario symlinked
+// in from elsewhere must still list — but make only symlinks pay for a stat.
+function isDirEntry(entry, full) {
+	if (entry.isDirectory()) return true;
+	if (!entry.isSymbolicLink()) return false;
+	try { return fs.statSync(full).isDirectory(); } catch (e) { return false; }
+}
+
+function isFileEntry(entry, full) {
+	if (entry.isFile()) return true;
+	if (!entry.isSymbolicLink()) return false;
+	try { return fs.statSync(full).isFile(); } catch (e) { return false; }
+}
 
 // Lists top-level files in a scenario dir (scenario dirs are flat: scenario.js,
 // map*.json, main.js, memory.json, ...). Skips dotfiles and nested dirs.
-function listFiles(dir) {
+// Takes the already-read directory entries: withFileTypes answers "is this a
+// file?" from the read itself, so a scenario holding 30 maps costs one syscall
+// rather than thirty-one.
+function listFiles(dir, entries) {
 	const out = [];
-	for (const entry of fs.readdirSync(dir)) {
-		if (entry[0] === '.') continue;
-		let st;
-		try { st = fs.statSync(path.join(dir, entry)); } catch (e) { continue; }
-		if (st.isFile()) out.push(entry);
+	for (const entry of entries) {
+		if (entry.name[0] === '.') continue;
+		if (!isFileEntry(entry, path.join(dir, entry.name))) continue;
+		out.push(entry.name);
 	}
 	return out.sort();
 }
 
 module.exports = function registerScenarioRoutes(router, ctx) {
+	// One directory read per scenario, and one for the root. The shape this
+	// replaced cost a statSync per scenario, an existsSync for scenario.js and a
+	// statSync per file inside — which on a Docker bind mount, where each syscall
+	// costs milliseconds, was seconds of latency before the list appeared.
 	router.get('/api/scenarios', function (req, res) {
-		const root = ctx.scenariosRoot;
-		const out = [];
-		if (fs.existsSync(root)) {
-			for (const name of fs.readdirSync(root).sort()) {
-				const dir = path.join(root, name);
-				let st;
-				try { st = fs.statSync(dir); } catch (e) { continue; }
-				if (!st.isDirectory()) continue;
-				if (!fs.existsSync(path.join(dir, 'scenario.js'))) continue;
-				const files = listFiles(dir);
-				const hasMap = files.some(function (f) { return /map.*\.json$/i.test(f); });
-				out.push({ name: name, hasMap: hasMap, files: files });
+		// Route handlers run synchronously (src/server/index.js) and the process
+		// installs no uncaughtException handler, so a throw from here would take
+		// the server down. Everything is caught and reported as a 500.
+		try {
+			const root = ctx.scenariosRoot;
+			const out = [];
+			let top;
+			try {
+				top = fs.readdirSync(root, { withFileTypes: true });
+			} catch (e) {
+				// No scenarios directory at all is a legitimate empty state; a
+				// permissions or I/O failure is not, and must not be shown to the
+				// user as "No scenarios. Copy one from examples/…".
+				if (e && e.code !== 'ENOENT') throw e;
+				top = [];
 			}
+			top.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+			for (const entry of top) {
+				const dir = path.join(root, entry.name);
+				if (!isDirEntry(entry, dir)) continue;
+				let entries;
+				// one unreadable scenario should not blank the whole list
+				try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { continue; }
+				const files = listFiles(dir, entries);
+				if (!files.includes('scenario.js')) continue;
+				const hasMap = files.some(function (f) { return /map.*\.json$/i.test(f); });
+				out.push({ name: entry.name, hasMap: hasMap, files: files });
+			}
+			ctx.sendJson(res, 200, out);
+		} catch (e) {
+			ctx.sendJson(res, e.statusCode || 500, { error: String((e && e.message) || e) });
 		}
-		ctx.sendJson(res, 200, out);
 	});
 
 	// Create a new scenario: folder + boilerplate scenario.js + main.js + 2 maps.

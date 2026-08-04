@@ -8,14 +8,15 @@ import styles from './ScenarioList.module.css';
 interface VersionInfo { current: string; latest: string | null; updateAvailable: boolean; repoUrl: string; }
 interface Props {
   scenarios: Scenario[];
+  loading?: boolean;
   version?: VersionInfo | null;
   onSelect: (name: string) => void;
   onCreated: (name: string) => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<unknown>;
 }
 
 // Landing view: scenario selector on the left, welcome / Test-All on the right.
-export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefresh }: Props) {
+export function ScenarioList({ scenarios, loading = false, version, onSelect, onCreated, onRefresh }: Props) {
   const [copied, setCopied] = useState(false);
   const createScenario = async () => {
     const name = (window.prompt('New scenario name (letters, numbers, - or _):') || '').trim();
@@ -23,6 +24,16 @@ export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefres
     try { const r = await api.createScenario(name); onCreated(r.name); }
     catch (e) { window.alert('Could not create scenario: ' + (e as Error).message); }
   };
+  // The disabled attribute only takes effect on the next render, so a burst of
+  // clicks inside one tick all get through it. This latch is set synchronously
+  // on the first click, which is what actually stops requests stacking up.
+  const refreshing = useRef(false);
+  const handleRefresh = () => {
+    if (refreshing.current) return;
+    refreshing.current = true;
+    Promise.resolve(onRefresh()).finally(() => { refreshing.current = false; });
+  };
+
   const [testAll, setTestAll] = useState<{ running: boolean; results: Record<string, string> }>({ running: false, results: {} });
   const [activeJob, setActiveJob] = useState<string | null>(null);
   const queueRef = useRef<string[]>([]);
@@ -59,11 +70,16 @@ export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefres
           <span>Scenarios</span>
           <span style={{ display: 'flex', gap: 4 }}>
             <button className={styles.testAll} onClick={createScenario}>+ New</button>
-            <button className={styles.testAll} disabled={testAll.running || !scenarios.length} onClick={runTestAll}>▶▶ Test All</button>
+            <button className={styles.testAll} disabled={testAll.running || loading || !scenarios.length} onClick={runTestAll}>▶▶ Test All</button>
           </span>
         </div>
-        {scenarios.length === 0 && <div className={styles.empty}>No scenarios. Copy one from <code>examples/</code> into <code>scenarios/</code>.</div>}
-        {scenarios.map((s) => (
+        {loading && <div className={styles.empty}>Loading scenarios…</div>}
+        {/* "no scenarios" is a claim about the disk, so only make it once we
+            have actually heard back from the server. */}
+        {!loading && scenarios.length === 0 && <div className={styles.empty}>No scenarios. Copy one from <code>examples/</code> into <code>scenarios/</code>.</div>}
+        {/* the old list is stale the moment a reload starts — hide it rather
+            than leave it on screen under a loading line */}
+        {!loading && scenarios.map((s) => (
           <button key={s.name} className={styles.row} onClick={() => onSelect(s.name)}>
             <span className={styles.dot} />
             <span className={styles.name}>{s.name}</span>
@@ -72,7 +88,8 @@ export function ScenarioList({ scenarios, version, onSelect, onCreated, onRefres
             )}
           </button>
         ))}
-        <button className={styles.refresh} onClick={onRefresh}>↻ refresh</button>
+        {/* disabled is the visual cue; handleRefresh is the actual guard */}
+        <button className={styles.refresh} onClick={handleRefresh} disabled={loading}>↻ refresh</button>
       </aside>
       <section className={styles.welcome}>
         {testAll.running ? (
