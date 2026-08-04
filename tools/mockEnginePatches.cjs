@@ -83,11 +83,35 @@ function inspectOperations(context) {
 	});
 }
 
+// `git apply` behaves differently depending on whether it finds a repository
+// above the directory it runs in. Inside a work tree it reads a git-style diff
+// header (`diff --git a/x b/x`) as repository-relative, and silently skips any
+// path that falls outside the current directory's prefix — printing "Skipped
+// patch" and exiting 0, which is indistinguishable from success here.
+//
+// Nothing hit that until node_modules lived inside a work tree: the compose
+// volume is a separate mount, so git stops at the filesystem boundary, and the
+// image build has no .git at all. A plain `npm ci` on a checkout — CI, or
+// anyone installing outside the container — is inside one. Stop the repository
+// search above the package so the patch is applied to the files on disk
+// wherever it runs.
+function gitApplyEnv(packageRoot) {
+	const env = Object.assign({}, process.env);
+	// The search starts at the package and walks up; the ceiling has to be the
+	// directory above it, not the package itself.
+	env.GIT_CEILING_DIRECTORIES = path.dirname(packageRoot);
+	return env;
+}
+
 function runPatch(operation, dryRun) {
 	const args = ['apply', '--recount'];
 	if (dryRun) args.push('--check');
 	args.push(operation.patchPath);
-	const result = childProcess.spawnSync('git', args, { cwd: operation.packageRoot, encoding: 'utf8' });
+	const result = childProcess.spawnSync('git', args, {
+		cwd: operation.packageRoot,
+		encoding: 'utf8',
+		env: gitApplyEnv(operation.packageRoot)
+	});
 	if (result.status !== 0) {
 		throw new Error('Patch failed: ' + operation.definition.patch + '\n' + (result.stdout || '') + (result.stderr || ''));
 	}
