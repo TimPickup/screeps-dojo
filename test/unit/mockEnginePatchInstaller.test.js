@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const childProcess = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -99,5 +100,33 @@ describe('mock engine patch installer', function () {
 		current = fixture();
 		assert.throws(function () { installer.run('check', current.options); }, /Patch set is not installed/);
 		assert.strictEqual(fs.readFileSync(path.join(current.packageRoot, 'lib/value.js'), 'utf8'), "module.exports = 'old';\n");
+	});
+
+	// `npm ci` on a plain checkout leaves node_modules inside the repository.
+	// Only the compose volume mount and the image build ever put it outside one,
+	// which is why this went unseen: in a work tree, `git apply` reads the
+	// git-style header below as repository-relative, skips it for falling
+	// outside the package prefix, and still exits 0.
+	it('applies a git-style patch with the package inside a git work tree', function () {
+		current = fixture();
+		fs.writeFileSync(path.join(current.root, 'patches/value.patch'), [
+			'diff --git a/lib/value.js b/lib/value.js',
+			'--- a/lib/value.js',
+			'+++ b/lib/value.js',
+			'@@ -1 +1 @@',
+			"-module.exports = 'old';",
+			"+module.exports = 'new';",
+			''
+		].join('\n'));
+		childProcess.execFileSync('git', ['init', '-q', '.'], { cwd: current.root });
+		assert.ok(fs.existsSync(path.join(current.root, '.git')), 'fixture must be a work tree');
+
+		const result = installer.run('apply', current.options);
+
+		assert.strictEqual(result.changed, 2);
+		assert.strictEqual(
+			fs.readFileSync(path.join(current.packageRoot, 'lib/value.js'), 'utf8'),
+			"module.exports = 'new';\n"
+		);
 	});
 });

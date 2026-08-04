@@ -1,5 +1,7 @@
 # Screeps Dojo
 
+[![CI](https://github.com/TimPickup/screeps-dojo/actions/workflows/ci.yml/badge.svg)](https://github.com/TimPickup/screeps-dojo/actions/workflows/ci.yml)
+
 Scenario test harness for Screeps bots: runs your REAL bot code inside a real
 private-server engine, tick by tick, headless. Define scenarios (map + setup
 script + end condition + assertions), run one or all of them, watch them live,
