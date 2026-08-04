@@ -34,6 +34,41 @@ function assertInProcessIsolation(env) {
 	}
 }
 
+// First stack frame outside dojo's own plumbing, as 'file.js:line' — the
+// scenario line that made the call, not the facade it went through.
+function callerFrame() {
+	const stack = (new Error().stack || '').split('\n').slice(2);
+	for (const line of stack) {
+		if (line.includes('serverBoot.js') || line.includes('dojoWorld.js')) continue;
+		const m = /([^\\/(]+\.js:\d+):\d+/.exec(line);
+		if (m) return m[1];
+	}
+	return '';
+}
+
+// The mockup's world.addRoomObject is a bare db insert: no per-type engine
+// defaults, no owner resolution, no decay/regeneration clocks, and no room
+// activation — an object added through it can sit inert in a dormant room
+// forever. DojoWorld.addObject does all of that, so nudge anyone who reaches
+// past it. DojoWorld itself calls addRoomObjectUnchecked (it IS the facade);
+// warnings are deduped per call site so a loop cannot spam a scenario's log.
+function warnOnDirectRoomObject(world) {
+	const original = world.addRoomObject.bind(world);
+	const warned = new Set();
+	world.addRoomObjectUnchecked = original;
+	world.addRoomObject = function addRoomObject(room, type, x, y, attributes) {
+		const site = callerFrame();
+		if (!warned.has(site)) {
+			warned.add(site);
+			console.warn('[dojo] world.addRoomObject(\'' + type + '\') bypasses DojoWorld.addObject: '
+				+ 'no type defaults, no owner resolution, no decay/regen clocks, no room activation. '
+				+ 'Use world.addObject(room, type, x, y, attrs)' + (site ? '  — at ' + site : ''));
+		}
+		return original(room, type, x, y, attributes);
+	};
+	return world;
+}
+
 function createServer() {
 	assertInProcessIsolation(process.env);
 	const server = new ScreepsServer();
@@ -41,6 +76,7 @@ function createServer() {
 	server.startProcess = function patchedStartProcess(name, execPath, childEnv) {
 		return origStartProcess(name, execPath, configureChildEnv(name, childEnv));
 	};
+	warnOnDirectRoomObject(server.world);
 	return server;
 }
 

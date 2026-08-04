@@ -27,7 +27,10 @@ module.exports = {
 		// Load both rooms. The bot's spawn goes at { room, x, y }.
 		await world.loadScenarioMaps([loadMap('W1N1'), loadMap('W0N1')], { room: 'W1N1', x: 25, y: 25 });
 
-		// Make sure the starting spawn is full (300/300 energy):
+		// Make sure the starting spawn is full (300/300 energy). Editing an
+		// EXISTING object still means reaching into the db by hand; placing a new
+		// one should go through world.addObject / world.addCreep, which fill in
+		// the engine-required fields and wake the room for you.
 		const { db } = await world.world.load();
 		await db['rooms.objects'].update({ room: 'W1N1', type: 'spawn' },
 			{ $set: { store: { energy: 300 }, storeCapacityResource: { energy: 300 } } });
@@ -39,7 +42,10 @@ module.exports = {
 		await world.addCreep({room: 'W0N1', x: 30, y: 25, name: 'invader1', body: ['ranged_attack','attack','move','move'], user: 2 });
 
 		// Add a flag for the bot to target:
-		// await world.addFlag({ room: 'W0N1', x: 25, y: 25, name: 'goal' });
+		// await world.addFlag('goal', 'W0N1', 25, 25, {});
+
+		// Anything else — towers, containers, dropped energy, a keeper lair:
+		// await world.addObject('W1N1', 'container', 24, 25, {});
 	},
 
 	until: function (state) {
