@@ -5,6 +5,84 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.5.0] — 2026-08-04
+
+Speed, and a safety net. The two lists you look at most now open in
+milliseconds rather than seconds, and every push runs the test suites, so a
+regression surfaces before you pull it.
+
+### Added
+
+- **Continuous integration** — GitHub Actions runs the unit, import and
+  integration suites plus the UI typecheck, tests and build on every push to
+  `main` and every pull request. A warm run finishes in about 15 seconds; a cold
+  one, where the native engine toolchain has to compile, takes under six
+  minutes. The scenarios suite is deliberately excluded — it runs real bot
+  scenarios and is far too slow for per-push feedback, so keep running it
+  locally with `npm run test:scenarios`.
+- **`npm run test:internal -- local`** — runs mocha directly instead of through
+  `docker compose`, for environments with no Docker daemon. Both paths share one
+  set of suite definitions, so they always run the same tests.
+- **`?scenario=` on `/api/recordings`** — fetch one scenario's replays instead
+  of every recording on disk.
+- **A UI typecheck** — `npm run typecheck` in `ui/`, which the UI build now runs
+  first. Every path that emits a bundle is gated on it, so type errors can no
+  longer sit unnoticed: `build:ui` is `vite build`, and esbuild strips types
+  without checking them.
+- **`.mocharc.json`** with `exit: true`, so `npx mocha <file>` terminates. The
+  mock engine leaves handles open, and until now only `scripts/test.js` passed
+  `--exit`, which made running a single test file directly impractical.
+
+### Changed
+
+- **The Replays tab opens in ~17ms instead of 7.7s.** It fetched every recording
+  on disk and discarded all but one scenario's worth in the browser; it now asks
+  the server for the one it wants. Each run directory costs a single directory
+  read rather than a stat plus three existence checks, ordering comes from the
+  timestamp in the directory name instead of a stat per entry, and finalised
+  recordings are memoised — they are immutable once written. In-progress runs
+  are never cached.
+- **The Scenarios list loads in ~95ms instead of 3.7s.** Listing files called
+  `statSync` on all 756 files across 24 scenarios just to ask whether each was a
+  file. One directory read per scenario answers that, plus whether it is a
+  directory, whether `scenario.js` exists and whether it ships a map — about 830
+  syscalls become 26, and the payload is byte-identical. On a Docker bind mount,
+  where each syscall costs 1.5–3ms, that was the whole delay.
+- Replay timestamps render as `2026-08-04 15:19:52` rather than
+  `20260804-151952`.
+- Both lists waited to be told there was nothing to show, then said so while
+  still loading. That is a claim about the disk, so they now wait for the server
+  to answer. The stale list is hidden while reloading rather than pushed down.
+- A filesystem error is no longer reported as an empty list: `ENOENT` still
+  means "none", anything else surfaces as a 500 carrying the message.
+- The recordings scenario filter validates structurally — a single path segment
+  resolving directly inside the root — rather than by character allowlist, so it
+  accepts every name the scenario list will show (`my scenario`, `v1.2`,
+  `_scratch`) while still rejecting traversal, absolute paths and null bytes.
+  The stricter pattern still governs names the GUI creates.
+
+### Fixed
+
+- **Runs killed before they finalised showed `in-progress` and `0t` forever.**
+  Status is now derived from disk: a journal silent for longer than five minutes
+  reads as interrupted (the per-tick watchdog is 60s), and the tick count is
+  omitted rather than repeating a `0` that was never true. This reclassified 11
+  stuck recordings.
+- **A burst of refresh clicks queued a request each.** `disabled` only applies on
+  the next render, so 24 clicks in one tick got 12 requests through; a
+  synchronous latch makes it 1.
+- **Three type errors in the canvas replay renderer.** `Frame.visuals` was always
+  real — `captureState` returns it and the SVG renderer reads it — but was never
+  declared, so the canvas renderer could not typecheck against it. Type-level
+  only: the emitted bundle is byte-identical.
+- **The mock engine patches silently failed to apply when `node_modules` sits
+  inside a git work tree.** `git apply` reads a git-style patch header as
+  repository-relative when it finds a repository above it, skips the paths for
+  falling outside the current directory, and still exits 0 — which read as
+  success. Existing Docker installs were never affected: the compose volume is a
+  separate mount and the image build has no `.git`, so this only ever bit an
+  install made outside the container, such as CI.
+
 ## [0.4.0] — 2026-08-04
 
 Staying current. 0.3.0 could tell you an update existed; this release tells you
@@ -165,5 +243,6 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.5.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.3.0
