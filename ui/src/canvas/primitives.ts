@@ -13,6 +13,8 @@ export interface ShapeStyle {
   align?: CanvasTextAlign;
 }
 
+export type ArcStyle = Pick<ShapeStyle, 'stroke' | 'strokeWidth' | 'opacity' | 'lineStyle'>;
+
 type Ctx = CanvasRenderingContext2D;
 
 function paintColor(v: ShapeStyle['fill' | 'stroke']): string | null {
@@ -32,6 +34,18 @@ export function circle(ctx: Ctx, x: number, y: number, s: ShapeStyle = {}) {
   const fill = paintColor(s.fill), stroke = paintColor(s.stroke);
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (stroke) { ctx.lineWidth = s.strokeWidth ?? 0.05; ctx.strokeStyle = stroke; ctx.stroke(); }
+  ctx.restore();
+}
+
+export function arc(ctx: Ctx, x: number, y: number, radius: number, start: number, end: number, s: ArcStyle = {}) {
+  ctx.save();
+  ctx.globalAlpha = s.opacity ?? 1;
+  applyDash(ctx, s.lineStyle);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, start, end);
+  ctx.lineWidth = s.strokeWidth ?? 0.05;
+  ctx.strokeStyle = paintColor(s.stroke) ?? '#ffffff';
+  ctx.stroke();
   ctx.restore();
 }
 

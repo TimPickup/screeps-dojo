@@ -3,7 +3,7 @@ import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry.ts';
 import { StaticLayers } from './caches.ts';
 import { CreepRenderer } from './creeps.ts';
 import {
-  drawExtensionFill, drawLinkFill, drawStorageFill, drawContainerFill,
+  drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill,
   drawSourceCore, drawControllerProgress, drawSpawnProgress, drawTombstone, drawDroppedResource,
 } from './dynamic.ts';
 import { fillRenderText, parseRenderFont } from './renderFont.ts';
@@ -25,6 +25,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
   const i = Math.max(0, Math.min(count - 1, tick));
   const base = frames[i];
   const next = sub !== null && i + 1 < count ? frames[i + 1] : null;
+  opts.layers.prepare(base);
+  if (next) opts.layers.prepare(next);
   const off = layout.offsets;
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
@@ -127,6 +129,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     switch (obj.type) {
       case 'extension': drawExtensionFill(ctx, obj, cx, cy); break;
       case 'storage': drawStorageFill(ctx, obj, cx, cy); break;
+      case 'terminal': drawTerminalFill(ctx, obj, cx, cy); break;
+      case 'lab': drawLabFill(ctx, obj, cx, cy); break;
       case 'container': drawContainerFill(ctx, obj, cx, cy); break;
       case 'source': drawSourceCore(ctx, obj, cx, cy); break;
       case 'controller': drawControllerProgress(ctx, obj, cx, cy); break;

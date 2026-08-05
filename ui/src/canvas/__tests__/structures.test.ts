@@ -51,3 +51,16 @@ describe('connectRoads', () => {
     expect(log.some((c) => c.op === 'lineTo')).toBe(false);
   });
 });
+
+describe('extractor shell', () => {
+  it('draws three alternating sixth-circle arcs around the mineral centre', () => {
+    const { ctx, log } = mockCtx();
+    drawStructureShell(ctx, 10, 20, 'extractor', true);
+    const calls = log.filter((call) => call.op === 'arc');
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      expect(call.args.slice(0, 3)).toEqual([10.5, 20.5, 0.8]);
+      expect((call.args[4] as number) - (call.args[3] as number)).toBeCloseTo(Math.PI / 3);
+    }
+  });
+});

@@ -6,6 +6,7 @@ import { circle, poly, text } from './primitives.ts';
 export const STATIC_RES = 24; // px per tile for offscreen layers
 
 const TILE_COLORS: Record<string, string> = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
+const MINERAL_COLORS: Record<string, string> = { 'H': '#cdcdcd', 'O': '#cdcdcd', 'U': '#52daf8', 'K': '#9c7afb', 'L': '#2bf4a7', 'Z': '#fdd08b', 'X': '#fe767a' };
 const ROOM_BG = '#2b2b2b';
 
 // One room's terrain at room-local integer tile coordinates.
@@ -99,7 +100,11 @@ const SHELL_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal
   'factory', 'observer', 'nuker', 'powerSpawn', 'container', 'road', 'rampart', 'constructedWall',
   'invaderCore', 'keeperLair', 'extractor']);
 
-export function drawStaticStructures(ctx: CanvasRenderingContext2D, frame: Frame, layout: StageLayout): void {
+export function drawStaticStructures(
+  ctx: CanvasRenderingContext2D,
+  frame: Frame,
+  layout: StageLayout,
+): void {
   for (const room of Object.keys(layout.offsets)) {
     const off = layout.offsets[room];
     ctx.save();
@@ -108,22 +113,38 @@ export function drawStaticStructures(ctx: CanvasRenderingContext2D, frame: Frame
     for (const o of frame.objects as FrameObject[]) {
       if (o.room !== room) continue;
       if (SHELL_TYPES.has(o.type)) {
-        drawStructureShell(ctx, o.x, o.y, o.type);
+        drawStructureShell(ctx, o);
         if (o.type === 'road') roads.push([o.x, o.y]);
       } else if (o.type === 'source') {
         // black base only; the energy core is dynamic (Task 5)
         circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.35, fill: '#0a0a0a', stroke: '#333333', strokeWidth: 0.04 });
       } else if (o.type === 'mineral') {
-        circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.35, fill: '#ffffff', opacity: 0.6 });
+		//text of the mineralType
+		const mineralType = typeof o.mineralType === 'string' ? o.mineralType : '?';
+		const mineralColor = MINERAL_COLORS[mineralType] || '#cdcdcd';
+		//75% darker
+		const mineralDarkColor = `#${mineralColor.slice(1).split('').map(c => (parseInt(c, 16) * 0.25 | 0).toString(16)).join('')}`;
+		circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
+		text(ctx, mineralType, o.x + 0.5, o.y + 0.80, { font: 0.85, fill: mineralColor});
       } else if (o.type === 'controller') {
-        // Skip ONLY the engine's (0,0) scaffold controller (auto-injected for
-        // rooms whose map has no controller); a real unclaimed controller sits
-        // at a true position and must still render (dark disc + level "0").
-        if (o.x === 0 && o.y === 0 && !o.user && !((o.level ?? 0) > 0)) continue;
-        circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.6, fill: '#181818', stroke: '#888888', strokeWidth: 0.05 });
-        text(ctx, String(o.level ?? 0), o.x + 0.5, o.y + 0.5 + 0.17, { font: 0.5, fill: '#ffffff' });
-      } else if (o.type === 'constructionSite') {
-        circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.4, fill: '#d3d3d3', opacity: 0.7 });
+		//draw a octagon for the controller base, with a number for the level with a flat top and sides
+		const octagon = [ [0.292893, 0], [0.707107, 0], [1, 0.292893], [1, 0.707107], [0.707107, 1], [0.292893, 1], [0, 0.707107], [0, 0.292893],];
+		const octagonPoints = octagon.map(([dx, dy]) => [o.x -0.25 + dx*1.5, o.y -0.25 + dy*1.5]);
+		poly(ctx, octagonPoints, { fill: '#0a0a0a', stroke: '#000', strokeWidth: 0.1 });
+		//draw a triangle for each level, with the tip pointing up and the base flat, centered on the controller
+		const level = Math.min(o.level ?? 0, 8);
+		if (level > 0) {
+			for (let i = 0; i < level; i++) {
+				poly(ctx, [octagonPoints[i], octagonPoints[(i + 1) % 8], [o.x + 0.5, o.y + 0.5]], { fill: '#AAAAAA', stroke: '#000', strokeWidth: 0.1 });
+			}
+		}
+		let controllerColour;
+		if (level === 0) {
+			controllerColour = '#444';
+		} else {
+			controllerColour = o.my ? '#5577ff' : '#ff5555';
+		}
+		circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.4, fill: controllerColour, stroke: '#000', strokeWidth: 0.05 });
       }
     }
     connectRoads(ctx, roads);

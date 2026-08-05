@@ -78,7 +78,7 @@ describe('shared Canvas2D renderer', function () {
 		const ctx = canvas.getContext('2d');
 		const scale = layout.pixelsPerRoom / 50;
 		const layers = new StaticLayers(recording, layout, scale, createCanvas);
-		const sprites = new CreepRenderer(recording.meta.botUserId);
+		const sprites = new CreepRenderer();
 
 		function render(sub) {
 			ctx.reset();
@@ -102,8 +102,9 @@ describe('shared Canvas2D renderer', function () {
 		const canvas = createCanvas(160, 160);
 		const ctx = canvas.getContext('2d');
 		ctx.setTransform(100, 0, 0, 100, 0, 0);
-		new CreepRenderer('user1').draw(ctx, {
+		new CreepRenderer().draw(ctx, {
 			_id: 'armoured', type: 'creep', room: 'W0N0', x: 0, y: 0, user: 'user1',
+			my: true,
 			body: Array.from({ length: 50 }, function () { return { type: 'tough', hits: 100 }; }),
 			store: {}
 		}, 0.3, 0.3, 0, 1);

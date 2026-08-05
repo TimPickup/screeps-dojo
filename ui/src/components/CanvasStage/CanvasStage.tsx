@@ -70,7 +70,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
     setReady(false);
     if (!fontsReady) return () => { cancelled = true; };
     const initial = recordingRef.current;
-    const sprites = new CreepRenderer(initial.meta.botUserId);
+    const sprites = new CreepRenderer();
     const layers = new StaticLayers(initial, layout); // synchronous — no server call
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;

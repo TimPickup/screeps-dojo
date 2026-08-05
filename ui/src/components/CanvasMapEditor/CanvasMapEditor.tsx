@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Frame, FrameObject } from '../../api/types';
 import { drawStaticScene } from '../../canvas/staticLayers';
+import { populateFrameMy } from '../../canvas/ownership';
 import { computeStageLayout } from '../../render/geometry';
 import {
   makeEditableObject, parseEditableMap, serializeEditableMap, structureLayer,
@@ -29,15 +30,16 @@ const ROOM_RE = /^[WE]\d+[NS]\d+$/;
 
 function frameFor(map: EditableMap): Frame {
   const objects: FrameObject[] = map.structures.map((object, index) => {
+    const { owner, ...renderFields } = object;
     const output = {
-      ...object,
+      ...renderFields,
       _id: String(object._id || object.id || `editor-${index}`),
       type: object.type,
       room: map.room,
       x: object.x,
       y: object.y,
     } as FrameObject;
-    if (output.user === undefined && object.owner !== undefined) output.user = object.owner;
+    if (output.user === undefined && owner !== undefined) output.user = owner;
     if (object.type === 'source') {
       const capacity = typeof object.energyCapacity === 'number' ? object.energyCapacity : 3000;
       output.energyCapacity = capacity;
@@ -46,7 +48,7 @@ function frameFor(map: EditableMap): Frame {
     return output;
   });
   const flags = map.flags.map((flag) => ({ room: map.room, ...flag }));
-  return { gameTime: 0, objects, flags };
+  return populateFrameMy({ gameTime: 0, objects, flags });
 }
 
 function findAt(map: EditableMap, x: number, y: number): Selection {

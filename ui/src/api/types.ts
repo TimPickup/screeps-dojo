@@ -50,6 +50,8 @@ export interface FrameObject {
   y: number;
   room: string;
   user?: string;
+  // Render-only ownership derived in memory from `user` + meta.botUserId.
+  my?: boolean;
   hits?: number;
   hitsMax?: number;
   store?: Record<string, number>;

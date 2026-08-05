@@ -1,5 +1,5 @@
 import type { FrameObject } from '../api/types.ts';
-import { circle, poly, rect } from './primitives.ts';
+import { arc, circle, poly, rect } from './primitives.ts';
 
 type Ctx = CanvasRenderingContext2D;
 const ENERGY = '#FFE87B';
@@ -16,17 +16,19 @@ export function energyFillFraction(o: FrameObject): number {
   return Math.max(0, Math.min(1, energy / cap));
 }
 
-export function storeFillFraction(o: FrameObject): number {
+export function storeFillFraction(o: FrameObject, _optionalType?: string): number {
   const cap = (o.storeCapacity as number | undefined) || 0;
   if (cap <= 0) return 0;
   const store = (o.store as Record<string, number> | undefined) || {};
-  let used = 0; for (const k of Object.keys(store)) used += store[k];
+  let used = 0; for (const k of Object.keys(store)) if (_optionalType === k || _optionalType === undefined) used += store[k];
   return Math.max(0, Math.min(1, used / cap));
 }
 
 export function drawExtensionFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
   const f = energyFillFraction(o);
-  if (f > 0) circle(ctx, cx, cy, { radius: 0.35 * f, fill: ENERGY });
+  if (f == 0) return;
+  if (f < 1) circle(ctx, cx, cy, { radius: 0.35, fill: '#AAAAAA' });
+  circle(ctx, cx, cy, { radius: 0.35 * f, fill: ENERGY });
 }
 
 export function drawLinkFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
@@ -39,7 +41,68 @@ export function drawLinkFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
 export function drawStorageFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
   const f = storeFillFraction(o);
   if (f <= 0) return;
-  rect(ctx, cx - 0.35, cy + 0.45 - 0.9 * f, 0.7, 0.9 * f, { fill: ENERGY });
+  const energyPercent = storeFillFraction(o, 'energy');
+  const powerPercent = storeFillFraction(o, 'power');
+  const otherPercent = f - energyPercent - powerPercent;
+
+  let yOffset = 0.45;
+  if (energyPercent > 0) {
+  	rect(ctx, cx - 0.35, cy + yOffset - 0.9 * energyPercent, 0.7, 0.9 * energyPercent, { fill: ENERGY });
+	yOffset -= 0.9 * energyPercent;
+  }
+  if (powerPercent > 0) {
+  	rect(ctx, cx - 0.35, cy + yOffset - 0.9 * powerPercent, 0.7, 0.9 * powerPercent, { fill: '#F00' });
+	yOffset -= 0.9 * powerPercent;
+  }
+  if (otherPercent > 0) {
+  	rect(ctx, cx - 0.35, cy + yOffset - 0.9 * otherPercent, 0.7, 0.9 * otherPercent, { fill: '#FFF' });
+  }
+
+}
+
+export function drawTerminalFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
+  const usedPercent = storeFillFraction(o);
+  if (usedPercent <= 0) return;
+  const energyPercent = storeFillFraction(o, 'energy');
+  const powerPercent = storeFillFraction(o, 'power');
+  const otherPercent = Math.max(0, usedPercent - energyPercent - powerPercent);
+  const square = (percent: number, fill: string) => {
+    const size = 0.9 * Math.max(0, Math.min(1, percent));
+    if (size <= 0) return;
+    rect(ctx, cx - size / 2, cy - size / 2, size, size, { fill });
+  };
+
+  // Draw cumulative outer-to-inner layers. Each visible inner square replaces
+  // the centre of the larger category beneath it.
+  if (otherPercent > 0) square(energyPercent + powerPercent + otherPercent, '#FFF');
+  if (powerPercent > 0) square(energyPercent + powerPercent, '#F00');
+  if (energyPercent > 0) square(energyPercent, ENERGY);
+}
+
+export function drawLabFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
+  const store = (o.store as Record<string, number> | undefined) || {};
+  const capacities = (o.storeCapacityResource as Record<string, number> | undefined) || {};
+  const compoundType = Object.keys(store).find((type) => type !== 'energy' && store[type] > 0);
+
+  if (compoundType) {
+    const totalCapacity = (o.storeCapacity as number | undefined) || 0;
+    const compoundCapacity = capacities[compoundType]
+      || (o.mineralCapacity as number | undefined)
+      || Math.max(0, totalCapacity - (capacities.energy || 0))
+      || 3000;
+    const compoundFraction = Math.max(0, Math.min(1, store[compoundType] / compoundCapacity));
+    if (compoundFraction > 0) {
+      circle(ctx, cx, cy - 0.025 + (0.25 * (1-compoundFraction)) , { radius: 0.4 * compoundFraction, fill: '#FFF' });
+    }
+  }
+
+  rect(ctx, cx - 0.425, cy + 0.3, 0.85, 0.215, { fill: '#000' });
+
+  const energyFraction = energyFillFraction(o);
+  if (energyFraction > 0) {
+    // Stay inside the ownership outline baked into the static lab shell.
+    rect(ctx, cx - 0.425, cy + 0.375, 0.85 * energyFraction, 0.1, { fill: ENERGY });
+  }
 }
 
 export function drawContainerFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
@@ -58,11 +121,8 @@ export function drawControllerProgress(ctx: Ctx, o: FrameObject, cx: number, cy:
   const total = CONTROLLER_LEVELS[(o.level as number) || 0];
   const f = total ? Math.min(1, ((o.progress as number | undefined) || 0) / total) : 0;
   if (f <= 0) return;
-  circle(ctx, cx, cy, { radius: 0.45 * f, fill: '#ffe25a', opacity: 0.85 });
-  ctx.save();
-  ctx.strokeStyle = '#ffe25a'; ctx.lineWidth = 0.08; ctx.beginPath();
-  ctx.arc(cx, cy, 0.6, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
-  ctx.stroke(); ctx.restore();
+  arc(ctx, cx, cy, 0.20, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2,
+    { stroke: '#ffffff7c', strokeWidth: 0.40 });
 }
 
 export function drawSpawnProgress(ctx: Ctx, o: FrameObject, cx: number, cy: number, gameTime: number, sub: number) {
@@ -71,10 +131,8 @@ export function drawSpawnProgress(ctx: Ctx, o: FrameObject, cx: number, cy: numb
   const start = (sp.spawnTime || 0) - sp.needTime;
   const f = Math.max(0, Math.min(1, (gameTime + sub - start) / sp.needTime));
   if (f <= 0) return;
-  ctx.save();
-  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.12; ctx.globalAlpha = 0.85; ctx.beginPath();
-  ctx.arc(cx, cy, 0.52, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
-  ctx.stroke(); ctx.restore();
+  arc(ctx, cx, cy, 0.52, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2,
+    { stroke: '#ffffff', strokeWidth: 0.12, opacity: 0.85 });
 }
 
 // Tombstone: rounded headstone + dark cross.

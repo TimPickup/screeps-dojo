@@ -116,10 +116,6 @@ function drawInvader(ctx: CanvasRenderingContext2D): void {
 }
 
 export class CreepRenderer {
-  private botUserId?: string;
-
-  constructor(botUserId?: string) { this.botUserId = botUserId; }
-
   draw(ctx: CanvasRenderingContext2D, object: FrameObject, wx: number, wy: number, facing: number, opacity: number): void {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
@@ -134,6 +130,6 @@ export class CreepRenderer {
     ctx.restore();
   }
 
-  isBot(object: FrameObject): boolean { return !!this.botUserId && object.user === this.botUserId; }
+  isBot(object: FrameObject): boolean { return object.my === true; }
   isNpc(object: FrameObject): boolean { return NPC_USERS.has(String(object.user)); }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  energyFillFraction, drawExtensionFill, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
+  energyFillFraction, drawExtensionFill, drawTerminalFill, drawLabFill, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
 } from '../dynamic';
 import { mockCtx } from './mockCtx';
 import type { FrameObject } from '../../api/types';
@@ -40,6 +40,74 @@ describe('dropped resource', () => {
     drawDroppedResource(ctx, 3.5, 3.5, 1000, 'energy');
     const arc = log.find((c) => c.op === 'arc') as { args: number[] };
     expect(arc.args[2]).toBeCloseTo(0.3); // 0.15 + 0.15 * min(1, 1000/1000)
+  });
+});
+
+describe('terminal fill', () => {
+  it('draws cumulative centred squares from other to energy', () => {
+    const { ctx, log } = mockCtx();
+    drawTerminalFill(ctx, {
+      storeCapacity: 300,
+      store: { energy: 100, utrium: 100 },
+    } as unknown as FrameObject, 5.5, 5.5);
+
+    const fills = log.filter((call) => call.op === 'fillRect');
+    expect(fills).toHaveLength(2);
+    expect(fills[0].args).toEqual([5.2, 5.2, 0.6, 0.6]);
+    expect(fills[1].args).toEqual([5.35, 5.35, 0.3, 0.3]);
+    const colors = log.filter((call) => call.op === 'set:fillStyle').map((call) => call.args[0]);
+    expect(colors).toEqual(['#FFF', '#FFE87B']);
+  });
+
+  it('fills the complete inner terminal square at full capacity', () => {
+    const { ctx, log } = mockCtx();
+    drawTerminalFill(ctx, {
+      storeCapacity: 300,
+      store: { energy: 300 },
+    } as unknown as FrameObject, 5.5, 5.5);
+    const fill = log.find((call) => call.op === 'fillRect');
+    expect(fill?.args).toEqual([5.05, 5.05, 0.9, 0.9]);
+  });
+
+  it('nests power between other resources and energy', () => {
+    const { ctx, log } = mockCtx();
+    drawTerminalFill(ctx, {
+      storeCapacity: 300,
+      store: { energy: 100, power: 100, utrium: 100 },
+    } as unknown as FrameObject, 5.5, 5.5);
+    const sizes = log.filter((call) => call.op === 'fillRect').map((call) => call.args[2]);
+    expect(sizes).toEqual([0.9, 0.6, 0.3]);
+    const colors = log.filter((call) => call.op === 'set:fillStyle').map((call) => call.args[0]);
+    expect(colors).toEqual(['#FFF', '#F00', '#FFE87B']);
+  });
+});
+
+describe('lab fill', () => {
+  it('draws the compound as an expanding white circle and energy left-to-right', () => {
+    const { ctx, log } = mockCtx();
+    drawLabFill(ctx, {
+      store: { energy: 1000, XGH2O: 1500 },
+      storeCapacityResource: { energy: 2000, XGH2O: 3000 },
+    } as unknown as FrameObject, 5.5, 5.5);
+
+    const compound = log.find((call) => call.op === 'arc');
+    expect(compound?.args).toEqual([5.5, 5.475, 0.2, 0, Math.PI * 2]);
+    const energy = log.find((call) => call.op === 'fillRect');
+    expect(energy?.args).toEqual([5.075, 5.825, 0.425, 0.2]);
+    const colors = log.filter((call) => call.op === 'set:fillStyle').map((call) => call.args[0]);
+    expect(colors).toEqual(['#FFF', '#FFE87B']);
+  });
+
+  it('uses the standard compound capacity when raw lab data omits it', () => {
+    const { ctx, log } = mockCtx();
+    drawLabFill(ctx, {
+      store: { energy: 0, ZK: 3000 },
+      storeCapacityResource: { energy: 2000 },
+    } as unknown as FrameObject, 1.5, 1.5);
+
+    const compound = log.find((call) => call.op === 'arc');
+    expect(compound?.args[2]).toBeCloseTo(0.4);
+    expect(log.some((call) => call.op === 'fillRect')).toBe(false);
   });
 });
 

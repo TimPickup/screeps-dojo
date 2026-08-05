@@ -139,7 +139,7 @@ async function renderRecording(recording, outFile, options) {
 	const ctx = canvas.getContext('2d');
 	const layerResolution = settings.pixelsPerRoom / 50;
 	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas);
-	const sprites = new shared.CreepRenderer(recording.meta && recording.meta.botUserId);
+	const sprites = new shared.CreepRenderer();
 	const expectedBytes = width * height * 4;
 	const lastIndex = recording.frames.length - 1;
 	// Drive the simulation playhead from output-frame number. This keeps speed

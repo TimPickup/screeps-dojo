@@ -1,4 +1,5 @@
 import type { Frame, FrameObject, ScenarioMapFile, StageLayout } from '../api/types';
+import { populateFrameMy } from '../canvas/ownership';
 import { computeStageLayout } from './geometry';
 
 type JsonObject = Record<string, unknown>;
@@ -39,17 +40,18 @@ function frameObject(value: unknown, fallbackType: string | null, room: string, 
   if (!isObject(value) || !finitePosition(value)) return null;
   const type = typeof value.type === 'string' ? value.type : fallbackType;
   if (!type) return null;
+  const { owner, ...renderFields } = value;
   const object = {
-    ...value,
+    ...renderFields,
     _id: String(value._id ?? value.id ?? generatedId),
     type,
     x: value.x,
     y: value.y,
     room,
   } as FrameObject;
-  // Map files use the friendly owner tags understood by dojoWorld; frame
-  // renderers use `user`. Keeping both makes ownership-aware drawing possible.
-  if (object.user === undefined && value.owner !== undefined) object.user = String(value.owner);
+  // Map files use the friendly owner tags understood by dojoWorld; render
+  // frames keep that value as `user` and derive `my` before drawing.
+  if (object.user === undefined && owner !== undefined) object.user = String(owner);
   if (type === 'source') {
     const capacity = typeof value.energyCapacity === 'number' ? value.energyCapacity : 3000;
     object.energyCapacity = capacity;
@@ -121,9 +123,11 @@ export function buildScenarioPreviewScene(files: ScenarioMapFile[]): ScenarioPre
   }
 
   const rooms = Object.keys(terrain);
+  const frame = { gameTime: 0, objects, flags } as Frame;
+  populateFrameMy(frame);
   return {
     terrain,
-    frame: { gameTime: 0, objects, flags },
+    frame,
     layout: computeStageLayout(rooms),
     mapCount: files.length,
     duplicateRooms: Array.from(duplicateRooms).sort(),
