@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { drawStructureShell, connectRoads } from '../structures';
+import { RENDER_COLORS } from '../renderConstants';
 import { mockCtx } from './mockCtx';
 import type { FrameObject } from '../../api/types';
 
@@ -11,10 +12,13 @@ function structure(type: string, x: number, y: number, fields: Partial<FrameObje
 }
 
 describe('drawStructureShell — shells only, no fills', () => {
-  it('extension draws exactly one circle (dark body), no energy core', () => {
+  it('extension draws its dark shell and empty backing, but no energy core', () => {
     const { ctx, log } = mockCtx();
     drawStructureShell(ctx, structure('extension', 10, 10));
-    expect(arcs(log)).toBe(1); // core circle would be a 2nd arc
+    const circles = log.filter((call) => call.op === 'arc');
+    expect(circles.map((call) => call.args[2])).toEqual([0.5, 0.35]);
+    const colors = log.filter((call) => call.op === 'set:fillStyle').map((call) => call.args[0]);
+    expect(colors).toEqual([RENDER_COLORS.structure.dark, RENDER_COLORS.structure.medium]);
   });
 
   it('spawn draws exactly one circle (body), no energy core', () => {

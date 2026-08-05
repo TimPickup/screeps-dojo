@@ -1,101 +1,148 @@
 import type { Recording, Frame, FrameObject, StageLayout } from '../api/types.ts';
-import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry.ts';
+import {
+	creepFacing,
+	lerp,
+	nextLocal as nextLocalPosition,
+	tFx as effectProgressAt,
+	tPos as movementProgressAt,
+} from '../render/geometry.ts';
 import { StaticLayers } from './caches.ts';
 import { CreepRenderer } from './creeps.ts';
 import {
 	drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill, drawTowerTurret,
-	drawSourceCore, drawControllerProgress, drawSpawnProgress, drawTombstone, drawDroppedResource,
+	drawSourceCore, drawControllerProgress, drawSpawnFill, drawSpawnProgress, drawTombstone, drawDroppedResource,
 } from './dynamic.ts';
-import { fillRenderText, parseRenderFont } from './renderFont.ts';
-import { roundedRectPath } from './primitives.ts';
+import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
+import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
+import { drawUserVisuals } from './roomVisuals.ts';
 
-interface DrawOpts {
+interface DrawOptions {
 	sprites: CreepRenderer;
 	layers: StaticLayers;
 	layout: StageLayout;
 	showVisuals: boolean;
 }
 
-// Draws one frame (tick) at sub-frame `sub` (null = paused/scrub static look;
+interface ActionTarget {
+	x: number;
+	y: number;
+}
+
+interface RenderActionLog {
+	attack?: ActionTarget;
+	harvest?: ActionTarget;
+	say?: { message?: unknown };
+	transferEnergy?: ActionTarget;
+}
+
+// Draws one frame (tick) at `subFrame` (null = paused/scrub static look;
 // a number in [0,1) = animating).
 // Works in TILE coordinates — the caller has applied the world→screen transform.
-export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, tick: number, sub: number | null, opts: DrawOpts) {
-	const { sprites, layout } = opts;
+export function drawFrame(
+	ctx: CanvasRenderingContext2D,
+	recording: Recording,
+	tick: number,
+	subFrame: number | null,
+	options: DrawOptions,
+): void {
+	const { sprites: creepRenderer, layout } = options;
 	const frames = recording.frames;
-	const count = frames.length;
-	const i = Math.max(0, Math.min(count - 1, tick));
-	const base = frames[i];
-	const next = sub !== null && i + 1 < count ? frames[i + 1] : null;
-	opts.layers.prepare(base);
-	if (next) opts.layers.prepare(next);
-	const off = layout.offsets;
-	const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
-	const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
+	const frameIndex = Math.max(0, Math.min(frames.length - 1, tick));
+	const baseFrame = frames[frameIndex];
+	const nextFrame = subFrame !== null && frameIndex + 1 < frames.length ? frames[frameIndex + 1] : null;
+	options.layers.prepare(baseFrame);
+	if (nextFrame) options.layers.prepare(nextFrame);
+	const offsets = layout.offsets;
+	const widthInTiles = (layout.width / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
+	const heightInTiles = (layout.height / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
 
 	// 1) static layers (client-side, synchronous — never black)
-	ctx.drawImage(opts.layers.terrain, 0, 0, colsTiles, rowsTiles);
-	ctx.drawImage(opts.layers.structure, 0, 0, colsTiles, rowsTiles);
+	ctx.drawImage(options.layers.terrain, 0, 0, widthInTiles, heightInTiles);
+	ctx.drawImage(options.layers.structure, 0, 0, widthInTiles, heightInTiles);
 
 	// world tile coords for a room-local position
-	const wpos = (room: string, x: number, y: number) => {
-		const o = off[room];
-		return o ? { wx: o.col * 50 + x, wy: o.row * 50 + y } : null;
+	const worldPosition = (roomName: string, x: number, y: number) => {
+		const roomOffset = offsets[roomName];
+		return roomOffset
+			? { worldX: roomOffset.col * ROOM_SIZE_TILES + x, worldY: roomOffset.row * ROOM_SIZE_TILES + y }
+			: null;
 	};
 
-	const nextById = next ? indexById(next.objects) : null;
-	const baseById = indexById(base.objects);
+	const nextObjectsById = nextFrame ? indexById(nextFrame.objects) : null;
+	const baseObjectsById = indexById(baseFrame.objects);
 	// tiles each creep transferred/withdrew with this tick, for the nod (below)
-	const nodTargets = next ? transferNods(next, nextById!) : {};
+	const nodTargets = nextFrame ? transferNods(nextFrame, nextObjectsById!) : {};
 
 	// 2) creeps (interpolated) + HP + effects
-	for (const obj of base.objects) {
-		if (obj.type !== 'creep') continue;
-		if (obj.spawning) {
-			const released = nextById?.[obj._id];
-			const nextCreep = released && !released.spawning ? released : null;
-			const target = nextCreep ? nextLocal(obj, nextCreep, layout) : obj;
-			const progress = nextCreep ? tPos(sub as number) : 0;
-			const p2 = wpos(obj.room, lerp(obj.x, target.x, progress), lerp(obj.y, target.y, progress));
-			if (!p2) continue;
-			sprites.draw(ctx, nextCreep || obj, p2.wx, p2.wy,
-				nextCreep ? creepFacing(frames, i, obj._id, layout) : 0, 1);
+	for (const object of baseFrame.objects) {
+		if (object.type !== 'creep') continue;
+		if (object.spawning) {
+			const releasedObject = nextObjectsById?.[object._id];
+			const nextCreep = releasedObject && !releasedObject.spawning ? releasedObject : null;
+			const targetPosition = nextCreep ? nextLocalPosition(object, nextCreep, layout) : object;
+			const movementProgress = nextCreep ? movementProgressAt(subFrame as number) : 0;
+			const position = worldPosition(
+				object.room,
+				lerp(object.x, targetPosition.x, movementProgress),
+				lerp(object.y, targetPosition.y, movementProgress),
+			);
+			if (!position) continue;
+			creepRenderer.draw(ctx, nextCreep || object, position.worldX, position.worldY,
+				nextCreep ? creepFacing(frames, frameIndex, object._id, layout) : 0, 1);
 			continue;
 		}
-		let x = obj.x, y = obj.y, room = obj.room, opacity = 1;
-		let actionSrc: FrameObject = obj;
-		if (next) {
-			const n = nextById![obj._id];
-			if (n && (n.room === obj.room || off[n.room])) {
-				const nl = nextLocal(obj, n, layout);
-				const tp = tPos(sub as number);
-				x = lerp(obj.x, nl.x, tp); y = lerp(obj.y, nl.y, tp);
-				actionSrc = n;
+		let x = object.x, y = object.y, opacity = 1;
+		let actionSource: FrameObject = object;
+		if (nextFrame) {
+			const nextObject = nextObjectsById![object._id];
+			if (nextObject && (nextObject.room === object.room || offsets[nextObject.room])) {
+				const nextPosition = nextLocalPosition(object, nextObject, layout);
+				const movementProgress = movementProgressAt(subFrame as number);
+				x = lerp(object.x, nextPosition.x, movementProgress);
+				y = lerp(object.y, nextPosition.y, movementProgress);
+				actionSource = nextObject;
 				// work/attack bob during the action half; transfer/withdraw nod toward
 				// the tile the creep exchanged with (nodTargets — pickup isn't recorded)
-				const bobT = (n.actionLog && ((n.actionLog as any).harvest || (n.actionLog as any).attack)) || nodTargets[obj._id];
-				if (bobT) {
-					const dx = bobT.x - x, dy = bobT.y - y, d = Math.hypot(dx, dy);
-					if (d > 0) { const amp = 0.15 * Math.sin(Math.PI * tFx(sub as number)); x += amp * dx / d; y += amp * dy / d; }
+				const actionLog = nextObject.actionLog as RenderActionLog | undefined;
+				const bobTarget = (actionLog && (actionLog.harvest || actionLog.attack)) || nodTargets[object._id];
+				if (bobTarget) {
+					const dx = bobTarget.x - x, dy = bobTarget.y - y;
+					const distance = Math.hypot(dx, dy);
+					if (distance > 0) {
+						const amplitude = 0.15 * Math.sin(Math.PI * effectProgressAt(subFrame as number));
+						x += amplitude * dx / distance;
+						y += amplitude * dy / distance;
+					}
 				}
-			} else { opacity = 1 - (sub as number); } // died/left layout: fade
+			} else {
+				opacity = 1 - (subFrame as number); // died/left layout: fade
+			}
 		}
-		const p = wpos(room, x, y);
-		if (!p) continue;
-		const facing = creepFacing(frames, i, obj._id, layout);
-		sprites.draw(ctx, obj, p.wx, p.wy, facing, opacity);
-		drawHpBar(ctx, obj, p.wx, p.wy, opacity);
-		if (obj.actionLog && (obj.actionLog as any).say && (obj.actionLog as any).say.message) {
-			drawSay(ctx, (obj.actionLog as any).say.message, p.wx, p.wy);
+		const position = worldPosition(object.room, x, y);
+		if (!position) continue;
+		const facing = creepFacing(frames, frameIndex, object._id, layout);
+		creepRenderer.draw(ctx, object, position.worldX, position.worldY, facing, opacity);
+		drawHitPointsBar(ctx, object, position.worldX, position.worldY, opacity);
+		const baseActionLog = object.actionLog as RenderActionLog | undefined;
+		if (baseActionLog?.say?.message) {
+			drawSpeechBubble(ctx, String(baseActionLog.say.message), position.worldX, position.worldY);
 		}
-		drawEffects(ctx, actionSrc, p.wx, p.wy, sub, off, room);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
 	}
 	// creeps that appear only next frame (spawned): fade in
-	if (next) {
-		for (const n of next.objects) {
-			if (n.type !== 'creep' || n.spawning || baseById[n._id]) continue;
-			const p = wpos(n.room, n.x, n.y);
-			if (!p) continue;
-			sprites.draw(ctx, n, p.wx, p.wy, creepFacing(frames, i + 1, n._id, layout), sub as number);
+	if (nextFrame) {
+		for (const nextObject of nextFrame.objects) {
+			if (nextObject.type !== 'creep' || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
+			const position = worldPosition(nextObject.room, nextObject.x, nextObject.y);
+			if (!position) continue;
+			creepRenderer.draw(
+				ctx,
+				nextObject,
+				position.worldX,
+				position.worldY,
+				creepFacing(frames, frameIndex + 1, nextObject._id, layout),
+				subFrame as number,
+			);
 		}
 	}
 
@@ -104,67 +151,74 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
 	//     current fill and per-tick actions must be drawn here on top. Beams reuse
 	//     the creep effect renderer — tower actionLog keys (attack/heal/repair)
 	//     are a subset of the creep ones, so they read identically.
-	for (const obj of base.objects) {
-		if (obj.type !== 'tower') continue;
-		const p = wpos(obj.room, obj.x, obj.y);
-		if (!p) continue;
+	for (const object of baseFrame.objects) {
+		if (object.type !== 'tower') continue;
+		const position = worldPosition(object.room, object.x, object.y);
+		if (!position) continue;
 		// actionLog lives on the structure doc; prefer the next frame's (the
 		// transition being animated), matching the link-beam approach.
-		const nextDoc = nextById ? nextById[obj._id] : null;
-		const actionDoc = (nextDoc || obj) as FrameObject;
+		const nextObject = nextObjectsById ? nextObjectsById[object._id] : null;
+		const actionSource = nextObject || object;
 		// Energy belongs to the rotating turret assembly, but its amount comes
 		// from the base frame just like the other interpolated structure fills.
-		drawTowerTurret(ctx, actionDoc, p.wx + 0.5, p.wy + 0.5,
-			base.gameTime + (sub ?? 0), obj);
-		drawEffects(ctx, actionDoc, p.wx, p.wy, sub, off, obj.room);
+		drawTowerTurret(
+			ctx,
+			actionSource,
+			position.worldX + 0.5,
+			position.worldY + 0.5,
+			baseFrame.gameTime + (subFrame ?? 0),
+			object,
+		);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
 	}
 
 	// 2c) spawns: live energy core. Like towers, spawns are baked into the per-
 	//     epoch background (which is energy-blind), but the background draws only
 	//     the dark base — so the yellow core (scaled by fill, hidden when empty)
 	//     is painted here on top and stays accurate as the spawn fills/drains.
-	for (const obj of base.objects) {
-		if (obj.type !== 'spawn') continue;
-		const p = wpos(obj.room, obj.x, obj.y);
-		if (!p) continue;
-		drawSpawnFill(ctx, obj, p.wx, p.wy);
+	for (const object of baseFrame.objects) {
+		if (object.type !== 'spawn') continue;
+		const position = worldPosition(object.room, object.x, object.y);
+		if (!position) continue;
+		drawSpawnFill(ctx, object, position.worldX + 0.5, position.worldY + 0.5);
 	}
 
 	// 2d) live structure fills, source cores, controller progress, spawn arcs,
 	//     link beams — all energy-blind in the baked structure layer, so drawn here.
-	for (const obj of base.objects) {
-		const p = wpos(obj.room, obj.x, obj.y);
-		if (!p) continue;
-		const cx = p.wx + 0.5, cy = p.wy + 0.5;
-		switch (obj.type) {
-			case 'extension': drawExtensionFill(ctx, obj, cx, cy); break;
-			case 'storage': drawStorageFill(ctx, obj, cx, cy); break;
-			case 'terminal': drawTerminalFill(ctx, obj, cx, cy); break;
-			case 'lab': drawLabFill(ctx, obj, cx, cy); break;
-			case 'container': drawContainerFill(ctx, obj, cx, cy); break;
-			case 'source': drawSourceCore(ctx, obj, cx, cy); break;
-			case 'controller': drawControllerProgress(ctx, obj, cx, cy); break;
+	for (const object of baseFrame.objects) {
+		const position = worldPosition(object.room, object.x, object.y);
+		if (!position) continue;
+		const centerX = position.worldX + 0.5, centerY = position.worldY + 0.5;
+		switch (object.type) {
+			case 'extension': drawExtensionFill(ctx, object, centerX, centerY); break;
+			case 'storage': drawStorageFill(ctx, object, centerX, centerY); break;
+			case 'terminal': drawTerminalFill(ctx, object, centerX, centerY); break;
+			case 'lab': drawLabFill(ctx, object, centerX, centerY); break;
+			case 'container': drawContainerFill(ctx, object, centerX, centerY); break;
+			case 'source': drawSourceCore(ctx, object, centerX, centerY); break;
+			case 'controller': drawControllerProgress(ctx, object, centerX, centerY); break;
 			case 'link': {
-				drawLinkFill(ctx, obj, cx, cy);
-				const nextDoc = nextById ? nextById[obj._id] : null;
-				const log = ((nextDoc || obj).actionLog as any);
-				if (log && log.transferEnergy) {
-					const o2 = off[obj.room];
-					const tx = o2.col * 50 + log.transferEnergy.x + 0.5, ty = o2.row * 50 + log.transferEnergy.y + 0.5;
-					ctx.save(); ctx.strokeStyle = '#ffe25a'; ctx.lineWidth = 0.12; ctx.globalAlpha = 0.85; ctx.lineCap = 'round';
-					ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.restore();
+				drawLinkFill(ctx, object, centerX, centerY);
+				const nextObject = nextObjectsById ? nextObjectsById[object._id] : null;
+				const actionLog = (nextObject || object).actionLog as RenderActionLog | undefined;
+				if (actionLog?.transferEnergy) {
+					const roomOffset = offsets[object.room];
+					const targetX = roomOffset.col * ROOM_SIZE_TILES + actionLog.transferEnergy.x + 0.5;
+					const targetY = roomOffset.row * ROOM_SIZE_TILES + actionLog.transferEnergy.y + 0.5;
+					drawBeam(ctx, centerX, centerY, targetX, targetY, RENDER_COLORS.resources.energy, 0.12);
 				}
 				break;
 			}
 			case 'spawn':
-				drawSpawnProgress(ctx, obj as FrameObject, cx, cy, base.gameTime, sub === null ? 0 : sub);
+				drawSpawnProgress(ctx, object, centerX, centerY, baseFrame.gameTime, subFrame === null ? 0 : subFrame);
 				break;
-			case 'tombstone': drawTombstone(ctx, cx, cy); break;
+			case 'tombstone': drawTombstone(ctx, centerX, centerY); break;
 			case 'energy': case 'resource': {
-				const store = (obj.store as Record<string, number> | undefined) || {};
-				let amt = 0; for (const k of Object.keys(store)) amt += store[k];
-				const rt = (obj.resourceType as string) || (Object.keys(store)[0]) || 'energy';
-				drawDroppedResource(ctx, cx, cy, amt, rt);
+				const store = (object.store as Record<string, number> | undefined) || {};
+				let amount = 0;
+				for (const resourceType of Object.keys(store)) amount += store[resourceType];
+				const resourceType = (object.resourceType as string) || Object.keys(store)[0] || 'energy';
+				drawDroppedResource(ctx, centerX, centerY, amount, resourceType);
 				break;
 			}
 		}
@@ -172,86 +226,25 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
 
 	// 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
 	//    command strings — no server round-trip; instant toggle)
-	if (opts.showVisuals && base.visuals) {
-		for (const room of Object.keys(base.visuals)) {
-			const o = off[room];
-			if (!o) continue;
+	if (options.showVisuals && baseFrame.visuals) {
+		for (const roomName of Object.keys(baseFrame.visuals)) {
+			const roomOffset = offsets[roomName];
+			if (!roomOffset) continue;
 			// +0.5 shifts tile-centred RoomVisual coordinates to the canvas grid.
-			drawUserVisuals(ctx, base.visuals[room], o.col * 50 + 0.5, o.row * 50 + 0.5);
+			drawUserVisuals(
+				ctx,
+				baseFrame.visuals[roomName],
+				roomOffset.col * ROOM_SIZE_TILES + 0.5,
+				roomOffset.row * ROOM_SIZE_TILES + 0.5,
+			);
 		}
-	}
-}
-
-// Replays the bot's RoomVisual command strings ({t:'c'|'l'|'r'|'p'|'t'}) onto
-// the canvas. Geometry is exact; styling maps the common RoomVisual options.
-function drawUserVisuals(ctx: CanvasRenderingContext2D, raw: string, ox: number, oy: number) {
-	for (const lineStr of raw.split('\n')) {
-		if (!lineStr.trim()) continue;
-		let v: any; try { v = JSON.parse(lineStr); } catch { continue; }
-		const s = v.s || {};
-		ctx.save();
-		ctx.globalAlpha = s.opacity !== undefined ? s.opacity : (v.t === 't' ? 1 : 0.5);
-		const stroke = s.stroke || s.color;
-		const sw = s.strokeWidth !== undefined ? s.strokeWidth : (s.width !== undefined ? s.width : 0.1);
-		if (s.lineStyle === 'dashed') ctx.setLineDash([0.3, 0.2]);
-		else if (s.lineStyle === 'dotted') ctx.setLineDash([0.1, 0.1]);
-		if (v.t === 'c') {
-			ctx.beginPath(); ctx.arc(ox + v.x, oy + v.y, s.radius !== undefined ? s.radius : 0.15, 0, Math.PI * 2);
-			if (s.fill !== undefined && s.fill !== 'transparent') { ctx.fillStyle = s.fill; ctx.fill(); }
-			else if (s.fill === undefined && stroke === undefined) { ctx.fillStyle = '#ffffff'; ctx.fill(); }
-			if (stroke) { ctx.lineWidth = sw; ctx.strokeStyle = stroke; ctx.stroke(); }
-		} else if (v.t === 'l') {
-			ctx.beginPath(); ctx.moveTo(ox + v.x1, oy + v.y1); ctx.lineTo(ox + v.x2, oy + v.y2);
-			ctx.lineWidth = sw; ctx.strokeStyle = stroke || '#ffffff'; ctx.stroke();
-		} else if (v.t === 'r') {
-			if (s.fill !== undefined && s.fill !== 'transparent') { ctx.fillStyle = s.fill; ctx.fillRect(ox + v.x, oy + v.y, v.w, v.h); }
-			if (stroke) { ctx.lineWidth = sw; ctx.strokeStyle = stroke; ctx.strokeRect(ox + v.x, oy + v.y, v.w, v.h); }
-		} else if (v.t === 'p') {
-			ctx.beginPath();
-			const pts = v.points || [];
-			for (let k = 0; k < pts.length; k++) {
-				const px = ox + pts[k][0], py = oy + pts[k][1];
-				if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-			}
-			if (s.fill !== undefined && s.fill !== 'transparent') { ctx.fillStyle = s.fill; ctx.fill(); }
-			if (stroke !== undefined || s.fill === undefined) { ctx.lineWidth = sw; ctx.strokeStyle = stroke || '#ffffff'; ctx.stroke(); }
-		} else if (v.t === 't') {
-			ctx.fillStyle = s.color || '#ffffff';
-			fillRenderText(ctx, String(v.text), ox + v.x, oy + v.y, parseRenderFont(s.font), s.align || 'center');
-		}
-		ctx.restore();
 	}
 }
 
 function indexById(objects: FrameObject[]): Record<string, FrameObject> {
-	const m: Record<string, FrameObject> = {};
-	for (const o of objects) m[o._id] = o;
-	return m;
-}
-
-function drawHpBar(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number, opacity: number) {
-	if (o.hits === undefined || !o.hitsMax || o.hits >= o.hitsMax) return;
-	const frac = Math.max(0, o.hits / o.hitsMax);
-	ctx.save();
-	ctx.globalAlpha = opacity;
-	ctx.fillStyle = '#555555'; ctx.fillRect(wx - 0.5, wy - 0.85, 1.0, 0.15);
-	ctx.fillStyle = '#65fd62'; ctx.fillRect(wx - 0.5, wy - 0.85, frac, 0.15);
-	ctx.restore();
-}
-
-// Yellow energy core over a spawn's dark base (the base is drawn by the static
-// background). Radius scales with store.energy / capacity and is hidden when
-// empty — matches lib/RoomVisual's spawn core: circle radius 0.40 * fraction.
-function drawSpawnFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number) {
-	const cap = (o.storeCapacityResource as Record<string, number> | undefined)?.energy;
-	if (!cap || cap <= 0) return;
-	const energy = (o.store && (o.store as Record<string, number>).energy) || 0;
-	const frac = Math.max(0, Math.min(1, energy / cap));
-	if (frac <= 0) return;
-	ctx.save();
-	ctx.fillStyle = '#FFE87B';
-	ctx.beginPath(); ctx.arc(wx + 0.5, wy + 0.5, 0.40 * frac, 0, Math.PI * 2); ctx.fill();
-	ctx.restore();
+	const objectsById: Record<string, FrameObject> = {};
+	for (const object of objects) objectsById[object._id] = object;
+	return objectsById;
 }
 
 // Creeps that transferred/withdrew this tick, mapped to the tile they exchanged
@@ -260,82 +253,33 @@ function drawSpawnFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number
 // objectId=creep, targetId=target; withdraw reverses them — so neither appears
 // in actionLog. Read from the NEXT frame's log (the transition being animated).
 // Pickup emits no event, so it produces no nod.
-function transferNods(frame: Frame, byId: Record<string, FrameObject>): Record<string, { x: number; y: number }> {
-	const acc: Record<string, { sx: number; sy: number; n: number }> = {};
+function transferNods(frame: Frame, objectsById: Record<string, FrameObject>): Record<string, { x: number; y: number }> {
+	const targetTotals: Record<string, { sumX: number; sumY: number; count: number }> = {};
 	if (!frame.eventLog) return {};
-	for (const room of Object.keys(frame.eventLog)) {
-		const events = frame.eventLog[room];
+	for (const roomName of Object.keys(frame.eventLog)) {
+		const events = frame.eventLog[roomName];
 		if (!Array.isArray(events)) continue;
-		for (const ev of events as Array<{ event: number; objectId: string; data?: { targetId?: string } }>) {
-			if (!ev || ev.event !== 12) continue; // EVENT_TRANSFER
-			const a = byId[ev.objectId];
-			const b = ev.data && ev.data.targetId ? byId[ev.data.targetId] : undefined;
+		for (const event of events as Array<{ event: number; objectId: string; data?: { targetId?: string } }>) {
+			if (!event || event.event !== 12) continue; // EVENT_TRANSFER
+			const sourceObject = objectsById[event.objectId];
+			const targetObject = event.data?.targetId ? objectsById[event.data.targetId] : undefined;
 			let creep: FrameObject | undefined, target: FrameObject | undefined;
-			if (a && a.type === 'creep') { creep = a; target = b; }
-			else if (b && b.type === 'creep') { creep = b; target = a; }
+			if (sourceObject?.type === 'creep') { creep = sourceObject; target = targetObject; }
+			else if (targetObject?.type === 'creep') { creep = targetObject; target = sourceObject; }
 			if (!creep || !target) continue;
 			// A creep can transfer AND withdraw in the same tick (two events) — lean
 			// toward the average of every tile it exchanged with, not just the last.
-			const e = acc[creep._id] || (acc[creep._id] = { sx: 0, sy: 0, n: 0 });
-			e.sx += target.x; e.sy += target.y; e.n++;
+			const totals = targetTotals[creep._id]
+				|| (targetTotals[creep._id] = { sumX: 0, sumY: 0, count: 0 });
+			totals.sumX += target.x;
+			totals.sumY += target.y;
+			totals.count++;
 		}
 	}
 	const nods: Record<string, { x: number; y: number }> = {};
-	for (const id in acc) nods[id] = { x: acc[id].sx / acc[id].n, y: acc[id].sy / acc[id].n };
+	for (const objectId in targetTotals) {
+		const totals = targetTotals[objectId];
+		nods[objectId] = { x: totals.sumX / totals.count, y: totals.sumY / totals.count };
+	}
 	return nods;
-}
-
-function drawSay(ctx: CanvasRenderingContext2D, message: string, wx: number, wy: number) {
-	const text = String(message).slice(0, 10);
-	ctx.save();
-	const w = Math.max(0.8, text.length * 0.32);
-	ctx.fillStyle = 'rgba(0,0,0,0.7)';
-	roundedRectPath(ctx, wx + 0.5 - w / 2, wy - 1.5, w, 0.6, 0.1); ctx.fill();
-	ctx.fillStyle = '#ffffff';
-	fillRenderText(ctx, text, wx + 0.5, wy - 1.05, parseRenderFont(0.5), 'center');
-	ctx.restore();
-}
-
-// Effects: sub=null gives the paused solid look; a number animates over the
-// action half (tFx).
-function drawEffects(ctx: CanvasRenderingContext2D, creep: FrameObject, wx: number, wy: number, sub: number | null, off: StageLayout['offsets'], room: string) {
-	const a = creep.actionLog as Record<string, { x: number; y: number } | undefined> | undefined;
-	if (!a) return;
-	const o = off[room];
-	if (!o) return;
-	const cx = wx + 0.5, cy = wy + 0.5;
-	const fx = sub === null ? 1 : tFx(sub);
-	const target = (t: { x: number; y: number }) => ({ tx: o.col * 50 + t.x + 0.5, ty: o.row * 50 + t.y + 0.5 });
-	const beam = (t: { x: number; y: number }, color: string, width: number) => {
-		const { tx, ty } = target(t);
-		ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = 0.85; ctx.lineCap = 'round';
-		if (sub === null) { line(ctx, cx, cy, tx, ty); }
-		else { const head = fx, tail = Math.max(0, head - 0.18); line(ctx, lerp(cx, tx, tail), lerp(cy, ty, tail), lerp(cx, tx, head), lerp(cy, ty, head)); }
-		ctx.restore();
-	};
-	if (a.attack) { beam(a.attack, '#ff4040', 0.15); ring(ctx, target(a.attack), 0.5, '#ff4040'); }
-	if (a.rangedAttack) beam(a.rangedAttack, '#ff4040', 0.1);
-	if (a.harvest) beam(a.harvest, '#ffe87b', 0.1);
-	if (a.build) beam(a.build, '#ffffff', 0.1);
-	if (a.repair) beam(a.repair, '#9aa0aa', 0.08);
-	if (a.dismantle) beam(a.dismantle, '#d18b2a', 0.1);
-	if (a.upgradeController) beam(a.upgradeController, '#ffe25a', 0.12);
-	if (a.heal) {
-		if (a.heal.x === creep.x && a.heal.y === creep.y) ring(ctx, { tx: cx, ty: cy }, sub === null ? 0.6 : 0.55 + 0.1 * Math.sin(Math.PI * fx), '#5cff6a');
-		else beam(a.heal, '#65fd62', 0.1);
-	}
-	if (a.rangedHeal) beam(a.rangedHeal, '#65fd62', 0.08);
-	if (a.rangedMassAttack) {
-		const r = sub === null ? 3 : Math.max(0.2, 3 * fx);
-		ctx.save(); ctx.strokeStyle = '#5d80b2'; ctx.lineWidth = 0.1; ctx.globalAlpha = sub === null ? 0.5 : 0.8 * (1 - fx);
-		ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
-	}
-}
-
-function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
-	ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-}
-function ring(ctx: CanvasRenderingContext2D, c: { tx: number; ty: number }, r: number, color: string) {
-	ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 0.08; ctx.globalAlpha = 0.8;
-	ctx.beginPath(); ctx.arc(c.tx, c.ty, r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
 }

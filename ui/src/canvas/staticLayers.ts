@@ -1,38 +1,46 @@
-import type { Recording, StageLayout, Frame, FrameObject } from '../api/types.ts';
+import type { Recording, StageLayout, Frame } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
 import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, text } from './primitives.ts';
+import {
+	DEFAULT_MINERAL_COLOR,
+	MINERAL_COLORS,
+	RENDER_COLORS,
+	ROOM_SIZE_TILES,
+	STATIC_LAYER_RESOLUTION,
+	STRUCTURE_SHELL_TYPES,
+	TERRAIN_COLORS,
+} from './renderConstants.ts';
 
-export const STATIC_RES = 24; // px per tile for offscreen layers
-
-const TILE_COLORS: Record<string, string> = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
-const MINERAL_COLORS: Record<string, string> = { 'H': '#cdcdcd', 'O': '#cdcdcd', 'U': '#52daf8', 'K': '#9c7afb', 'L': '#2bf4a7', 'Z': '#fdd08b', 'X': '#fe767a' };
-const ROOM_BG = '#2b2b2b';
+export { STATIC_LAYER_RESOLUTION as STATIC_RES } from './renderConstants.ts';
 
 // One room's terrain at room-local integer tile coordinates.
 export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void {
 	ctx.save();
-	ctx.fillStyle = ROOM_BG;
-	ctx.fillRect(0, 0, 50, 50);
-	for (let y = 0; y < 50; y++) {
+	ctx.fillStyle = RENDER_COLORS.terrain.plain;
+	ctx.fillRect(0, 0, ROOM_SIZE_TILES, ROOM_SIZE_TILES);
+	for (let y = 0; y < ROOM_SIZE_TILES; y++) {
 		const row = rows[y] || '';
-		for (let x = 0; x < 50; x++) {
-			const ch = row[x];
-			if (ch === '.' || ch === undefined) continue;
-			ctx.fillStyle = TILE_COLORS[ch] || ROOM_BG;
+		for (let x = 0; x < ROOM_SIZE_TILES; x++) {
+			const terrainType = row[x];
+			if (terrainType === '.' || terrainType === undefined) continue;
+			ctx.fillStyle = TERRAIN_COLORS[terrainType] || RENDER_COLORS.terrain.plain;
 			ctx.fillRect(x, y, 1, 1);
 		}
 	}
 	// faint tile grid
 	ctx.globalAlpha = 0.07;
-	ctx.strokeStyle = '#ffffff';
+	ctx.strokeStyle = RENDER_COLORS.terrain.grid;
 	ctx.lineWidth = 0.02;
 	ctx.beginPath();
-	for (let i = 1; i < 50; i++) { ctx.moveTo(i, 0); ctx.lineTo(i, 50); ctx.moveTo(0, i); ctx.lineTo(50, i); }
+	for (let i = 1; i < ROOM_SIZE_TILES; i++) {
+		ctx.moveTo(i, 0); ctx.lineTo(i, ROOM_SIZE_TILES);
+		ctx.moveTo(0, i); ctx.lineTo(ROOM_SIZE_TILES, i);
+	}
 	ctx.stroke();
 	ctx.globalAlpha = 1;
 	// exit chevrons on walkable border tiles
-	ctx.strokeStyle = '#9bd49b';
+	ctx.strokeStyle = RENDER_COLORS.terrain.exit;
 	ctx.lineWidth = 0.08;
 	ctx.globalAlpha = 0.5;
 	ctx.beginPath();
@@ -48,11 +56,11 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
 		ctx.lineTo(tipX, tipY);
 		ctx.lineTo(bx, by);
 	};
-	for (let i = 1; i < 49; i++) {
+	for (let i = 1; i < ROOM_SIZE_TILES - 1; i++) {
 		if (rows[i] && rows[i][0] !== '#') chevron(0, i, -1, 0);
-		if (rows[i] && rows[i][49] !== '#') chevron(49, i, 1, 0);
+		if (rows[i] && rows[i][ROOM_SIZE_TILES - 1] !== '#') chevron(ROOM_SIZE_TILES - 1, i, 1, 0);
 		if (rows[0] && rows[0][i] !== '#') chevron(i, 0, 0, -1);
-		if (rows[49] && rows[49][i] !== '#') chevron(i, 49, 0, 1);
+		if (rows[ROOM_SIZE_TILES - 1] && rows[ROOM_SIZE_TILES - 1][i] !== '#') chevron(i, ROOM_SIZE_TILES - 1, 0, 1);
 	}
 	ctx.stroke();
 	ctx.restore();
@@ -60,10 +68,10 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
 
 export function drawTerrainScene(ctx: CanvasRenderingContext2D, terrain: Record<string, string[]>, layout: StageLayout): void {
 	for (const room of Object.keys(terrain)) {
-		const off = layout.offsets[room];
-		if (!off) continue;
+		const roomOffset = layout.offsets[room];
+		if (!roomOffset) continue;
 		ctx.save();
-		ctx.translate(off.col * 50, off.row * 50);
+		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
 		drawTerrain(ctx, terrain[room]);
 		ctx.restore();
 	}
@@ -78,27 +86,41 @@ function browserCanvas(width: number, height: number): HTMLCanvasElement {
 	return canvas;
 }
 
+function darkenMineralColor(color: string): string {
+	const darkenedDigits = color.slice(1).split('').map((hexDigit) => (
+		(parseInt(hexDigit, 16) * 0.25 | 0).toString(16)
+	));
+	return `#${darkenedDigits.join('')}`;
+}
+
+function buildStaticCanvas(
+	layout: StageLayout,
+	resolution: number,
+	canvasFactory: CanvasFactory,
+	draw: (ctx: CanvasRenderingContext2D) => void,
+): HTMLCanvasElement {
+	const widthInTiles = (layout.width / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
+	const heightInTiles = (layout.height / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
+	const canvas = canvasFactory(
+		Math.max(1, Math.round(widthInTiles * resolution)),
+		Math.max(1, Math.round(heightInTiles * resolution)),
+	);
+	const ctx = canvas.getContext('2d')!;
+	ctx.scale(resolution, resolution);
+	draw(ctx);
+	return canvas;
+}
+
 export function buildTerrainCanvas(
 	recording: Recording,
 	layout: StageLayout,
-	res = STATIC_RES,
+	resolution = STATIC_LAYER_RESOLUTION,
 	canvasFactory: CanvasFactory = browserCanvas,
 ): HTMLCanvasElement {
-	const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
-	const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
-	const cv = canvasFactory(
-		Math.max(1, Math.round(colsTiles * res)),
-		Math.max(1, Math.round(rowsTiles * res)),
-	);
-	const ctx = cv.getContext('2d')!;
-	ctx.scale(res, res); // now draw in tile units
-	drawTerrainScene(ctx, recording.terrain, layout);
-	return cv;
+	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
+		drawTerrainScene(ctx, recording.terrain, layout);
+	});
 }
-
-const SHELL_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
-	'factory', 'observer', 'nuker', 'powerSpawn', 'container', 'road', 'rampart', 'constructedWall',
-	'invaderCore', 'keeperLair', 'extractor']);
 
 export function drawStaticStructures(
 	ctx: CanvasRenderingContext2D,
@@ -106,45 +128,44 @@ export function drawStaticStructures(
 	layout: StageLayout,
 ): void {
 	for (const room of Object.keys(layout.offsets)) {
-		const off = layout.offsets[room];
+		const roomOffset = layout.offsets[room];
 		ctx.save();
-		ctx.translate(off.col * 50, off.row * 50);
+		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
 		const roads: number[][] = [];
-		for (const o of frame.objects as FrameObject[]) {
-			if (o.room !== room) continue;
-			if (SHELL_TYPES.has(o.type)) {
-				drawStructureShell(ctx, o);
-				if (o.type === 'road') roads.push([o.x, o.y]);
-			} else if (o.type === 'source') {
-				// black base only; the energy core is dynamic (Task 5)
-				circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.35, fill: '#0a0a0a', stroke: '#333333', strokeWidth: 0.04 });
-			} else if (o.type === 'mineral') {
-				//text of the mineralType
-				const mineralType = typeof o.mineralType === 'string' ? o.mineralType : '?';
-				const mineralColor = MINERAL_COLORS[mineralType] || '#cdcdcd';
-				//75% darker
-				const mineralDarkColor = `#${mineralColor.slice(1).split('').map(c => (parseInt(c, 16) * 0.25 | 0).toString(16)).join('')}`;
-				circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
-				text(ctx, mineralType, o.x + 0.5, o.y + 0.80, { font: 0.85, fill: mineralColor });
-			} else if (o.type === 'controller') {
-				//draw a octagon for the controller base, with a number for the level with a flat top and sides
+		for (const object of frame.objects) {
+			if (object.room !== room) continue;
+			if (STRUCTURE_SHELL_TYPES.has(object.type)) {
+				drawStructureShell(ctx, object);
+				if (object.type === 'road') roads.push([object.x, object.y]);
+			} else if (object.type === 'source') {
+				// The energy core is dynamic, so only its dark base is cached.
+				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.35, fill: RENDER_COLORS.structure.sourceBase, stroke: RENDER_COLORS.structure.sourceOutline, strokeWidth: 0.04 });
+			} else if (object.type === 'mineral') {
+				// Label the mineral with its resource type.
+				const mineralType = typeof object.mineralType === 'string' ? object.mineralType : '?';
+				const mineralColor = MINERAL_COLORS[mineralType] || DEFAULT_MINERAL_COLOR;
+				// Darken the fill while retaining the resource color as its outline.
+				const mineralDarkColor = darkenMineralColor(mineralColor);
+				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
+				text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
+			} else if (object.type === 'controller') {
+				// Draw the octagonal base and one triangular segment per level.
 				const octagon = [[0.292893, 0], [0.707107, 0], [1, 0.292893], [1, 0.707107], [0.707107, 1], [0.292893, 1], [0, 0.707107], [0, 0.292893],];
-				const octagonPoints = octagon.map(([dx, dy]) => [o.x - 0.25 + dx * 1.5, o.y - 0.25 + dy * 1.5]);
-				poly(ctx, octagonPoints, { fill: '#0a0a0a', stroke: '#000', strokeWidth: 0.1 });
-				//draw a triangle for each level, with the tip pointing up and the base flat, centered on the controller
-				const level = Math.min(o.level ?? 0, 8);
+				const octagonPoints = octagon.map(([dx, dy]) => [object.x - 0.25 + dx * 1.5, object.y - 0.25 + dy * 1.5]);
+				poly(ctx, octagonPoints, { fill: RENDER_COLORS.controller.base, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
+				const level = Math.min(object.level ?? 0, 8);
 				if (level > 0) {
 					for (let i = 0; i < level; i++) {
-						poly(ctx, [octagonPoints[i], octagonPoints[(i + 1) % 8], [o.x + 0.5, o.y + 0.5]], { fill: '#AAAAAA', stroke: '#000', strokeWidth: 0.1 });
+						poly(ctx, [octagonPoints[i], octagonPoints[(i + 1) % 8], [object.x + 0.5, object.y + 0.5]], { fill: RENDER_COLORS.controller.level, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
 					}
 				}
-				let controllerColour;
+				let controllerColor;
 				if (level === 0) {
-					controllerColour = '#444';
+					controllerColor = RENDER_COLORS.controller.unclaimed;
 				} else {
-					controllerColour = o.my ? '#5577ff' : '#ff5555';
+					controllerColor = object.my ? RENDER_COLORS.ownership.bot : RENDER_COLORS.ownership.opponent;
 				}
-				circle(ctx, o.x + 0.5, o.y + 0.5, { radius: 0.4, fill: controllerColour, stroke: '#000', strokeWidth: 0.05 });
+				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.4, fill: controllerColor, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.05 });
 			}
 		}
 		connectRoads(ctx, roads);
@@ -175,12 +196,12 @@ export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], la
 		}
 	}
 	for (const flag of flags) {
-		const off = layout.offsets[flag.room];
-		const x = off.col * 50 + flag.x + 0.5;
-		const y = off.row * 50 + flag.y + 0.5;
+		const roomOffset = layout.offsets[flag.room];
+		const x = roomOffset.col * ROOM_SIZE_TILES + flag.x + 0.5;
+		const y = roomOffset.row * ROOM_SIZE_TILES + flag.y + 0.5;
 		poly(ctx, [[x, y + 0.3], [x, y - 0.5], [x + 0.5, y - 0.3], [x, y - 0.1]],
-			{ stroke: '#ffffff', strokeWidth: 0.08, fill: '#ff6666', opacity: 0.9 });
-		text(ctx, flag.name, x, y + 0.85, { font: 0.4, fill: '#ffffff', opacity: 0.8 });
+			{ stroke: RENDER_COLORS.flag.foreground, strokeWidth: 0.08, fill: RENDER_COLORS.flag.fill, opacity: 0.9 });
+		text(ctx, flag.name, x, y + 0.85, { font: 0.4, fill: RENDER_COLORS.flag.foreground, opacity: 0.8 });
 	}
 }
 
@@ -192,10 +213,10 @@ export function drawStaticScene(
 	drawTerrainScene(ctx, scene.terrain, scene.layout);
 	drawStaticStructures(ctx, scene.frame, scene.layout);
 	for (const object of scene.frame.objects) {
-		const off = scene.layout.offsets[object.room];
-		if (!off) continue;
-		const cx = off.col * 50 + object.x + 0.5;
-		const cy = off.row * 50 + object.y + 0.5;
+		const roomOffset = scene.layout.offsets[object.room];
+		if (!roomOffset) continue;
+		const cx = roomOffset.col * ROOM_SIZE_TILES + object.x + 0.5;
+		const cy = roomOffset.row * ROOM_SIZE_TILES + object.y + 0.5;
 		if (object.type === 'tower') drawTowerTurret(ctx, object, cx, cy, scene.frame.gameTime);
 		else if (options.initialSourceEnergy && object.type === 'source') drawSourceCore(ctx, object, cx, cy);
 	}
@@ -204,17 +225,10 @@ export function drawStaticScene(
 export function buildStructureCanvas(
 	frame: Frame,
 	layout: StageLayout,
-	res = STATIC_RES,
+	resolution = STATIC_LAYER_RESOLUTION,
 	canvasFactory: CanvasFactory = browserCanvas,
 ): HTMLCanvasElement {
-	const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
-	const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
-	const cv = canvasFactory(
-		Math.max(1, Math.round(colsTiles * res)),
-		Math.max(1, Math.round(rowsTiles * res)),
-	);
-	const ctx = cv.getContext('2d')!;
-	ctx.scale(res, res);
-	drawStaticStructures(ctx, frame, layout);
-	return cv;
+	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
+		drawStaticStructures(ctx, frame, layout);
+	});
 }

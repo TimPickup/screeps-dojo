@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FrameObject } from '../../api/types';
 import { CreepRenderer } from '../creeps';
+import { RENDER_COLORS } from '../renderConstants';
 import { mockCtx } from './mockCtx';
 
 function creep(overrides: Partial<FrameObject> = {}): FrameObject {
@@ -18,7 +19,7 @@ describe('native canvas creep renderer', () => {
     new CreepRenderer().draw(ctx, creep(), 10, 10, 0, 1);
     expect(log.some((call) => call.op === 'drawImage')).toBe(false);
     expect(log.filter((call) => call.op === 'arc').length).toBeGreaterThanOrEqual(5);
-    expect(log.some((call) => call.op === 'set:fillStyle' && call.args[0] === '#5577ff')).toBe(true);
+    expect(log.some((call) => call.op === 'set:fillStyle' && call.args[0] === RENDER_COLORS.ownership.bot)).toBe(true);
   });
 
   it('stacks ranged attack with heal at the top of the body ring', () => {
@@ -36,8 +37,8 @@ describe('native canvas creep renderer', () => {
       const arc = log.slice(0, colorIndex).reverse().find((call) => call.op === 'arc');
       return { colorIndex, span: (arc?.args[4] as number) - (arc?.args[3] as number) };
     };
-    const ranged = arcForColor('#5c82b1');
-    const heal = arcForColor('#6ffb6f');
+    const ranged = arcForColor(RENDER_COLORS.creep.rangedAttack);
+    const heal = arcForColor(RENDER_COLORS.creep.heal);
     expect(ranged.colorIndex).toBeGreaterThan(-1);
     expect(heal.colorIndex).toBeGreaterThan(ranged.colorIndex);
     expect(ranged.span).toBeCloseTo(2 * 360 / 50 * Math.PI / 180);
@@ -51,7 +52,7 @@ describe('native canvas creep renderer', () => {
         store: {},
         body: Array.from({ length: count }, () => ({ type: 'tough', hits: 100 })),
       }), 10, 10, 0, 1);
-      const colorIndex = log.findIndex((call) => call.op === 'set:strokeStyle' && call.args[0] === '#e8e8e8');
+      const colorIndex = log.findIndex((call) => call.op === 'set:strokeStyle' && call.args[0] === RENDER_COLORS.creep.tough);
       const arc = log.slice(0, colorIndex).reverse().find((call) => call.op === 'arc');
       const width = log.slice(colorIndex).find((call) => call.op === 'set:lineWidth');
       const alpha = log.slice(0, colorIndex).reverse().find((call) => call.op === 'set:globalAlpha');
@@ -75,6 +76,6 @@ describe('native canvas creep renderer', () => {
     new CreepRenderer().draw(ctx, creep({ user: '2', my: false }), 10, 10, 90, 0.5);
     expect(log.some((call) => call.op === 'drawImage')).toBe(false);
     expect(log.filter((call) => call.op === 'lineTo')).toHaveLength(4);
-    expect(log.some((call) => call.op === 'set:fillStyle' && call.args[0] === '#e51f36')).toBe(true);
+    expect(log.some((call) => call.op === 'set:fillStyle' && call.args[0] === RENDER_COLORS.creep.invaderBody)).toBe(true);
   });
 });
