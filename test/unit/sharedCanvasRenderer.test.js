@@ -98,6 +98,23 @@ describe('shared Canvas2D renderer', function () {
 		assert.notStrictEqual(render(0.75), start, 'sub-frame interpolation changes the pixels');
 	});
 
+	it('strokes a complete high-TOUGH shell in the native server canvas', function () {
+		const canvas = createCanvas(160, 160);
+		const ctx = canvas.getContext('2d');
+		ctx.setTransform(100, 0, 0, 100, 0, 0);
+		new CreepRenderer('user1').draw(ctx, {
+			_id: 'armoured', type: 'creep', room: 'W0N0', x: 0, y: 0, user: 'user1',
+			body: Array.from({ length: 50 }, function () { return { type: 'tough', hits: 100 }; }),
+			store: {}
+		}, 0.3, 0.3, 0, 1);
+		const raw = canvas.data();
+		// Creep centre is (80,80); (80,30) lies in the thick outer TOUGH shell,
+		// outside the ordinary body ring. This guards native full-circle strokes.
+		const offset = (30 * 160 + 80) * 4;
+		assert.ok(raw[offset] > 180 && raw[offset + 1] > 180 && raw[offset + 2] > 180);
+		assert.strictEqual(raw[offset + 3], 255);
+	});
+
 	it('matches the measured browser font size and baseline under the room transform', function () {
 		const canvas = createCanvas(600, 100);
 		const ctx = canvas.getContext('2d');

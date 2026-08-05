@@ -20,6 +20,55 @@ describe('native canvas creep renderer', () => {
     expect(log.some((call) => call.op === 'set:fillStyle' && call.args[0] === '#5577ff')).toBe(true);
   });
 
+  it('stacks ranged attack with heal at the top of the body ring', () => {
+    const { ctx, log } = mockCtx();
+    new CreepRenderer('me').draw(ctx, creep({
+      store: {},
+      body: [
+        { type: 'heal', hits: 100 },
+        { type: 'ranged_attack', hits: 100 },
+        { type: 'move', hits: 100 },
+      ],
+    }), 10, 10, 0, 1);
+    const arcForColor = (color: string) => {
+      const colorIndex = log.findIndex((call) => call.op === 'set:strokeStyle' && call.args[0] === color);
+      const arc = log.slice(0, colorIndex).reverse().find((call) => call.op === 'arc');
+      return { colorIndex, span: (arc?.args[4] as number) - (arc?.args[3] as number) };
+    };
+    const ranged = arcForColor('#5c82b1');
+    const heal = arcForColor('#6ffb6f');
+    expect(ranged.colorIndex).toBeGreaterThan(-1);
+    expect(heal.colorIndex).toBeGreaterThan(ranged.colorIndex);
+    expect(ranged.span).toBeCloseTo(2 * 360 / 50 * Math.PI / 180);
+    expect(heal.span).toBeCloseTo(360 / 50 * Math.PI / 180);
+  });
+
+  it('draws TOUGH as a full ring with count-scaled width and opacity', () => {
+    const toughStroke = (count: number) => {
+      const { ctx, log } = mockCtx();
+      new CreepRenderer('me').draw(ctx, creep({
+        store: {},
+        body: Array.from({ length: count }, () => ({ type: 'tough', hits: 100 })),
+      }), 10, 10, 0, 1);
+      const colorIndex = log.findIndex((call) => call.op === 'set:strokeStyle' && call.args[0] === '#e8e8e8');
+      const arc = log.slice(0, colorIndex).reverse().find((call) => call.op === 'arc');
+      const width = log.slice(colorIndex).find((call) => call.op === 'set:lineWidth');
+      const alpha = log.slice(0, colorIndex).reverse().find((call) => call.op === 'set:globalAlpha');
+      return { arc, width: width?.args[0] as number, alpha: alpha?.args[0] as number };
+    };
+
+    const one = toughStroke(1);
+    const twenty = toughStroke(20);
+    const fifty = toughStroke(50);
+    expect((one.arc?.args[4] as number) - (one.arc?.args[3] as number)).toBeCloseTo(Math.PI * 2);
+    expect(one.width).toBeCloseTo(0.003);
+    expect(twenty.width).toBeCloseTo(0.06);
+    expect(fifty.width).toBeCloseTo(0.15);
+    expect(one.alpha).toBeCloseTo(0.5);
+    expect(twenty.alpha).toBeCloseTo(0.5 + 0.5 * 19 / 49);
+    expect(fifty.alpha).toBeCloseTo(1);
+  });
+
   it('draws the invader as a native polygon', () => {
     const { ctx, log } = mockCtx();
     new CreepRenderer('me').draw(ctx, creep({ user: '2' }), 10, 10, 90, 0.5);
