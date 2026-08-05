@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LiveFrame, JobEvent, StageLayout, TestResult } from '../api/types';
+import type { Frame, JobEvent, StageLayout, TestResult } from '../api/types';
 import { api } from '../api/client';
+import { computeStageLayout } from '../render/geometry';
 
 export interface JobStreamState {
   connected: boolean;
@@ -8,7 +9,9 @@ export interface JobStreamState {
   scenario: string | null;
   maxTicks: number;
   lastTick: number;
-  lastFrame: LiveFrame | null;
+  terrain: Record<string, string[]> | null;
+  frames: Frame[];
+  lastFrame: Frame | null;
   layout: StageLayout | null;
   botUserId: string | null;
   console: string[];
@@ -21,7 +24,7 @@ export interface JobStreamState {
 
 const INITIAL: JobStreamState = {
   connected: false, started: false, scenario: null, maxTicks: 0,
-  lastTick: 0, lastFrame: null, layout: null, botUserId: null, console: [], ended: false,
+  lastTick: 0, terrain: null, frames: [], lastFrame: null, layout: null, botUserId: null, console: [], ended: false,
   endReason: null, recordingPath: null, test: null, error: null
 };
 
@@ -49,13 +52,17 @@ export function useJobStream(jobId: string | null): JobStreamState {
     es.onopen = () => setState((s) => ({ ...s, connected: true }));
     es.addEventListener('start', (e) => apply(e as MessageEvent, (s, ev) =>
       ev.type === 'start' ? { ...s, started: true, scenario: ev.scenario, maxTicks: ev.maxTicks, botUserId: ev.botUserId } : s));
-    es.addEventListener('terrain', () => { /* superseded by 'layout'; svg embeds terrain */ });
-    es.addEventListener('layout', (e) => apply(e as MessageEvent, (s, ev) =>
-      ev.type === 'layout' ? { ...s, layout: ev.layout } : s));
+    es.addEventListener('terrain', (e) => apply(e as MessageEvent, (s, ev) =>
+      ev.type === 'terrain' ? {
+        ...s,
+        terrain: ev.terrain,
+        layout: computeStageLayout(Object.keys(ev.terrain || {})),
+        botUserId: ev.botUserId || s.botUserId,
+      } : s));
     es.addEventListener('tick', (e) => apply(e as MessageEvent, (s, ev) =>
       ev.type === 'tick' ? { ...s, lastTick: ev.tick, maxTicks: ev.maxTicks } : s));
     es.addEventListener('frame', (e) => apply(e as MessageEvent, (s, ev) =>
-      ev.type === 'frame' ? { ...s, lastFrame: { gameTime: ev.gameTime, objects: ev.objects, console: ev.console, svg: ev.svg } } : s));
+      ev.type === 'frame' ? { ...s, frames: s.frames.concat(ev.frame), lastFrame: ev.frame } : s));
     es.addEventListener('console', (e) => apply(e as MessageEvent, (s, ev) =>
       ev.type === 'console' ? { ...s, console: s.console.concat(ev.lines) } : s));
     es.addEventListener('end', (e) => { apply(e as MessageEvent, (s, ev) =>

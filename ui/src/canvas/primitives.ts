@@ -1,6 +1,6 @@
 // Canvas implementations of the five RoomVisual primitives, operating on a
-// CanvasRenderingContext2D in TILE coordinates. Semantics match lib/RoomVisual.js
-// + src/render/svgPrimitives.js so structure shells render identically to SVG.
+// CanvasRenderingContext2D in tile coordinates.
+import { fillRenderText, parseRenderFont } from './renderFont.ts';
 
 export interface ShapeStyle {
   fill?: string | null | false;
@@ -75,11 +75,7 @@ export function line(ctx: Ctx, x1: number, y1: number, x2: number, y2: number, s
 export function text(ctx: Ctx, str: string, x: number, y: number, s: ShapeStyle = {}) {
   ctx.save();
   ctx.globalAlpha = s.opacity ?? 1;
-  const size = typeof s.font === 'number' ? s.font : 0.5;
-  ctx.font = size + 'px monospace';
-  ctx.textAlign = s.align ?? 'center';
-  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = paintColor(s.fill) ?? '#ffffff';
-  ctx.fillText(String(str), x, y);
+  fillRenderText(ctx, String(str), x, y, parseRenderFont(s.font), s.align ?? 'center');
   ctx.restore();
 }

@@ -1,14 +1,14 @@
-import type { Recording, StageLayout, Frame, FrameObject } from '../api/types';
-import { drawStructureShell, connectRoads } from './structures';
-import { epochKey } from './caches';
-import { circle, text } from './primitives';
+import type { Recording, StageLayout, Frame, FrameObject } from '../api/types.ts';
+import { drawStructureShell, connectRoads } from './structures.ts';
+import { drawSourceCore } from './dynamic.ts';
+import { circle, poly, text } from './primitives.ts';
 
 export const STATIC_RES = 24; // px per tile for offscreen layers
 
 const TILE_COLORS: Record<string, string> = { '.': '#2b2b2b', '~': '#23311e', '#': '#111111' };
 const ROOM_BG = '#2b2b2b';
 
-// One room's terrain at room-local integer tile coords. Mirrors terrainSvg.
+// One room's terrain at room-local integer tile coordinates.
 export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void {
   ctx.save();
   ctx.fillStyle = ROOM_BG;
@@ -57,22 +57,41 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
   ctx.restore();
 }
 
-export function buildTerrainCanvas(recording: Recording, layout: StageLayout, res = STATIC_RES): HTMLCanvasElement {
-  const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
-  const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
-  const cv = document.createElement('canvas');
-  cv.width = Math.max(1, Math.round(colsTiles * res));
-  cv.height = Math.max(1, Math.round(rowsTiles * res));
-  const ctx = cv.getContext('2d')!;
-  ctx.scale(res, res); // now draw in tile units
-  for (const room of Object.keys(recording.terrain)) {
+export function drawTerrainScene(ctx: CanvasRenderingContext2D, terrain: Record<string, string[]>, layout: StageLayout): void {
+  for (const room of Object.keys(terrain)) {
     const off = layout.offsets[room];
     if (!off) continue;
     ctx.save();
     ctx.translate(off.col * 50, off.row * 50);
-    drawTerrain(ctx, recording.terrain[room]);
+    drawTerrain(ctx, terrain[room]);
     ctx.restore();
   }
+}
+
+export type CanvasFactory = (width: number, height: number) => HTMLCanvasElement;
+
+function browserCanvas(width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+export function buildTerrainCanvas(
+  recording: Recording,
+  layout: StageLayout,
+  res = STATIC_RES,
+  canvasFactory: CanvasFactory = browserCanvas,
+): HTMLCanvasElement {
+  const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
+  const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
+  const cv = canvasFactory(
+    Math.max(1, Math.round(colsTiles * res)),
+    Math.max(1, Math.round(rowsTiles * res)),
+  );
+  const ctx = cv.getContext('2d')!;
+  ctx.scale(res, res); // now draw in tile units
+  drawTerrainScene(ctx, recording.terrain, layout);
   return cv;
 }
 
@@ -110,17 +129,70 @@ export function drawStaticStructures(ctx: CanvasRenderingContext2D, frame: Frame
     connectRoads(ctx, roads);
     ctx.restore();
   }
+  drawFlags(ctx, frame.flags, layout);
 }
 
-export function buildStructureCanvas(frame: Frame, layout: StageLayout, res = STATIC_RES): HTMLCanvasElement {
+// Recorded flags use the engine's compact `data` wire string; map previews use
+// direct {room,name,x,y} entries. Normalising both here keeps every canvas
+// consumer on the replay renderer's visual implementation.
+export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], layout: StageLayout): void {
+  const flags: Array<{ room: string; name: string; x: number; y: number }> = [];
+  for (const value of rawFlags || []) {
+    if (!value || typeof value !== 'object') continue;
+    const flag = value as Record<string, unknown>;
+    const room = typeof flag.room === 'string' ? flag.room : '';
+    if (!room || !layout.offsets[room]) continue;
+    if (typeof flag.x === 'number' && typeof flag.y === 'number') {
+      flags.push({ room, name: typeof flag.name === 'string' ? flag.name : 'flag', x: flag.x, y: flag.y });
+      continue;
+    }
+    if (typeof flag.data !== 'string') continue;
+    for (const entry of flag.data.split('|').filter(Boolean)) {
+      const fields = entry.split('~');
+      const x = Number(fields[3]), y = Number(fields[4]);
+      if (Number.isFinite(x) && Number.isFinite(y)) flags.push({ room, name: fields[0] || 'flag', x, y });
+    }
+  }
+  for (const flag of flags) {
+    const off = layout.offsets[flag.room];
+    const x = off.col * 50 + flag.x + 0.5;
+    const y = off.row * 50 + flag.y + 0.5;
+    poly(ctx, [[x, y + 0.3], [x, y - 0.5], [x + 0.5, y - 0.3], [x, y - 0.1]],
+      { stroke: '#ffffff', strokeWidth: 0.08, fill: '#ff6666', opacity: 0.9 });
+    text(ctx, flag.name, x, y + 0.85, { font: 0.4, fill: '#ffffff', opacity: 0.8 });
+  }
+}
+
+export function drawStaticScene(
+  ctx: CanvasRenderingContext2D,
+  scene: { terrain: Record<string, string[]>; frame: Frame; layout: StageLayout },
+  options: { initialSourceEnergy?: boolean } = {},
+): void {
+  drawTerrainScene(ctx, scene.terrain, scene.layout);
+  drawStaticStructures(ctx, scene.frame, scene.layout);
+  if (!options.initialSourceEnergy) return;
+  for (const object of scene.frame.objects) {
+    if (object.type !== 'source') continue;
+    const off = scene.layout.offsets[object.room];
+    if (!off) continue;
+    drawSourceCore(ctx, object, off.col * 50 + object.x + 0.5, off.row * 50 + object.y + 0.5);
+  }
+}
+
+export function buildStructureCanvas(
+  frame: Frame,
+  layout: StageLayout,
+  res = STATIC_RES,
+  canvasFactory: CanvasFactory = browserCanvas,
+): HTMLCanvasElement {
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
-  const cv = document.createElement('canvas');
-  cv.width = Math.max(1, Math.round(colsTiles * res));
-  cv.height = Math.max(1, Math.round(rowsTiles * res));
+  const cv = canvasFactory(
+    Math.max(1, Math.round(colsTiles * res)),
+    Math.max(1, Math.round(rowsTiles * res)),
+  );
   const ctx = cv.getContext('2d')!;
   ctx.scale(res, res);
   drawStaticStructures(ctx, frame, layout);
   return cv;
 }
-

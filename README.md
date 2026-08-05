@@ -190,29 +190,23 @@ Render a recording to video (the GUI's GIF/MP4 buttons do this too):
     npm run render -- recordings/walk-to-flag/<timestamp>          # MP4
     npm run render -- recordings/walk-to-flag/<timestamp> gif      # GIF
 
-Each game tick plays as 0.8 s of animation followed by a 0.2 s hold, so tick
-boundaries stay readable. Options (bare keywords, PowerShell-safe): `fps 30`,
+Export speed uses the same multiplier as replay playback: at `1x` one recorded
+tick takes one second, at `2x` it takes half a second, and high speeds skip ticks
+when necessary instead of being limited by the output frame rate. The GIF/MP4
+buttons use the replay's current speed selection. The GUI reports frame progress
+while it renders and provides a cancel action that stops the encoder and removes
+that job's partial output. MP4 defaults to 30 fps; GIF defaults to 10 fps to keep
+long exports practical. Options (bare keywords, PowerShell-safe): `fps 30`,
+`speed 2`,
 `pixels 600` (per room), `rooms W0N0,W1N0` (which rooms; multi-room runs stitch
 rooms in their true relative positions), `out <file>`. Output lands next to the
-recording.
-
-## Standalone editor and viewer
-
-The same visual map editor and replay viewer embedded in the GUI also work as a
-single self-contained file: open `editor/dojo-editor.html` directly in a browser
-— no install, no build step.
-
-- **Map Editor** — paint terrain and place/select structures, sources, minerals,
-  controllers, ramparts, roads and flags on a 50×50 grid using the renderer's own
-  graphics. Edit object properties (owner, store, controller level), connect
-  roads/walls, and round-trip JSON (`scenarios/*/map.json` format) via the
-  Import/Download/Load JSON controls.
-- **Replay Viewer** — load a `recording.json` via the file input (or drag-drop);
-  a tick slider scrubs instantly and Play/Pause runs it with HP bars, say
-  bubbles, and attack/heal effects.
-
-If `dojo-editor.html` is missing or you changed `editor/template.html`, run
-`npm run build:editor` to regenerate it (requires the container image).
+recording. Replay and video export share the same Canvas2D drawing modules;
+server exports stream raw RGBA frames directly from `@napi-rs/canvas` into
+FFmpeg without creating intermediate frame images. Encoded output streams to a
+single atomic partial file beside the recording and is renamed only after a
+successful render. GIF palette generation samples at most 64 frames into one
+small container-local temporary image; cancellation removes both it and the
+partial output.
 
 ## Importing a room from a live server
 
@@ -304,7 +298,7 @@ Third-party components it builds on:
 - **Screeps** engine + server tooling (`screeps`, `@screeps/*`,
   `screeps-server-mockup`, `screeps-api`) — ISC / MIT.
 - **UI** — React, `@monaco-editor/react`, dockview — MIT.
-- **SVG rasterization** — `@resvg/resvg-js` — MPL-2.0.
+- **Server Canvas2D rendering** — `@napi-rs/canvas` — MIT.
 - The map editor's RoomVisual rendering is adapted from the community
   [screepers/RoomVisual](https://github.com/screepers/RoomVisual) library.
 - **MP4 export uses [ffmpeg](https://ffmpeg.org/)** via `ffmpeg-static`

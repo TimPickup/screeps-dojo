@@ -1,4 +1,4 @@
-import type { Scenario, RecordingEntry, Recording, ActiveJob } from './types';
+import type { Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob } from './types';
 
 async function jget<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -31,9 +31,6 @@ export const api = {
       + (scenario ? '?scenario=' + encodeURIComponent(scenario) : '')),
   recording: (relPath: string) =>
     jget<Recording>('/api/recordings/file?path=' + encodeURIComponent(relPath)),
-  renderedRecording: (relPath: string) =>
-    jget<{ layout: import('./types').StageLayout; frames: string[]; visualLayers: string[] }>(
-      '/api/recordings/rendered?path=' + encodeURIComponent(relPath)),
   run: (scenario: string, record = false) =>
     jpost<{ jobId: string }>('/api/run', { scenario, record }),
   test: (scenario: string, record = false) =>
@@ -41,8 +38,9 @@ export const api = {
   abort: (jobId: string) => jpost<{ ok: boolean }>('/api/jobs/' + jobId + '/abort', {}),
   activeJob: () => jget<ActiveJob | null>('/api/jobs/active'),
   streamUrl: (jobId: string) => '/api/jobs/' + jobId + '/stream',
-  render: (path: string, format: 'gif' | 'mp4') =>
-    jpost<{ id: string }>('/api/render', { path, format }),
+  render: (path: string, format: 'gif' | 'mp4', speed?: number) =>
+    jpost<{ id: string }>('/api/render', { path, format, speed }),
+  cancelRender: (id: string) => jpost<{ ok: boolean }>('/api/render/' + encodeURIComponent(id) + '/cancel', {}),
   renderStreamUrl: (id: string) => '/api/render/' + id + '/stream',
   renderFileUrl: (relPath: string) => '/api/render/file?path=' + encodeURIComponent(relPath),
 
@@ -55,6 +53,7 @@ export const api = {
   renameFile: (scenario: string, from: string, to: string) =>
     jpost<{ ok: boolean }>('/api/scenarios/' + encodeURIComponent(scenario) + '/rename', { from, to }),
   files: (scenario: string) => jget<{ path: string; kind: string }[]>('/api/scenarios/' + encodeURIComponent(scenario) + '/files'),
+  maps: (scenario: string) => jget<ScenarioMapsResponse>('/api/scenarios/' + encodeURIComponent(scenario) + '/maps'),
   file: (scenario: string, path: string) =>
     jget<{ content: string }>('/api/scenarios/' + encodeURIComponent(scenario) + '/file?path=' + encodeURIComponent(path)),
   saveFile: async (scenario: string, path: string, content: string) => {

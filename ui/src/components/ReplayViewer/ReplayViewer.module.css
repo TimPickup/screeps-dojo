@@ -8,7 +8,14 @@
 .btn { background: var(--panel2); border: 1px solid var(--line2); color: var(--text-dim); border-radius: var(--radius); padding: 3px 9px; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 .toggleOn { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 9px; }
-.render { padding: 4px 10px; color: var(--accent); font-size: 11px; background: var(--accent-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.render { padding: 5px 10px 6px; color: var(--accent); font-size: 11px; background: var(--accent-dim); }
+.renderLine { display: flex; justify-content: space-between; gap: 12px; white-space: nowrap; overflow: hidden; }
+.renderLine > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.renderActions { display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.cancel { padding: 0; border: 0; background: transparent; color: var(--hostile); font: inherit; text-decoration: underline; }
+.cancel:disabled { color: var(--muted); cursor: default; }
+.renderTrack { height: 4px; margin-top: 4px; background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 2px; overflow: hidden; }
+.renderFill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 120ms linear; }
 .canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
 .loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .scrub { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line2); }

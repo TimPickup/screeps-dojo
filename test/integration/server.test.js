@@ -13,12 +13,12 @@ const jobManager = require('../../src/server/jobManager');
 
 const FIXTURES_ROOT = path.join(__dirname, '..', 'fixtures');
 
-function get(port, p) {
+function get(port, p, headers) {
 	return new Promise(function (resolve, reject) {
-		http.get({ host: '127.0.0.1', port: port, path: p }, function (res) {
+		http.get({ host: '127.0.0.1', port: port, path: p, headers: headers || {} }, function (res) {
 			let body = '';
 			res.on('data', function (c) { body += c; });
-			res.on('end', function () { resolve({ status: res.statusCode, body: body }); });
+			res.on('end', function () { resolve({ status: res.statusCode, body: body, headers: res.headers }); });
 		}).on('error', reject);
 	});
 }
@@ -37,10 +37,25 @@ function post(port, p, obj) {
 	});
 }
 
+function put(port, p, obj) {
+	return new Promise(function (resolve, reject) {
+		const data = JSON.stringify(obj || {});
+		const req = http.request({ host: '127.0.0.1', port: port, path: p, method: 'PUT', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, function (res) {
+			let body = '';
+			res.on('data', function (c) { body += c; });
+			res.on('end', function () { resolve({ status: res.statusCode, body: body, headers: res.headers }); });
+		});
+		req.on('error', reject);
+		req.write(data);
+		req.end();
+	});
+}
+
 // Collects SSE events until an `end` event arrives.
 function streamUntilEnd(port, jobId, timeoutMs) {
 	return new Promise(function (resolve, reject) {
 		const events = [];
+		events.payloads = [];
 		const req = http.get({ host: '127.0.0.1', port: port, path: '/api/jobs/' + jobId + '/stream' }, function (res) {
 			let buf = '';
 			res.on('data', function (c) {
@@ -51,6 +66,7 @@ function streamUntilEnd(port, jobId, timeoutMs) {
 					const m = /event: (\w+)\ndata: ([\s\S]*)/.exec(block);
 					if (m) {
 						events.push(m[1]);
+						try { events.payloads.push(JSON.parse(m[2])); } catch (e) { /* malformed data is tested elsewhere */ }
 						if (m[1] === 'end' || m[1] === 'fatal') { req.destroy(); resolve(events); return; }
 					}
 				}
@@ -77,6 +93,27 @@ describe('GUI server (Phase 1)', function () {
 		assert.deepStrictEqual(JSON.parse(r.body), { ok: true, ready: true });
 	});
 
+	it('serves the exact Canvas render font faces', async function () {
+		const regular = await get(port, '/api/render/font?weight=400');
+		const bold = await get(port, '/api/render/font?weight=700');
+		assert.strictEqual(regular.status, 200);
+		assert.strictEqual(bold.status, 200);
+		assert.strictEqual(regular.headers['content-type'], 'font/ttf');
+		assert.ok(Number(regular.headers['content-length']) > 100000);
+		assert.ok(Number(bold.headers['content-length']) > 100000);
+	});
+
+	it('rejects cancellation of an unknown render', async function () {
+		const r = await post(port, '/api/render/not-a-render/cancel', {});
+		assert.strictEqual(r.status, 404);
+	});
+
+	it('rejects an invalid export speed', async function () {
+		const r = await post(port, '/api/render', { path: 'missing/recording.json', format: 'gif', speed: 0 });
+		assert.strictEqual(r.status, 400);
+		assert.match(JSON.parse(r.body).error, /speed must be a positive number/);
+	});
+
 	it('GET /api/scenarios lists the tiny fixture', async function () {
 		const r = await get(port, '/api/scenarios');
 		const list = JSON.parse(r.body);
@@ -95,6 +132,11 @@ describe('GUI server (Phase 1)', function () {
 		assert.ok(events.includes('tick'));
 		assert.ok(events.includes('frame'));
 		assert.ok(events.includes('end'));
+		const terrain = events.payloads.find(function (event) { return event.type === 'terrain'; });
+		const frame = events.payloads.find(function (event) { return event.type === 'frame'; });
+		assert.ok(terrain && terrain.terrain && Object.keys(terrain.terrain).length > 0);
+		assert.ok(frame && frame.frame && Array.isArray(frame.frame.objects));
+		assert.strictEqual(Object.prototype.hasOwnProperty.call(frame, 'svg'), false);
 	});
 
 	it('POST /api/test runs expect and ends', async function () {
@@ -214,6 +256,66 @@ describe('GET /api/scenarios', function () {
 			fs.rmSync(path.join(scenariosRoot, 'with-map', 'linked-map.json'), { force: true });
 			fs.rmSync(real, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('GET /api/scenarios/:name/maps', function () {
+	let server, port, scenariosRoot;
+
+	before(function (done) {
+		scenariosRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-srv-maps-'));
+		const dir = path.join(scenariosRoot, 'preview');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'scenario.js'), '// scenario');
+		fs.writeFileSync(path.join(dir, 'map.W1N1.json'), JSON.stringify({ room: 'W1N1', terrain: ['.'] }));
+		fs.writeFileSync(path.join(dir, 'map.W0N1.json'), JSON.stringify({ room: 'W0N1', terrain: ['#'] }));
+		fs.writeFileSync(path.join(dir, 'map.broken.json'), '{ nope');
+		fs.writeFileSync(path.join(dir, 'memory.json'), '{}');
+		server = createServer({ scenariosRoot: scenariosRoot });
+		server.listen(0, '127.0.0.1', function () { port = server.address().port; done(); });
+	});
+
+	after(function (done) {
+		fs.rmSync(scenariosRoot, { recursive: true, force: true });
+		server.close(function () { done(); });
+	});
+
+	it('returns every valid map in one request, sorted, while reporting malformed files', async function () {
+		const r = await get(port, '/api/scenarios/preview/maps');
+		assert.strictEqual(r.status, 200);
+		const body = JSON.parse(r.body);
+		assert.deepStrictEqual(body.maps.map(function (entry) { return entry.path; }), ['map.W0N1.json', 'map.W1N1.json']);
+		assert.deepStrictEqual(body.maps.map(function (entry) { return entry.map.room; }), ['W0N1', 'W1N1']);
+		assert.strictEqual(body.errors.length, 1);
+		assert.strictEqual(body.errors[0].path, 'map.broken.json');
+		assert.match(body.revision, /^[a-f0-9]{40}$/);
+		assert.strictEqual(r.headers.etag, '"' + body.revision + '"');
+		// A warm request is served entirely from memory. This matters on Docker
+		// bind mounts: even stat/readdir calls are expensive there.
+		const realReadDir = fs.readdirSync;
+		const realReadFile = fs.readFileSync;
+		fs.readdirSync = function () { throw new Error('warm cache must not scan'); };
+		fs.readFileSync = function () { throw new Error('warm cache must not read'); };
+		let cached;
+		try { cached = await get(port, '/api/scenarios/preview/maps', { 'If-None-Match': r.headers.etag }); }
+		finally { fs.readdirSync = realReadDir; fs.readFileSync = realReadFile; }
+		assert.strictEqual(cached.status, 304);
+		assert.strictEqual(cached.body, '');
+
+		// Writes through the editor API invalidate synchronously, so the next
+		// preview cannot race an fs.watch notification.
+		const saved = await put(port, '/api/scenarios/preview/file?path=map.W1N1.json', {
+			content: JSON.stringify({ room: 'W1N1', terrain: ['.'], changed: true })
+		});
+		assert.strictEqual(saved.status, 200);
+		const changed = await get(port, '/api/scenarios/preview/maps', { 'If-None-Match': r.headers.etag });
+		assert.strictEqual(changed.status, 200);
+		assert.notStrictEqual(changed.headers.etag, r.headers.etag);
+	});
+
+	it('returns 404 for an unknown scenario', async function () {
+		const r = await get(port, '/api/scenarios/missing/maps');
+		assert.strictEqual(r.status, 404);
 	});
 });
 

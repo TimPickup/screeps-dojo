@@ -5,11 +5,11 @@
 // PROCESS (scripts/runScenarioChild.js) so every run gets a pristine engine —
 // screeps-server-mockup keeps module-level singleton state, so reusing one
 // process across runs leaks Memory/segments/storage between them. The child
-// also renders each frame to SVG, so this module never imports the engine
-// (keeps the server bootable on an empty volume).
+// forwards raw runner events; rendering stays in the browser, so this module
+// never imports the engine (keeps the server bootable on an empty volume).
 //
 // Memory: console/tick/start/end events are small and fully buffered; frames
-// carry a rendered SVG, so only the LATEST frame is retained (live preview is
+// carry the raw captured state, so only the LATEST frame is retained (live preview is
 // current-state, not scrubbable — that's what recordings are for).
 const path = require('path');
 const { fork } = require('child_process');

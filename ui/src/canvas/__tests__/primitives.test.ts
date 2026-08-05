@@ -49,7 +49,7 @@ describe('primitives', () => {
     expect(ft.args[0]).toBe('7');
   });
 
-  it('stroke-only circle and rect default lineWidth to 0.05 (matches svgPrimitives)', () => {
+  it('stroke-only circle and rect default lineWidth to 0.05', () => {
     const a = mockCtx();
     circle(a.ctx, 0, 0, { stroke: '#fff' });
     expect(lastSet(a.log, 'lineWidth')).toBe(0.05);

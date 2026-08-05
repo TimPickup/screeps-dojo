@@ -20,7 +20,7 @@ every required piece of the `scenario.js` contract.
 
 - **`map.json`** — the room: `terrain` (50 rows × 50 chars: `.` plain, `~`
   swamp, `#` wall), plus `structures`, `sources`, `controller`, `minerals`,
-  `flags`. Paint these by hand or with `editor/dojo-editor.html`.
+  `flags`. Paint these by hand or with the GUI's visual Edit tab.
 - **`main.js`** — the bot code uploaded into the game VM. Here it is a tiny
   inline bot; in a real scenario you pull your own modules with
   `loadBotModules([...])` / `allBotModules()` from `src/botModules`.

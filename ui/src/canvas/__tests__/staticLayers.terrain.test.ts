@@ -27,7 +27,7 @@ describe('drawTerrain', () => {
     expect(unitRects.length).toBeLessThan(5); // just the wall(s), not ~2500 plains
   });
 
-  it('exit chevrons match frameRenderer geometry (left border: base x=0.65, tip x=0.2)', () => {
+  it('draws left-border exit chevrons with base x=0.65 and tip x=0.2', () => {
     const { ctx, log } = mockCtx();
     // All-plain terrain with no walls means all borders are walkable
     const allPlain: string[] = [];

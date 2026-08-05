@@ -4,6 +4,17 @@ export interface Scenario {
   files: string[];
 }
 
+export interface ScenarioMapFile {
+  path: string;
+  map: unknown;
+}
+
+export interface ScenarioMapsResponse {
+  maps: ScenarioMapFile[];
+  errors: Array<{ path: string; error: string }>;
+  revision: string;
+}
+
 export interface TestResult {
   passed: boolean;
   message: string | null;
@@ -76,22 +87,12 @@ export interface StageLayout {
   height: number;
 }
 
-// Live frame from the run child: a rendered SVG plus the raw objects (for the
-// inspector) — NOT the heavy FrameView shape.
-export interface LiveFrame {
-  gameTime: number;
-  objects: FrameObject[];
-  console?: string[];
-  svg: string | null;
-}
-
 export type JobEvent =
   | { type: 'start'; scenario: string; maxTicks: number; botUserId: string; mockEngineFeatures?: Record<string, boolean> }
   | { type: 'terrain'; terrain: Record<string, string[]>; botUserId: string }
-  | { type: 'layout'; layout: StageLayout }
   | { type: 'console'; lines: string[] }
   | { type: 'tick'; tick: number; maxTicks: number }
-  | { type: 'frame'; gameTime: number; objects: FrameObject[]; console?: string[]; svg: string | null }
+  | { type: 'frame'; frame: Frame }
   | { type: 'end'; endReason: string; ticks: number; recordingPath: string | null; test: TestResult | null; error?: string }
   | { type: 'fatal'; error: string }
   | { type: 'gone' };

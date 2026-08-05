@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { Recording, StageLayout } from '../../api/types';
+import { useMemo, useState } from 'react';
+import type { Recording } from '../../api/types';
 import { api } from '../../api/client';
-import { usePrefs, setPrefs } from '../../state/prefs';
-import { SvgStage } from '../SvgStage/SvgStage';
+import { usePrefs } from '../../state/prefs';
 import { CanvasStage } from '../CanvasStage/CanvasStage';
 import { computeStageLayout } from '../../render/geometry';
 import { ConsoleDrawer } from '../ConsoleDrawer/ConsoleDrawer';
@@ -10,6 +9,32 @@ import { ObjectInspector } from '../ObjectInspector/ObjectInspector';
 import styles from './ReplayViewer.module.css';
 
 const SPEEDS = [0.5, 1, 2, 4, 8, 16, 32, 64];
+
+interface RenderProgress {
+  phase: 'preparing' | 'palette' | 'rendering' | 'finalising' | 'saving';
+  completedFrames: number;
+  totalFrames: number;
+  percent: number;
+  paletteFrames?: number;
+  paletteTotalFrames?: number;
+}
+
+interface RenderState {
+  status: string;
+  id?: string;
+  relPath?: string;
+  progress?: RenderProgress;
+  cancelling?: boolean;
+}
+
+function renderProgressLabel(format: 'gif' | 'mp4', progress: RenderProgress): string {
+  const name = format.toUpperCase();
+  if (progress.phase === 'preparing') return 'Preparing ' + name + '…';
+  if (progress.phase === 'palette') return 'Building ' + name + ' palette…';
+  if (progress.phase === 'finalising') return 'Finalising ' + name + '…';
+  if (progress.phase === 'saving') return 'Saving ' + name + '…';
+  return 'Rendering ' + name + '…';
+}
 
 export function ReplayViewer({ recording, relPath }: { recording: Recording; relPath: string }) {
   const prefs = usePrefs();
@@ -19,39 +44,10 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(prefs.defaultReplaySpeed || 1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [render, setRender] = useState<{ status: string; relPath?: string } | null>(null);
+  const [render, setRender] = useState<RenderState | null>(null);
   const [showVisuals, setShowVisuals] = useState(prefs.showUserVisuals);
-  const renderer = prefs.renderer; // 'svg' | 'canvas'
-
-  // SVG renderer (option 1): pre-rendered frames + separate visual layer
-  const [svgs, setSvgs] = useState<string[] | null>(null);
-  const [visualLayers, setVisualLayers] = useState<string[] | null>(null);
-  const [svgLayout, setSvgLayout] = useState<StageLayout | null>(null);
-  const [renderErr, setRenderErr] = useState<string | null>(null);
-  useEffect(() => {
-    if (renderer !== 'svg') return;
-    let cancelled = false;
-    setSvgs(null); setVisualLayers(null); setSvgLayout(null); setRenderErr(null);
-    api.renderedRecording(relPath)
-      .then((r) => { if (!cancelled) { setSvgs(r.frames); setVisualLayers(r.visualLayers); setSvgLayout(r.layout); } })
-      .catch((e) => { if (!cancelled) setRenderErr(String(e.message || e)); });
-    return () => { cancelled = true; };
-  }, [relPath, renderer]);
-
-  // canvas renderer (option 2): layout computed client-side; CanvasStage owns
-  // its own rAF playback clock (so the SVG-mode interval below stays off for it).
+  // Layout is computed client-side; CanvasStage owns its rAF playback clock.
   const canvasLayout = useMemo(() => computeStageLayout(Object.keys(recording.terrain || {})), [recording]);
-
-  // SVG-mode discrete playback (canvas mode drives its own clock via onTick)
-  useEffect(() => {
-    if (!playing || renderer !== 'svg') return;
-    const interval = Math.max(40, 1000 / speed);
-    const step = Math.max(1, Math.round(speed * interval / 1000));
-    const id = window.setInterval(() => {
-      setTick((t) => { if (t >= count - 1) { setPlaying(false); return t; } return Math.min(count - 1, t + step); });
-    }, interval);
-    return () => window.clearInterval(id);
-  }, [playing, speed, count, renderer]);
 
   const frame = frames[Math.min(tick, count - 1)] || null;
   // Peak per-tick CPU across the recording, to scale the CPU bar in the toolbar.
@@ -79,9 +75,23 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   const doRender = async (format: 'gif' | 'mp4') => {
     setRender({ status: 'Rendering ' + format.toUpperCase() + '… this can take a while for long/multi-room runs.' });
     try {
-      const { id } = await api.render(relPath, format);
+      // Reuse the replay's existing speed selection; export speed has exactly
+      // the same multiplier semantics and needs no separate control.
+      const { id } = await api.render(relPath, format, speed);
+      setRender({ id, status: 'Preparing ' + format.toUpperCase() + '…' });
       const es = new EventSource(api.renderStreamUrl(id));
-      es.addEventListener('log', (e) => { try { setRender({ status: 'Rendering ' + format.toUpperCase() + '… ' + JSON.parse((e as MessageEvent).data).line }); } catch { /* */ } });
+      es.addEventListener('log', (e) => {
+        try {
+          const line = JSON.parse((e as MessageEvent).data).line;
+          setRender((current) => ({ ...current, id, status: 'Rendering ' + format.toUpperCase() + '… ' + line }));
+        } catch { /* */ }
+      });
+      es.addEventListener('progress', (e) => {
+        try {
+          const progress = JSON.parse((e as MessageEvent).data) as RenderProgress;
+          setRender({ id, status: renderProgressLabel(format, progress), progress });
+        } catch { /* */ }
+      });
       es.addEventListener('done', (e) => {
         const rel = JSON.parse((e as MessageEvent).data).relPath;
         setRender({ status: 'done', relPath: rel });
@@ -93,7 +103,19 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         try { const d = JSON.parse((e as MessageEvent).data); if (d.error) msg = 'render failed: ' + d.error; } catch { /* */ }
         setRender({ status: msg }); es.close();
       });
+      es.addEventListener('cancelling', () => setRender((current) => ({ ...current, id, status: 'Cancelling export…', cancelling: true })));
+      es.addEventListener('cancelled', () => { setRender({ status: 'Export cancelled and temporary files removed.' }); es.close(); });
     } catch (e) { setRender({ status: 'error: ' + (e as Error).message }); }
+  };
+
+  const cancelRender = async () => {
+    if (!render?.id || render.cancelling) return;
+    setRender((current) => current ? { ...current, status: 'Cancelling export…', cancelling: true } : current);
+    try {
+      await api.cancelRender(render.id);
+    } catch (e) {
+      setRender((current) => current ? { ...current, status: 'cancel failed: ' + (e as Error).message, cancelling: false } : current);
+    }
   };
 
   const test = recording.meta.test;
@@ -112,9 +134,6 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
           </span>
         </span>
         <span className={styles.spacer} />
-        <button className={styles.btn} title="Switch renderer" onClick={() => { setPlaying(false); setPrefs({ renderer: renderer === 'canvas' ? 'svg' : 'canvas' }); }}>
-          {renderer === 'canvas' ? '◗ canvas' : '▢ svg'}
-        </button>
         <button className={showVisuals ? styles.toggleOn : styles.btn} onClick={() => setShowVisuals((v) => !v)} title="Toggle the bot's own RoomVisual draws">👁 visuals</button>
         <button className={styles.btn} onClick={() => doRender('gif')}>⤓ GIF</button>
         <button className={styles.btn} onClick={() => doRender('mp4')}>⤓ MP4</button>
@@ -123,20 +142,29 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         <div className={styles.render}>
           {render.relPath
             ? <span>✓ ready — <a href={api.renderFileUrl(render.relPath)} target="_blank" rel="noopener noreferrer">open in new tab</a> (or it opened automatically)</span>
-            : render.status}
+            : <>
+                <div className={styles.renderLine}>
+                  <span>{render.status}</span>
+                  <span className={styles.renderActions}>
+                    {render.progress && (render.progress.phase === 'palette'
+                      ? `${render.progress.paletteFrames?.toLocaleString() || 0} / ${render.progress.paletteTotalFrames?.toLocaleString() || 0} samples`
+                      : `${render.progress.percent}% · ${render.progress.completedFrames.toLocaleString()} / ${render.progress.totalFrames.toLocaleString()} frames`)}
+                    {render.id && <button type="button" className={styles.cancel} disabled={render.cancelling} onClick={cancelRender}>{render.cancelling ? 'cancelling…' : 'cancel'}</button>}
+                  </span>
+                </div>
+                {render.progress && (
+                  <div className={styles.renderTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={render.progress.percent}>
+                    <span className={styles.renderFill} style={{ width: `${render.progress.percent}%` }} />
+                  </div>
+                )}
+              </>}
         </div>
       )}
 
       <div className={styles.canvas}>
-        {renderer === 'canvas' ? (
-          <CanvasStage recording={recording} layout={canvasLayout} relPath={relPath}
-            playing={playing} speed={speed} tick={clampTick} onTick={setTick} onEnded={() => setPlaying(false)}
-            showVisuals={showVisuals} selectedId={selectedId} onSelectObject={setSelectedId} />
-        ) : renderErr ? <div className={styles.loading}>render error: {renderErr}</div>
-          : !svgs ? <div className={styles.loading}>rendering frames…</div>
-          : <SvgStage svg={svgs[clampTick] || null} layout={svgLayout}
-              overlaySvg={showVisuals && visualLayers ? (visualLayers[clampTick] || null) : null}
-              objects={frame ? frame.objects : []} selectedId={selectedId} onSelectObject={setSelectedId} />}
+        <CanvasStage recording={recording} layout={canvasLayout} relPath={relPath}
+          playing={playing} speed={speed} tick={clampTick} onTick={setTick} onEnded={() => setPlaying(false)}
+          showVisuals={showVisuals} selectedId={selectedId} onSelectObject={setSelectedId} />
       </div>
 
       <div className={styles.scrub}>

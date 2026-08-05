@@ -11,6 +11,7 @@ export function mockCtx(): { ctx: CanvasRenderingContext2D; log: Call[] } {
   ];
   const target: Record<string, unknown> = {};
   for (const m of methods) target[m] = (...args: unknown[]) => { log.push({ op: m, args }); };
+  target.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
   const props = ['fillStyle', 'strokeStyle', 'lineWidth', 'globalAlpha', 'font', 'textAlign', 'lineCap', 'textBaseline'];
   const store: Record<string, unknown> = {};
   const handler: ProxyHandler<Record<string, unknown>> = {

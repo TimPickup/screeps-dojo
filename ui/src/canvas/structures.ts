@@ -1,4 +1,4 @@
-import { circle, poly, rect, line } from './primitives';
+import { circle, poly, rect, line } from './primitives.ts';
 
 type Ctx = CanvasRenderingContext2D;
 

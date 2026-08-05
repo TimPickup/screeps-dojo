@@ -24,7 +24,6 @@
 .save { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 14px; }
 .save:disabled { opacity: 0.4; }
 .monaco { flex: 1; min-height: 0; width: 100%; }
-.mapFrame { flex: 1; min-height: 0; width: 100%; border: none; background: #1a1a1a; }
 .mapPane { flex: 1; min-height: 0; display: flex; }
 .mapPane > * { flex: 1; min-height: 0; }
 .viewToggle { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--radius); overflow: hidden; }

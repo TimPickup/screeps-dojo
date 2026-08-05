@@ -1,6 +1,5 @@
-// Ported from src/render/frameRenderer.js (pure math) so the canvas renderer's
-// positions/facing are IDENTICAL to the SVG/MP4 renderer. Keep in sync.
-import type { Frame, FrameObject, StageLayout } from '../api/types';
+// Shared pure layout/interpolation math used by browser playback and exports.
+import type { Frame, FrameObject, StageLayout } from '../api/types.ts';
 
 const ROOM_NAME_PATTERN = /^([WE])(\d+)([NS])(\d+)$/;
 export function roomNameToXY(name: string): { x: number; y: number } {
@@ -45,44 +44,92 @@ export function nextLocal(base: FrameObject, next: FrameObject, layout: StageLay
   };
 }
 
-// Facing angle (degrees) — ported verbatim from frameRenderer.creepFacing.
+// Facing angle in degrees.
 const ACTION_KEYS = ['harvest', 'attack', 'upgradeController', 'heal', 'rangedAttack', 'rangedHeal', 'build'];
-export function creepFacing(frames: Frame[], frameIndex: number, objectId: string, layout: StageLayout, fallbackAngle = 0): number {
-  const offsets = layout ? layout.offsets : null;
-  const posAt = (fi: number): FrameObject | null => {
-    const frame = frames[fi];
-    if (!frame) return null;
-    for (let i = 0; i < frame.objects.length; i++) if (frame.objects[i]._id === objectId) return frame.objects[i];
-    return null;
-  };
-  const worldDelta = (a: FrameObject, b: { room: string; x: number; y: number }): { dx: number; dy: number } | null => {
-    let dx: number, dy: number;
-    if (a.room === b.room) { dx = b.x - a.x; dy = b.y - a.y; }
-    else {
-      if (!offsets || !offsets[a.room] || !offsets[b.room]) return null;
-      dx = (b.x + offsets[b.room].col * 50) - (a.x + offsets[a.room].col * 50);
-      dy = (b.y + offsets[b.room].row * 50) - (a.y + offsets[a.room].row * 50);
-    }
-    return dx !== 0 || dy !== 0 ? { dx, dy } : null;
-  };
-  const curr = posAt(frameIndex);
-  const next = posAt(frameIndex + 1);
-  if (curr && next && next.actionLog) {
-    for (const key of ACTION_KEYS) {
-      const target = (next.actionLog as Record<string, { x: number; y: number }>)[key];
-      if (target && typeof target.x === 'number' && typeof target.y === 'number') {
-        const delta = worldDelta(curr, { room: next.room, x: target.x, y: target.y });
-        if (delta) return Math.atan2(delta.dy, delta.dx) * 180 / Math.PI;
+function facingDelta(a: FrameObject, b: { room: string; x: number; y: number }, layout: StageLayout): number | undefined {
+  let dx: number, dy: number;
+  if (a.room === b.room) { dx = b.x - a.x; dy = b.y - a.y; }
+  else {
+    const offsets = layout && layout.offsets;
+    if (!offsets || !offsets[a.room] || !offsets[b.room]) return undefined;
+    dx = (b.x + offsets[b.room].col * 50) - (a.x + offsets[a.room].col * 50);
+    dy = (b.y + offsets[b.room].row * 50) - (a.y + offsets[a.room].row * 50);
+  }
+  return dx !== 0 || dy !== 0 ? Math.atan2(dy, dx) * 180 / Math.PI : undefined;
+}
+
+class FacingCache {
+  private frames: Frame[];
+  private layout: StageLayout;
+  private indexed: Array<Record<string, FrameObject>> = [];
+  private values: Array<Record<string, number | undefined>> = [];
+  private lastMovement: Record<string, number | undefined> = {};
+
+  constructor(frames: Frame[], layout: StageLayout) {
+    this.frames = frames;
+    this.layout = layout;
+    this.sync();
+  }
+
+  private indexFrame(frame: Frame): Record<string, FrameObject> {
+    const indexed: Record<string, FrameObject> = {};
+    for (const object of frame.objects) if (object.type === 'creep') indexed[object._id] = object;
+    return indexed;
+  }
+
+  private resolve(curr: FrameObject, next: FrameObject | undefined): number | undefined {
+    let action: number | undefined;
+    let movement: number | undefined;
+    if (next) {
+      if (next.actionLog) {
+        for (const key of ACTION_KEYS) {
+          const target = (next.actionLog as Record<string, { x: number; y: number }>)[key];
+          if (!target || typeof target.x !== 'number' || typeof target.y !== 'number') continue;
+          action = facingDelta(curr, { room: next.room, x: target.x, y: target.y }, this.layout);
+          if (action !== undefined) break;
+        }
       }
+      movement = facingDelta(curr, next, this.layout);
+      if (movement !== undefined) this.lastMovement[curr._id] = movement;
+    }
+    return action ?? movement ?? this.lastMovement[curr._id];
+  }
+
+  sync(): void {
+    while (this.indexed.length < this.frames.length) {
+      const nextIndex = this.indexed.length;
+      const nextObjects = this.indexFrame(this.frames[nextIndex]);
+      this.indexed.push(nextObjects);
+      if (nextIndex === 0) {
+        const first: Record<string, number | undefined> = {};
+        for (const id of Object.keys(nextObjects)) first[id] = this.lastMovement[id];
+        this.values.push(first);
+        continue;
+      }
+
+      const previousObjects = this.indexed[nextIndex - 1];
+      const previous: Record<string, number | undefined> = {};
+      for (const id of Object.keys(previousObjects)) previous[id] = this.resolve(previousObjects[id], nextObjects[id]);
+      this.values[nextIndex - 1] = previous;
+
+      const final: Record<string, number | undefined> = {};
+      for (const id of Object.keys(nextObjects)) final[id] = this.lastMovement[id];
+      this.values.push(final);
     }
   }
-  if (curr && next) {
-    const delta = worldDelta(curr, next);
-    if (delta) return Math.atan2(delta.dy, delta.dx) * 180 / Math.PI;
+
+  get(frameIndex: number, objectId: string, fallbackAngle: number): number {
+    this.sync();
+    return this.values[frameIndex]?.[objectId] ?? fallbackAngle;
   }
-  for (let k = frameIndex; k >= 1; k--) {
-    const a = posAt(k - 1); const b = posAt(k);
-    if (a && b) { const delta = worldDelta(a, b); if (delta) return Math.atan2(delta.dy, delta.dx) * 180 / Math.PI; }
-  }
-  return fallbackAngle;
+}
+
+const facingCaches = new WeakMap<Frame[], WeakMap<StageLayout, FacingCache>>();
+
+export function creepFacing(frames: Frame[], frameIndex: number, objectId: string, layout: StageLayout, fallbackAngle = 0): number {
+  let layouts = facingCaches.get(frames);
+  if (!layouts) { layouts = new WeakMap(); facingCaches.set(frames, layouts); }
+  let cache = layouts.get(layout);
+  if (!cache) { cache = new FacingCache(frames, layout); layouts.set(layout, cache); }
+  return cache.get(frameIndex, objectId, fallbackAngle);
 }

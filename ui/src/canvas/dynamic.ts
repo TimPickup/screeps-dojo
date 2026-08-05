@@ -1,5 +1,5 @@
-import type { FrameObject } from '../api/types';
-import { circle, poly, rect } from './primitives';
+import type { FrameObject } from '../api/types.ts';
+import { circle, poly, rect } from './primitives.ts';
 
 type Ctx = CanvasRenderingContext2D;
 const ENERGY = '#FFE87B';
@@ -77,7 +77,7 @@ export function drawSpawnProgress(ctx: Ctx, o: FrameObject, cx: number, cy: numb
   ctx.stroke(); ctx.restore();
 }
 
-// Tombstone: rounded headstone + dark cross. Ported from frameRenderer.tombstoneSvg.
+// Tombstone: rounded headstone + dark cross.
 export function drawTombstone(ctx: Ctx, cx: number, cy: number) {
   ctx.save();
   ctx.fillStyle = '#9a9a9a'; ctx.strokeStyle = '#555555'; ctx.lineWidth = 0.04;
@@ -96,7 +96,7 @@ export function drawTombstone(ctx: Ctx, cx: number, cy: number) {
   ctx.restore();
 }
 
-// Dropped resource dot. Ported from frameRenderer.droppedResourceSvg.
+// Dropped resource dot.
 export function drawDroppedResource(ctx: Ctx, cx: number, cy: number, amount: number, resourceType: string) {
   const radius = 0.15 + 0.15 * Math.min(1, amount / 1000);
   circle(ctx, cx, cy, { radius, fill: resourceType === 'energy' ? ENERGY : '#ffffff', opacity: 0.85 });

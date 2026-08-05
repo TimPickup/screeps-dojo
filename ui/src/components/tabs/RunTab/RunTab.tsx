@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { Recording } from '../../../api/types';
 import { api } from '../../../api/client';
 import { useJobStream } from '../../../hooks/useJobStream';
-import { SvgStage } from '../../SvgStage/SvgStage';
+import { usePrefs } from '../../../state/prefs';
+import { CanvasStage } from '../../CanvasStage/CanvasStage';
 import { ObjectInspector } from '../../ObjectInspector/ObjectInspector';
 import { ConsoleDrawer } from '../../ConsoleDrawer/ConsoleDrawer';
+import { ScenarioPreview } from '../../ScenarioPreview/ScenarioPreview';
 import styles from './RunTab.module.css';
 
 export function RunTab({ scenario }: { scenario: string }) {
+  const prefs = usePrefs();
   const [jobId, setJobId] = useState<string | null>(null);
   const [record, setRecord] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -14,6 +18,19 @@ export function RunTab({ scenario }: { scenario: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const stream = useJobStream(jobId);
   const running = jobId !== null && !stream.ended;
+  const liveRecording = useMemo<Recording | null>(() => {
+    if (!stream.terrain || stream.frames.length === 0) return null;
+    return {
+      meta: {
+        scenario,
+        endReason: stream.ended ? (stream.endReason || 'ended') : 'running',
+        ticks: stream.frames.length,
+        botUserId: stream.botUserId || undefined,
+      },
+      terrain: stream.terrain,
+      frames: stream.frames,
+    };
+  }, [scenario, stream.terrain, stream.frames, stream.botUserId, stream.ended, stream.endReason]);
 
   // Reconnect to a run already in progress for this scenario when the tab
   // remounts (e.g. you navigated to Edit and came back) — the server keeps the
@@ -55,12 +72,18 @@ export function RunTab({ scenario }: { scenario: string }) {
       )}
       <div className={styles.canvas}>
         {!jobId ? (
-          <div className={styles.idle}>
-            <button className={styles.bigPlay} disabled={busy} onClick={play}>▶</button>
-            <div className={styles.idleHint}>Press Run — it streams live here.</div>
+          <div className={styles.previewIdle}>
+            <ScenarioPreview scenario={scenario} />
+            <div className={styles.previewControls}>
+              <button className={styles.bigPlay} aria-label="Run scenario" disabled={busy} onClick={play}>▶</button>
+              <div className={styles.idleHint}>Preview only — press Run to stream it live.</div>
+            </div>
           </div>
-        ) : stream.lastFrame && stream.lastFrame.svg ? (
-          <SvgStage svg={stream.lastFrame.svg} layout={stream.layout} objects={stream.lastFrame.objects} selectedId={selectedId} onSelectObject={setSelectedId} />
+        ) : liveRecording && stream.layout ? (
+          <CanvasStage recording={liveRecording} layout={stream.layout} relPath={`live:${jobId}`}
+            playing={false} speed={1} tick={liveRecording.frames.length - 1}
+            onTick={() => {}} onEnded={() => {}} showVisuals={prefs.showUserVisuals}
+            selectedId={selectedId} onSelectObject={setSelectedId} />
         ) : (
           <div className={styles.idle}><div className={styles.idleHint}>booting server…</div></div>
         )}

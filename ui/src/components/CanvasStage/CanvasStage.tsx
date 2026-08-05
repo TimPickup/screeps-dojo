@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Recording, StageLayout, FrameObject } from '../../api/types';
-import { SpriteCache, StaticLayers } from '../../canvas/caches';
+import { StaticLayers } from '../../canvas/caches';
+import { CreepRenderer } from '../../canvas/creeps';
 import { drawFrame } from '../../canvas/drawFrame';
+import { useRenderFonts } from '../../hooks/useRenderFonts';
 import styles from './CanvasStage.module.css';
 
 // Friendly names for the multi-object picker (when several objects share one tile).
@@ -39,15 +41,16 @@ interface Props {
   onSelectObject: (id: string | null) => void;
 }
 
-// Canvas replay renderer (option 2): rasterized SVG background per structure
-// epoch + reused creep sprites + client-side interpolation/effects/visuals.
-// Smooth (rAF), instant first paint (one scene SVG), no render-all.
+// Shared canvas replay/live renderer: cached terrain + structure layers with
+// native Canvas2D creeps, interpolation, effects and RoomVisual playback.
 export function CanvasStage({ recording, layout, relPath, playing, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
+  const fontsReady = useRenderFonts();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
   const fittedRef = useRef<StageLayout | null>(null);
-  const caches = useRef<{ sprites: SpriteCache; layers: StaticLayers } | null>(null);
+  const caches = useRef<{ sprites: CreepRenderer; layers: StaticLayers } | null>(null);
+  const recordingRef = useRef(recording);
   const playhead = useRef(0);
   const lastTs = useRef(0);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
@@ -55,25 +58,25 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const [ready, setReady] = useState(false);
   // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
   const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
+  recordingRef.current = recording;
   stateRef.current = { playing, speed, tick, showVisuals, selectedId };
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
 
-  // set up caches + prewarm sprites + first-epoch background
+  // Set up the static layers once per recording/layout identity.
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    const sprites = new SpriteCache(recording.meta.botUserId);
-    const layers = new StaticLayers(recording, layout); // synchronous — no server call
+    if (!fontsReady) return () => { cancelled = true; };
+    const initial = recordingRef.current;
+    const sprites = new CreepRenderer(initial.meta.botUserId);
+    const layers = new StaticLayers(initial, layout); // synchronous — no server call
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
-    (async () => {
-      await sprites.prewarm(recording);
-      if (!cancelled) setReady(true);
-    })();
+    if (!cancelled) setReady(true);
     return () => { cancelled = true; };
-  }, [recording, layout, relPath]);
+  }, [layout, relPath, recording.meta.botUserId, fontsReady]);
 
   // keep playhead synced to a scrubbed tick when paused
   useEffect(() => { if (!playing) playhead.current = tick; }, [tick, playing]);
@@ -107,7 +110,9 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       const ctx = cv.getContext('2d'); if (!ctx) return;
       const dpr = window.devicePixelRatio || 1;
       const st = stateRef.current;
-      const count = recording.frames.length;
+      const activeRecording = recordingRef.current;
+      const count = activeRecording.frames.length;
+      if (!count) return;
 
       // advance playhead during playback (1 tick = 1s at 1x)
       const dt = lastTs.current ? (ts - lastTs.current) / 1000 : 0;
@@ -129,14 +134,14 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       const s = view.current.scale * dpr;
       ctx.setTransform(s, 0, 0, s, view.current.tx * dpr, view.current.ty * dpr);
       if (c) {
-        const f0 = recording.frames[Math.min(drawTick, count - 1)];
+        const f0 = activeRecording.frames[Math.min(drawTick, count - 1)];
         c.layers.sync(f0);
-        drawFrame(ctx, recording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals });
+        drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals });
       }
 
       // selection ring
       if (st.selectedId) {
-        const f = recording.frames[Math.min(drawTick, count - 1)];
+        const f = activeRecording.frames[Math.min(drawTick, count - 1)];
         const o = f && f.objects.find((x) => x._id === st.selectedId);
         if (o && layout.offsets[o.room]) {
           const wx = layout.offsets[o.room].col * 50 + o.x + 0.5, wy = layout.offsets[o.room].row * 50 + o.y + 0.5;
@@ -146,7 +151,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [recording, layout, ready]);
+  }, [layout, ready]);
 
   // pan / zoom / select (screen → tile)
   const toTile = (clientX: number, clientY: number) => {

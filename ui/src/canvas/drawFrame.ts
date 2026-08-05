@@ -1,22 +1,22 @@
-import type { Recording, Frame, FrameObject, StageLayout } from '../api/types';
-import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry';
-import { SpriteCache, StaticLayers } from './caches';
+import type { Recording, Frame, FrameObject, StageLayout } from '../api/types.ts';
+import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry.ts';
+import { StaticLayers } from './caches.ts';
+import { CreepRenderer } from './creeps.ts';
 import {
   drawExtensionFill, drawLinkFill, drawStorageFill, drawContainerFill,
   drawSourceCore, drawControllerProgress, drawSpawnProgress, drawTombstone, drawDroppedResource,
-} from './dynamic';
-
-const S = 1.25; // CREEP_SIZE_TILES
+} from './dynamic.ts';
+import { fillRenderText, parseRenderFont } from './renderFont.ts';
 
 interface DrawOpts {
-  sprites: SpriteCache;
+  sprites: CreepRenderer;
   layers: StaticLayers;
   layout: StageLayout;
   showVisuals: boolean;
 }
 
-// Draws one frame (tick) at sub-frame `sub` (null = paused/scrub → static look,
-// matching the SVG renderer's staticActions; a number ∈ [0,1) = animating).
+// Draws one frame (tick) at sub-frame `sub` (null = paused/scrub static look;
+// a number in [0,1) = animating).
 // Works in TILE coordinates — the caller has applied the world→screen transform.
 export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, tick: number, sub: number | null, opts: DrawOpts) {
   const { sprites, layout } = opts;
@@ -50,8 +50,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     if (obj.spawning) {
       const p2 = wpos(obj.room, obj.x, obj.y);
       if (!p2) continue;
-      const sp = sprites.isNpc(obj) ? sprites.invaderSprite() : sprites.creepSprite(obj);
-      drawSprite(ctx, sp, p2.wx, p2.wy, 0, 1, sprites.isNpc(obj));
+      sprites.draw(ctx, obj, p2.wx, p2.wy, 0, 1);
       continue;
     }
     let x = obj.x, y = obj.y, room = obj.room, opacity = 1;
@@ -75,8 +74,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     const p = wpos(room, x, y);
     if (!p) continue;
     const facing = creepFacing(frames, i, obj._id, layout);
-    const sprite = sprites.isNpc(obj) ? sprites.invaderSprite() : sprites.creepSprite(obj);
-    drawSprite(ctx, sprite, p.wx, p.wy, facing, opacity, sprites.isNpc(obj));
+    sprites.draw(ctx, obj, p.wx, p.wy, facing, opacity);
     drawHpBar(ctx, obj, p.wx, p.wy, opacity);
     if (obj.actionLog && (obj.actionLog as any).say && (obj.actionLog as any).say.message) {
       drawSay(ctx, (obj.actionLog as any).say.message, p.wx, p.wy);
@@ -89,8 +87,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
       if (n.type !== 'creep' || n.spawning || baseById[n._id]) continue;
       const p = wpos(n.room, n.x, n.y);
       if (!p) continue;
-      const sprite = sprites.isNpc(n) ? sprites.invaderSprite() : sprites.creepSprite(n);
-      drawSprite(ctx, sprite, p.wx, p.wy, creepFacing(frames, i + 1, n._id, layout), sub as number, sprites.isNpc(n));
+      sprites.draw(ctx, n, p.wx, p.wy, creepFacing(frames, i + 1, n._id, layout), sub as number);
     }
   }
 
@@ -165,8 +162,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     for (const room of Object.keys(base.visuals)) {
       const o = off[room];
       if (!o) continue;
-      // +0.5: RoomVisual coords are tile-centred (svgPrimitives.elementToSvg adds
-      // +0.5 to every coordinate); match that so canvas visuals align with SVG.
+      // +0.5 shifts tile-centred RoomVisual coordinates to the canvas grid.
       drawUserVisuals(ctx, base.visuals[room], o.col * 50 + 0.5, o.row * 50 + 0.5);
     }
   }
@@ -206,9 +202,8 @@ function drawUserVisuals(ctx: CanvasRenderingContext2D, raw: string, ox: number,
       if (s.fill !== undefined && s.fill !== 'transparent') { ctx.fillStyle = s.fill; ctx.fill(); }
       if (stroke !== undefined || s.fill === undefined) { ctx.lineWidth = sw; ctx.strokeStyle = stroke || '#ffffff'; ctx.stroke(); }
     } else if (v.t === 't') {
-      const size = s.font !== undefined ? (typeof s.font === 'number' ? s.font : 0.5) : 0.5;
-      ctx.font = size + 'px monospace'; ctx.textAlign = (s.align || 'center');
-      ctx.fillStyle = s.color || '#ffffff'; ctx.fillText(String(v.text), ox + v.x, oy + v.y);
+      ctx.fillStyle = s.color || '#ffffff';
+      fillRenderText(ctx, String(v.text), ox + v.x, oy + v.y, parseRenderFont(s.font), s.align || 'center');
     }
     ctx.restore();
   }
@@ -218,22 +213,6 @@ function indexById(objects: FrameObject[]): Record<string, FrameObject> {
   const m: Record<string, FrameObject> = {};
   for (const o of objects) m[o._id] = o;
   return m;
-}
-
-function drawSprite(ctx: CanvasRenderingContext2D, sprite: HTMLImageElement | null, wx: number, wy: number, facing: number, opacity: number, isNpc: boolean) {
-  if (!sprite) return;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
-  ctx.translate(wx + 0.5, wy + 0.5);
-  if (isNpc) {
-    ctx.rotate(facing * Math.PI / 180);
-    const sz = 0.95;
-    ctx.drawImage(sprite, -sz / 2, -sz / 2, sz, sz);
-  } else {
-    ctx.rotate((facing + 90) * Math.PI / 180); // sprite faces up; +90 → heading where 0=east
-    ctx.drawImage(sprite, -S / 2, -S / 2, S, S);
-  }
-  ctx.restore();
 }
 
 function drawHpBar(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number, opacity: number) {
@@ -313,11 +292,11 @@ function transferNods(frame: Frame, byId: Record<string, FrameObject>): Record<s
 function drawSay(ctx: CanvasRenderingContext2D, message: string, wx: number, wy: number) {
   const text = String(message).slice(0, 10);
   ctx.save();
-  ctx.font = '0.5px monospace'; ctx.textAlign = 'center';
   const w = Math.max(0.8, text.length * 0.32);
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   roundRect(ctx, wx + 0.5 - w / 2, wy - 1.5, w, 0.6, 0.1); ctx.fill();
-  ctx.fillStyle = '#ffffff'; ctx.fillText(text, wx + 0.5, wy - 1.05);
+  ctx.fillStyle = '#ffffff';
+  fillRenderText(ctx, text, wx + 0.5, wy - 1.05, parseRenderFont(0.5), 'center');
   ctx.restore();
 }
 
@@ -327,8 +306,8 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
-// Effects — colours mirror frameRenderer.drawEffects. sub=null → static solid
-// (matches the SVG static look); number → animated over the action half (tFx).
+// Effects: sub=null gives the paused solid look; a number animates over the
+// action half (tFx).
 function drawEffects(ctx: CanvasRenderingContext2D, creep: FrameObject, wx: number, wy: number, sub: number | null, off: StageLayout['offsets'], room: string) {
   const a = creep.actionLog as Record<string, { x: number; y: number } | undefined> | undefined;
   if (!a) return;

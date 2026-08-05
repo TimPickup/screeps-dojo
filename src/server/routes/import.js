@@ -71,7 +71,10 @@ module.exports = function registerImportRoutes(router, ctx) {
 		child.stderr.on('data', onData);
 		child.on('close', function (code) {
 			job.done = true;
-			if (code === 0) broadcast(job, { type: 'done' });
+			if (code === 0) {
+				if (ctx.invalidateScenarioMaps) ctx.invalidateScenarioMaps(name);
+				broadcast(job, { type: 'done' });
+			}
 			else { job.error = 'import exited ' + code; broadcast(job, { type: 'failed', error: job.error }); }
 		});
 		child.on('error', function (err) { job.done = true; job.error = String(err.message || err); broadcast(job, { type: 'failed', error: job.error }); });
