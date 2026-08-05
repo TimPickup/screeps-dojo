@@ -1,6 +1,6 @@
 import type { Recording, StageLayout, Frame, FrameObject } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
-import { drawSourceCore } from './dynamic.ts';
+import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, text } from './primitives.ts';
 
 export const STATIC_RES = 24; // px per tile for offscreen layers
@@ -191,12 +191,13 @@ export function drawStaticScene(
 ): void {
   drawTerrainScene(ctx, scene.terrain, scene.layout);
   drawStaticStructures(ctx, scene.frame, scene.layout);
-  if (!options.initialSourceEnergy) return;
   for (const object of scene.frame.objects) {
-    if (object.type !== 'source') continue;
     const off = scene.layout.offsets[object.room];
     if (!off) continue;
-    drawSourceCore(ctx, object, off.col * 50 + object.x + 0.5, off.row * 50 + object.y + 0.5);
+    const cx = off.col * 50 + object.x + 0.5;
+    const cy = off.row * 50 + object.y + 0.5;
+    if (object.type === 'tower') drawTowerTurret(ctx, object, cx, cy, scene.frame.gameTime);
+    else if (options.initialSourceEnergy && object.type === 'source') drawSourceCore(ctx, object, cx, cy);
   }
 }
 

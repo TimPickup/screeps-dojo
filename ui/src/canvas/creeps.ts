@@ -120,13 +120,16 @@ export class CreepRenderer {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
     ctx.translate(wx + 0.5, wy + 0.5);
-    if (this.isNpc(object)) {
-      ctx.rotate(facing * Math.PI / 180);
-      drawInvader(ctx);
-    } else {
-      ctx.rotate((facing + 90) * Math.PI / 180);
-      drawBody(ctx, object, this.isBot(object) ? '#5577ff' : '#ff5555');
-    }
+	if ( object.spawning === undefined || object.spawning !== true ) {
+
+		if (this.isNpc(object)) {
+		ctx.rotate(facing * Math.PI / 180);
+		drawInvader(ctx);
+		} else {
+		ctx.rotate((facing + 90) * Math.PI / 180);
+		drawBody(ctx, object, this.isBot(object) ? '#5577ff' : '#ff5555');
+		}
+	}
     ctx.restore();
   }
 

@@ -42,12 +42,12 @@ export function drawStructureShell(ctx: Ctx, o:FrameObject): void {
       break;
     case 'tower':
       circle(ctx, cx, cy, { radius: 0.6, fill: C.dark, stroke: my ? C.outlineMe : C.outlineOther, strokeWidth: 0.05 });
-      rect(ctx, cx - 0.4, cy - 0.3, 0.8, 0.6, { fill: C.gray });
-      rect(ctx, cx - 0.2, cy - 0.9, 0.4, 0.5, { fill: C.light, stroke: C.dark, strokeWidth: 0.07 });
       break;
     case 'link': {
-      const outer = rel(cx, cy, [[0, -0.5], [0.4, 0], [0, 0.5], [-0.4, 0]]);
+      const outer = rel(cx, cy, [[0, -0.40], [0.30, 0], [0, 0.40], [-0.30, 0]]);
       poly(ctx, outer, { fill: C.dark, stroke: my ? C.outlineMe : C.outlineOther, strokeWidth: 0.05 });
+      const inner = rel(cx, cy, [[0, -0.25], [0.20, 0], [0, 0.25], [-0.20, 0]]);
+      poly(ctx, inner, { fill: C.gray });
       break;
     }
     case 'terminal': {

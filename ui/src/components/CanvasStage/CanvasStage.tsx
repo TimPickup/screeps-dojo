@@ -145,7 +145,11 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
         const o = f && f.objects.find((x) => x._id === st.selectedId);
         if (o && layout.offsets[o.room]) {
           const wx = layout.offsets[o.room].col * 50 + o.x + 0.5, wy = layout.offsets[o.room].row * 50 + o.y + 0.5;
-          ctx.strokeStyle = '#65fd62'; ctx.lineWidth = 0.07; ctx.beginPath(); ctx.arc(wx, wy, 0.6, 0, Math.PI * 2); ctx.stroke();
+          ctx.strokeStyle = 'rgba(70, 130, 255, 0.7)';
+		  ctx.lineWidth = 0.15;
+			ctx.beginPath();
+			ctx.arc(wx, wy, 1, 0, Math.PI * 2);
+			ctx.stroke();
         }
       }
     };

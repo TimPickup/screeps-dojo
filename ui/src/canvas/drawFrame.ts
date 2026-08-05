@@ -3,10 +3,11 @@ import { lerp, tPos, tFx, nextLocal, creepFacing } from '../render/geometry.ts';
 import { StaticLayers } from './caches.ts';
 import { CreepRenderer } from './creeps.ts';
 import {
-  drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill,
+  drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill, drawTowerTurret,
   drawSourceCore, drawControllerProgress, drawSpawnProgress, drawTombstone, drawDroppedResource,
 } from './dynamic.ts';
 import { fillRenderText, parseRenderFont } from './renderFont.ts';
+import { roundedRectPath } from './primitives.ts';
 
 interface DrawOpts {
   sprites: CreepRenderer;
@@ -50,9 +51,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
   for (const obj of base.objects) {
     if (obj.type !== 'creep') continue;
     if (obj.spawning) {
-      const p2 = wpos(obj.room, obj.x, obj.y);
+      const released = nextById?.[obj._id];
+      const nextCreep = released && !released.spawning ? released : null;
+      const target = nextCreep ? nextLocal(obj, nextCreep, layout) : obj;
+      const progress = nextCreep ? tPos(sub as number) : 0;
+      const p2 = wpos(obj.room, lerp(obj.x, target.x, progress), lerp(obj.y, target.y, progress));
       if (!p2) continue;
-      sprites.draw(ctx, obj, p2.wx, p2.wy, 0, 1);
+      sprites.draw(ctx, nextCreep || obj, p2.wx, p2.wy,
+        nextCreep ? creepFacing(frames, i, obj._id, layout) : 0, 1);
       continue;
     }
     let x = obj.x, y = obj.y, room = obj.room, opacity = 1;
@@ -102,11 +108,15 @@ export function drawFrame(ctx: CanvasRenderingContext2D, recording: Recording, t
     if (obj.type !== 'tower') continue;
     const p = wpos(obj.room, obj.x, obj.y);
     if (!p) continue;
-    drawTowerFill(ctx, obj, p.wx, p.wy);
     // actionLog lives on the structure doc; prefer the next frame's (the
     // transition being animated), matching the link-beam approach.
     const nextDoc = nextById ? nextById[obj._id] : null;
-    drawEffects(ctx, (nextDoc || obj) as FrameObject, p.wx, p.wy, sub, off, obj.room);
+    const actionDoc = (nextDoc || obj) as FrameObject;
+    // Energy belongs to the rotating turret assembly, but its amount comes
+    // from the base frame just like the other interpolated structure fills.
+    drawTowerTurret(ctx, actionDoc, p.wx + 0.5, p.wy + 0.5,
+      base.gameTime + (sub ?? 0), obj);
+    drawEffects(ctx, actionDoc, p.wx, p.wy, sub, off, obj.room);
   }
 
   // 2c) spawns: live energy core. Like towers, spawns are baked into the per-
@@ -229,24 +239,6 @@ function drawHpBar(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy
   ctx.restore();
 }
 
-// Yellow energy gauge over a tower's central grey body rect. The body is drawn
-// by lib/RoomVisual's tower structure as rect(cx-0.4, cy-0.3, 0.8, 0.6); we fill
-// it bottom-up proportional to store.energy / capacity so fullness reads at a
-// glance (the static background draws the grey rect underneath).
-function drawTowerFill(ctx: CanvasRenderingContext2D, o: FrameObject, wx: number, wy: number) {
-  const cap = (o.storeCapacityResource as Record<string, number> | undefined)?.energy;
-  if (!cap || cap <= 0) return;
-  const energy = (o.store && (o.store as Record<string, number>).energy) || 0;
-  const frac = Math.max(0, Math.min(1, energy / cap));
-  if (frac <= 0) return;
-  const cx = wx + 0.5, cy = wy + 0.5;
-  const h = 0.6 * frac;
-  ctx.save();
-  ctx.fillStyle = '#FFE87B';
-  ctx.fillRect(cx - 0.4, cy + 0.3 - h, 0.8, h);
-  ctx.restore();
-}
-
 // Yellow energy core over a spawn's dark base (the base is drawn by the static
 // background). Radius scales with store.energy / capacity and is hidden when
 // empty — matches lib/RoomVisual's spawn core: circle radius 0.40 * fraction.
@@ -298,16 +290,10 @@ function drawSay(ctx: CanvasRenderingContext2D, message: string, wx: number, wy:
   ctx.save();
   const w = Math.max(0.8, text.length * 0.32);
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  roundRect(ctx, wx + 0.5 - w / 2, wy - 1.5, w, 0.6, 0.1); ctx.fill();
+  roundedRectPath(ctx, wx + 0.5 - w / 2, wy - 1.5, w, 0.6, 0.1); ctx.fill();
   ctx.fillStyle = '#ffffff';
   fillRenderText(ctx, text, wx + 0.5, wy - 1.05, parseRenderFont(0.5), 'center');
   ctx.restore();
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
 // Effects: sub=null gives the paused solid look; a number animates over the

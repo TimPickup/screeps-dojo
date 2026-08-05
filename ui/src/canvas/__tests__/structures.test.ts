@@ -1,35 +1,38 @@
 import { describe, it, expect } from 'vitest';
 import { drawStructureShell, connectRoads } from '../structures';
 import { mockCtx } from './mockCtx';
+import type { FrameObject } from '../../api/types';
 
 // Count how many arc() calls (= circles) the shell emitted.
 function arcs(log: { op: string }[]) { return log.filter((c) => c.op === 'arc').length; }
 function fillRects(log: { op: string }[]) { return log.filter((c) => c.op === 'fillRect').length; }
+function structure(type: string, x: number, y: number, fields: Partial<FrameObject> = {}): FrameObject {
+  return { _id: type, type, room: 'W0N0', x, y, ...fields } as FrameObject;
+}
 
 describe('drawStructureShell — shells only, no fills', () => {
   it('extension draws exactly one circle (dark body), no energy core', () => {
     const { ctx, log } = mockCtx();
-    drawStructureShell(ctx, 10, 10, 'extension');
+    drawStructureShell(ctx, structure('extension', 10, 10));
     expect(arcs(log)).toBe(1); // core circle would be a 2nd arc
   });
 
   it('spawn draws exactly one circle (body), no energy core', () => {
     const { ctx, log } = mockCtx();
-    drawStructureShell(ctx, 10, 10, 'spawn');
+    drawStructureShell(ctx, structure('spawn', 10, 10));
     expect(arcs(log)).toBe(1);
   });
 
-  it('tower draws body circle + body rect + barrel, but no yellow fill rect', () => {
+  it('tower draws only its cached body, leaving the turret dynamic', () => {
     const { ctx, log } = mockCtx();
-    drawStructureShell(ctx, 10, 10, 'tower');
-    // body rect (fill) + barrel rect (fill) = 2 fillRects; the energy fill rect (3rd) must be absent
+    drawStructureShell(ctx, structure('tower', 10, 10));
     expect(arcs(log)).toBe(1);
-    expect(fillRects(log)).toBe(2);
+    expect(fillRects(log)).toBe(0);
   });
 
   it('centres the shape at tile+0.5', () => {
     const { ctx, log } = mockCtx();
-    drawStructureShell(ctx, 10, 20, 'extension');
+    drawStructureShell(ctx, structure('extension', 10, 20));
     const arc = log.find((c) => c.op === 'arc') as { args: number[] };
     expect(arc.args.slice(0, 2)).toEqual([10.5, 20.5]);
   });
@@ -55,7 +58,7 @@ describe('connectRoads', () => {
 describe('extractor shell', () => {
   it('draws three alternating sixth-circle arcs around the mineral centre', () => {
     const { ctx, log } = mockCtx();
-    drawStructureShell(ctx, 10, 20, 'extractor', true);
+    drawStructureShell(ctx, structure('extractor', 10, 20, { user: 'me', my: true }));
     const calls = log.filter((call) => call.op === 'arc');
     expect(calls).toHaveLength(3);
     for (const call of calls) {

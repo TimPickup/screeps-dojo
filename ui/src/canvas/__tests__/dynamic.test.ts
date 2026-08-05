@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  energyFillFraction, drawExtensionFill, drawTerminalFill, drawLabFill, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
+  energyFillFraction, drawExtensionFill, drawTerminalFill, drawLabFill, drawTowerTurret, towerTurretAngle, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
 } from '../dynamic';
 import { mockCtx } from './mockCtx';
 import type { FrameObject } from '../../api/types';
@@ -109,6 +109,42 @@ describe('lab fill', () => {
     expect(compound?.args[2]).toBeCloseTo(0.4);
     expect(log.some((call) => call.op === 'fillRect')).toBe(false);
   });
+});
+
+describe('tower turret', () => {
+  type TowerTargetKey = 'attack' | 'heal' | 'repair';
+  const tower = (actionLog?: FrameObject['actionLog']) => ({
+    _id: 'tower', type: 'tower', room: 'W0N0', x: 10, y: 10, actionLog,
+  } as FrameObject);
+
+  it('rotates deterministically from replay time while idle', () => {
+    const { ctx, log } = mockCtx();
+    drawTowerTurret(ctx, {
+      ...tower(), store: { energy: 500 }, storeCapacityResource: { energy: 1000 },
+    }, 10.5, 10.5, 2);
+    expect(towerTurretAngle(tower(), 2)).toBeCloseTo(Math.PI / 2);
+    expect(log.find((call) => call.op === 'translate')?.args).toEqual([10.5, 10.5]);
+    expect(log.find((call) => call.op === 'rotate')?.args[0]).toBeCloseTo(Math.PI / 2);
+    expect(log.filter((call) => call.op === 'arcTo')).toHaveLength(4);
+    expect(log.filter((call) => call.op === 'clip')).toHaveLength(1);
+    const rectangles = log.filter((call) => call.op === 'fillRect');
+    expect(rectangles.map((call) => call.args)).toEqual([
+      [-0.4, -0.3, 0.8, 0.6],
+      [-0.4, 0, 0.8, 0.3],
+      [-0.2, -0.9, 0.4, 0.5],
+    ]);
+  });
+
+  const actions: Array<[string, TowerTargetKey, { x: number; y: number }, number]> = [
+    ['attacks', 'attack', { x: 11, y: 10 }, Math.PI / 2],
+    ['heals', 'heal', { x: 10, y: 9 }, 0],
+    ['repairs', 'repair', { x: 10, y: 11 }, Math.PI],
+  ];
+  for (const [label, action, target, expected] of actions) {
+    it(`faces its target when it ${label}`, () => {
+      expect(towerTurretAngle(tower({ [action]: target }), 123)).toBeCloseTo(expected);
+    });
+  }
 });
 
 describe('constants', () => {

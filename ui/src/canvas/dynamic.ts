@@ -1,8 +1,9 @@
 import type { FrameObject } from '../api/types.ts';
-import { arc, circle, poly, rect } from './primitives.ts';
+import { arc, circle, poly, rect, roundedRectPath } from './primitives.ts';
 
 type Ctx = CanvasRenderingContext2D;
 const ENERGY = '#FFE87B';
+const TOWER_IDLE_ROTATION = Math.PI / 4;
 
 // Screeps controller progress totals (from @screeps/common constants).
 export const CONTROLLER_LEVELS: Record<number, number> = {
@@ -14,6 +15,48 @@ export function energyFillFraction(o: FrameObject): number {
   if (!cap || cap <= 0) return 0;
   const energy = (o.store as Record<string, number> | undefined)?.energy || 0;
   return Math.max(0, Math.min(1, energy / cap));
+}
+
+type TowerTarget = { x: number; y: number };
+
+function towerActionTarget(o: FrameObject): TowerTarget | null {
+  const log = o.actionLog as Record<'attack' | 'heal' | 'repair', TowerTarget | null | undefined> | undefined;
+  const target = log && (log.attack || log.heal || log.repair);
+  return target && Number.isFinite(target.x) && Number.isFinite(target.y) ? target : null;
+}
+
+export function towerTurretAngle(o: FrameObject, replayTime: number): number {
+  const target = towerActionTarget(o);
+  if (target) {
+    // The unrotated barrel points up, hence the quarter-turn offset from atan2.
+    return Math.atan2(target.y - o.y, target.x - o.x) + Math.PI / 2;
+  }
+  return (Number.isFinite(replayTime) ? replayTime : 0) * TOWER_IDLE_ROTATION;
+}
+
+export function drawTowerTurret(
+  ctx: Ctx,
+  o: FrameObject,
+  cx: number,
+  cy: number,
+  replayTime: number,
+  energySource: FrameObject = o,
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(towerTurretAngle(o, replayTime));
+  ctx.save();
+  roundedRectPath(ctx, -0.4, -0.3, 0.8, 0.6, 0.12);
+  ctx.clip();
+  rect(ctx, -0.4, -0.3, 0.8, 0.6, { fill: '#555555' });
+  const energyFraction = energyFillFraction(energySource);
+  if (energyFraction > 0) {
+    const height = 0.6 * energyFraction;
+    rect(ctx, -0.4, 0.3 - height, 0.8, height, { fill: ENERGY });
+  }
+  ctx.restore();
+  rect(ctx, -0.2, -0.9, 0.4, 0.5, { fill: '#AAAAAA', stroke: '#181818', strokeWidth: 0.07 });
+  ctx.restore();
 }
 
 export function storeFillFraction(o: FrameObject, _optionalType?: string): number {
@@ -34,8 +77,12 @@ export function drawExtensionFill(ctx: Ctx, o: FrameObject, cx: number, cy: numb
 export function drawLinkFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
   const f = Math.max(0, Math.min(1, ((o.store as Record<string, number> | undefined)?.energy || 0) / 800));
   if (f <= 0) return;
-  const inner = [[0, -0.3], [0.25, 0], [0, 0.3], [-0.25, 0]].map((p) => [p[0] * f + cx, p[1] * f + cy]);
-  poly(ctx, inner, { fill: ENERGY });
+	  const diamond = [[0, -0.25], [0.20, 0], [0, 0.25], [-0.20, 0]];
+	  const inner = diamond.map((p) => [p[0] + cx, p[1] + cy]);
+	  poly(ctx, inner, { fill: '#AAAAAA' });
+
+  const innerFill = diamond.map((p) => [p[0] * f + cx, p[1] * f + cy]);
+  poly(ctx, innerFill, { fill: ENERGY });
 }
 
 export function drawStorageFill(ctx: Ctx, o: FrameObject, cx: number, cy: number) {
