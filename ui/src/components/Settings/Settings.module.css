@@ -6,10 +6,10 @@
 .dirty { color: var(--warn); font-size: 11px; margin-left: 8px; }
 .save { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 12px; }
 .save:disabled { opacity: 0.4; }
-.close { background: transparent; border: none; color: var(--muted); font-size: 14px; }
+.close { background: transparent; border: none; color: var(--text); font-size: 14px; }
 .close:hover { color: var(--hostile); }
 .section { padding: 12px 14px; border-bottom: 1px solid var(--line2); }
-.label { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 1px; margin-bottom: 8px; }
+.label { color: var(--text); text-transform: uppercase; font-size: 13px; font-weight: 600; letter-spacing: 1.2px; margin-bottom: 10px; }
 .row { display: flex; align-items: center; gap: 8px; color: var(--text-dim); margin-bottom: 8px; }
 .row select { background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 2px 6px; margin-left: auto; }
 .field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

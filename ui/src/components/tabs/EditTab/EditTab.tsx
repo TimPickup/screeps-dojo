@@ -220,7 +220,11 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
         ) : (
           <>
             <div className={styles.toolbar}>
-              <span className={styles.fname}>{selected}{dirty ? ' ●' : ''}</span>
+              <span className={styles.fname}>
+                {selected}
+                {isSettings && <span className={styles.fnameNote}>(Scenario Overrides)</span>}
+                {dirty ? ' ●' : ''}
+              </span>
               {structured && (
                 <span className={styles.viewToggle}>
                   <button

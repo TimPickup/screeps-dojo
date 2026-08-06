@@ -5,7 +5,7 @@ import {
   listBotProfiles, listScreepsProfiles, screepsOwnValue,
   setBotProfile, renameBotProfile, deleteBotProfile, setDefaultBotProfile, defaultBotProfileName,
   setScreepsProfile, renameScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile, defaultScreepsProfileName,
-  usesLegacyBotKeys, usesLegacyScreepsKeys, migrateLegacy, validateProfileName, isMasked, botStatusLabel
+  validateProfileName, isMasked, botStatusLabel
 } from '../profileEnv';
 
 // Applying a patch the way Settings does, so the tests can assert on the
@@ -290,82 +290,6 @@ describe('screeps profile edits', () => {
     expect(setDefaultScreepsProfile({}, 'season').values).toEqual({ DOJO_DEFAULT_SCREEPS_PROFILE: 'season' });
     const values = { DOJO_DEFAULT_SCREEPS_PROFILE: 'season' };
     expect(apply(values, setDefaultScreepsProfile(values, 'default'))).toEqual({});
-  });
-});
-
-describe('legacy detection', () => {
-  it('spots unsuffixed keys', () => {
-    expect(usesLegacyBotKeys({ DOJO_BOT_PATH: 'C:/x' })).toBe(true);
-    expect(usesLegacyBotKeys({ DOJO_BOT_PROFILE_DEFAULT_PATH: 'C:/x' })).toBe(false);
-    expect(usesLegacyScreepsKeys({ DOJO_SCREEPS_SHARD: 'shard0' })).toBe(true);
-    expect(usesLegacyScreepsKeys({ DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0' })).toBe(false);
-  });
-
-  // A bare KEY= declares nothing, so it must not light up the migration banner.
-  it('ignores an empty legacy key', () => {
-    expect(usesLegacyBotKeys({ DOJO_BOT_PATH: '' })).toBe(false);
-    expect(usesLegacyScreepsKeys({ DOJO_SCREEPS_TOKEN: '' })).toBe(false);
-  });
-});
-
-describe('migrateLegacy', () => {
-  it('rewrites every legacy key as a key of the default profile', () => {
-    const values = {
-      DOJO_BOT_PATH: 'C:/legacy',
-      DOJO_SCREEPS_HOSTNAME: 'screeps.com',
-      DOJO_SCREEPS_SHARD: 'shard0',
-      DOJO_UI_PORT: '8787'
-    };
-    const patch = migrateLegacy(values);
-    expect(patch.needsReentry).toEqual([]);
-    expect(apply(values, patch)).toEqual({
-      DOJO_BOT_PROFILE_DEFAULT_PATH: 'C:/legacy',
-      DOJO_SCREEPS_PROFILE_DEFAULT_HOSTNAME: 'screeps.com',
-      DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0',
-      DOJO_UI_PORT: '8787'
-    });
-  });
-
-  // Moving a mask would write bullet characters over the only copy of the token,
-  // so the legacy key stays put until the user retypes the secret.
-  it('leaves a masked secret where it is and reports it', () => {
-    const values = { DOJO_SCREEPS_TOKEN: '••••abcd', DOJO_SCREEPS_SHARD: 'shard0' };
-    const patch = migrateLegacy(values);
-    expect(patch.needsReentry).toEqual(['DOJO_SCREEPS_TOKEN']);
-    expect(patch.remove).toEqual(['DOJO_SCREEPS_SHARD']);
-    expect(apply(values, patch)).toEqual({
-      DOJO_SCREEPS_TOKEN: '••••abcd',
-      DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0'
-    });
-  });
-
-  // Once the profile key holds the secret it outranks the legacy one, so the
-  // second conversion can finish the job.
-  it('drops a legacy key the profile already overrides', () => {
-    const values = { DOJO_SCREEPS_TOKEN: '••••abcd', DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN: '••••wxyz' };
-    const patch = migrateLegacy(values);
-    expect(patch.needsReentry).toEqual([]);
-    expect(apply(values, patch)).toEqual({ DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN: '••••wxyz' });
-  });
-
-  it('drops an empty legacy key without inventing a profile key', () => {
-    const values = { DOJO_SCREEPS_TOKEN: '', DOJO_BOT_PATH: '' };
-    expect(apply(values, migrateLegacy(values))).toEqual({});
-  });
-
-  // Each section offers its own conversion, and a click in the Bot section must
-  // not quietly rewrite the server settings as well.
-  it('can convert one side without touching the other', () => {
-    const values = { DOJO_BOT_PATH: 'C:/legacy', DOJO_SCREEPS_SHARD: 'shard0' };
-    expect(apply(values, migrateLegacy(values, 'bot')))
-      .toEqual({ DOJO_BOT_PROFILE_DEFAULT_PATH: 'C:/legacy', DOJO_SCREEPS_SHARD: 'shard0' });
-    expect(apply(values, migrateLegacy(values, 'screeps')))
-      .toEqual({ DOJO_BOT_PATH: 'C:/legacy', DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0' });
-  });
-
-  it('does nothing when there is nothing legacy left', () => {
-    expect(migrateLegacy({ DOJO_BOT_PROFILE_DEFAULT_PATH: 'C:/x' }))
-      .toEqual({ values: {}, remove: [], needsReentry: [] });
   });
 });
 

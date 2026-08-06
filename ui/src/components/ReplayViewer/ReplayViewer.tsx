@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
 import type { Recording } from '../../api/types';
 import { api } from '../../api/client';
-import { usePrefs } from '../../state/prefs';
+import { usePrefs, REPLAY_SPEEDS } from '../../state/prefs';
 import { CanvasStage } from '../CanvasStage/CanvasStage';
 import { computeStageLayout } from '../../render/geometry';
 import { ConsoleDrawer } from '../ConsoleDrawer/ConsoleDrawer';
 import { ObjectInspector } from '../ObjectInspector/ObjectInspector';
 import styles from './ReplayViewer.module.css';
 
-const SPEEDS = [0.5, 1, 2, 4, 8, 16, 32, 64];
 
 interface RenderProgress {
   phase: 'preparing' | 'palette' | 'rendering' | 'finalising' | 'saving';
@@ -172,7 +171,7 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         <input className={styles.range} type="range" min={0} max={Math.max(0, count - 1)} value={clampTick} onChange={(e) => { setPlaying(false); setTick(Number(e.target.value)); }} />
         <span className={styles.tickLabel}>tick {clampTick}/{count - 1}</span>
         <select className={styles.speed} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-          {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+          {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
         </select>
       </div>
 

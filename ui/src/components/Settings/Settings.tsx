@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { usePrefs, setPrefs } from '../../state/prefs';
+import { useEffect, useRef, useState } from 'react';
+import { usePrefs, setPrefs, REPLAY_SPEEDS } from '../../state/prefs';
+import type { SettingsSection } from '../../state/settingsOverlay';
 import { api } from '../../api/client';
 import { BotProfiles } from './BotProfiles';
 import { ServerProfiles } from './ServerProfiles';
@@ -7,7 +8,7 @@ import { HostAgentAction } from './HostAgentAction';
 import type { EnvPatch } from './profileEnv';
 import styles from './Settings.module.css';
 
-export function Settings({ onClose }: { onClose: () => void }) {
+export function Settings({ onClose, section }: { onClose: () => void; section?: SettingsSection }) {
   const prefs = usePrefs();
   const [env, setEnv] = useState<Record<string, string>>({});
   const [orig, setOrig] = useState<Record<string, string>>({});
@@ -17,8 +18,17 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [restartNote, setRestartNote] = useState(false);
   const [saved, setSaved] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const botsRef = useRef<HTMLDivElement>(null);
+  const serversRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api.getEnv().then((r) => { setEnv(r.values); setOrig(r.values); }).catch(() => {}); }, []);
+
+  // Opened from a deep link ("Add or edit bots…"), land on the section that was
+  // asked for rather than the top of a panel the user then has to scan.
+  useEffect(() => {
+    const target = section === 'bots' ? botsRef.current : section === 'servers' ? serversRef.current : null;
+    if (target) target.scrollIntoView({ block: 'start' });
+  }, [section]);
 
   const dirty = JSON.stringify(env) !== JSON.stringify(orig) || removed.length > 0;
 
@@ -39,6 +49,15 @@ export function Settings({ onClose }: { onClose: () => void }) {
     });
     setSaved(false);
   };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty) save(); }
+      if (e.key === 'Escape') tryClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const tryClose = () => {
     if (dirty && !window.confirm('Discard unsaved environment changes?')) return;
@@ -79,13 +98,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <label className={styles.row}>
             Default replay speed
             <select value={prefs.defaultReplaySpeed} onChange={(e) => setPrefs({ defaultReplaySpeed: Number(e.target.value) })}>
-              {[0.5, 1, 2, 4].map((s) => <option key={s} value={s}>{s}×</option>)}
+              {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
             </select>
           </label>
         </div>
 
-        <BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} />
-        <ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} />
+        <div ref={botsRef}><BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} /></div>
+        <div ref={serversRef}><ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} /></div>
 
         {saved && <div className={styles.note}>Saved. Default and server changes apply immediately.</div>}
         {/* Only a MOUNT change needs the container recreated, and the server

@@ -1,5 +1,7 @@
 node_modules/
 .env
+# Copies of .env taken before it is rewritten into profile form (src/envMigrate.js).
+.env.bak*
 .noratelimit.url
 # Generated from the bot profiles in .env by scripts/composeOverride.js; the
 # host paths in it are machine-specific.

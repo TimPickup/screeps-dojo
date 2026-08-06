@@ -280,44 +280,6 @@ export function setDefaultScreepsProfile(values: Record<string, string>, name: s
   return patch;
 }
 
-export function usesLegacyBotKeys(values: Record<string, string>): boolean {
-  return Boolean(values[BOT_LEGACY_PATH_KEY]);
-}
-
-export function usesLegacyScreepsKeys(values: Record<string, string>): boolean {
-  return SCREEPS_KEYS.some((key) => Boolean(values[screepsLegacyKey(key)]));
-}
-
-// Rewrites the unsuffixed legacy variables as keys of the profile named
-// "default". A masked secret is LEFT WHERE IT IS rather than moved: dropping the
-// legacy key without carrying the value would destroy the only copy of the
-// token, so the key stays put and is reported in needsReentry — once the user
-// types it into the profile row, a second conversion clears the legacy key.
-//
-// `scope` narrows the conversion to one of the two banners that offer it, so a
-// click in the Bot section cannot quietly rewrite the server settings as well.
-export function migrateLegacy(values: Record<string, string>, scope: 'all' | 'bot' | 'screeps' = 'all'): EnvPatch {
-  const patch = emptyPatch();
-  if (scope !== 'screeps' && BOT_LEGACY_PATH_KEY in values) {
-    const target = botProfileKey(DEFAULT_PROFILE);
-    if (!values[target] && values[BOT_LEGACY_PATH_KEY]) patch.values[target] = values[BOT_LEGACY_PATH_KEY];
-    patch.remove.push(BOT_LEGACY_PATH_KEY);
-  }
-  for (const key of scope === 'bot' ? [] : SCREEPS_KEYS) {
-    const legacyKey = screepsLegacyKey(key);
-    if (!(legacyKey in values)) continue;
-    const value = values[legacyKey];
-    const target = screepsProfileKey(DEFAULT_PROFILE, key);
-    // The profile key already outranks the legacy one, so the legacy key is
-    // dead weight whatever it holds.
-    if (values[target]) { patch.remove.push(legacyKey); continue; }
-    if (isMasked(value)) { patch.needsReentry.push(legacyKey); continue; }
-    if (value) patch.values[target] = value;
-    patch.remove.push(legacyKey);
-  }
-  return patch;
-}
-
 export function validateProfileName(name: string, existing: string[]): string | null {
   const wanted = normalizeProfileName(name);
   if (!wanted) return 'Name a profile first.';

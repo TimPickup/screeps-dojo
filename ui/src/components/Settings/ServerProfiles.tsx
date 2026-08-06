@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import {
   SCREEPS_KEYS, listScreepsProfiles, defaultScreepsProfileName, screepsOwnValue, isSecretKey,
   setScreepsProfile, renameScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile,
-  migrateLegacy, validateProfileName, normalizeProfileName, usesLegacyScreepsKeys
+  validateProfileName, normalizeProfileName
 } from './profileEnv';
 import type { EnvPatch, ScreepsKey } from './profileEnv';
 import styles from './Settings.module.css';
@@ -78,12 +78,6 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
     }));
   };
 
-  const convert = () => {
-    const patch = migrateLegacy(values, 'screeps');
-    onPatch(patch);
-    setReentry(patch.needsReentry);
-  };
-
   const editKey = (name: string, key: ScreepsKey, value: string) => {
     onPatch(setScreepsProfile(values, name, { [key]: value } as Partial<Record<ScreepsKey, string>>));
   };
@@ -100,15 +94,9 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
     <div className={styles.section}>
       <div className={styles.label}>Screeps server profiles</div>
 
-      {usesLegacyScreepsKeys(values) && (
-        <div className={styles.legacyBox}>
-          <div>The unsuffixed <code>DOJO_SCREEPS_*</code> keys are the old form. Converting them makes them the profile named <code>default</code>, which every other profile overlays.</div>
-          <button className={styles.linkBtn} onClick={convert}>Convert to profiles</button>
-        </div>
-      )}
       {reentry.length > 0 && (
         <div className={styles.err}>
-          {reentry.map(shortKey).join(' and ')} could not be moved — the browser only ever receives a masked copy. Re-enter {reentry.length > 1 ? 'them' : 'it'} on the <code>default</code> row, then convert again.
+          {reentry.map(shortKey).join(' and ')} could not be carried across — the browser only ever receives a masked copy. Re-enter {reentry.length > 1 ? 'them' : 'it'} below.
         </div>
       )}
 

@@ -76,10 +76,35 @@ bot path.
   actually changed, and can now delete keys outright (blanking one would leave a
   nameless profile behind).
 
+- **Old `.env` keys are migrated automatically** at server boot, with the
+  original copied to `.env.bak`. `DOJO_BOT_PATH` becomes
+  `DOJO_BOT_PROFILE_DEFAULT_PATH`, each `DOJO_SCREEPS_*` becomes
+  `DOJO_SCREEPS_PROFILE_DEFAULT_*`. This replaces the "Convert to profiles"
+  buttons, which could never finish the job: the browser only ever sees secrets
+  masked, so a token had to be left behind and retyped by hand.
+- **A full-screen wait while the host acts.** Restarting or updating takes the
+  server away, so the whole app says so — title, bouncing dots, and the agent's
+  live output underneath. Losing the connection is treated as the expected
+  middle of a restart, not a failure; past a per-action deadline it says what
+  went wrong and which command finishes the job by hand.
+- Replay speeds run from 0.25x to 128x, from one list shared by the replay
+  control and the Settings default (which persists in local storage).
+
+### Changed
+
+- Brighter foreground throughout: `--muted` lifted, and both ⚙ buttons sit at
+  full text colour rather than reading as disabled.
+- Section headings in both settings surfaces are larger and weighted; the
+  scenario form now says **My bot**, **Other bots** and **Import server
+  profile**, shows the `allBotModules()` snippet each setting affects, and links
+  straight to the matching part of the main Settings panel.
+- The scenario settings file is labelled **(Scenario Overrides)** in the editor
+  header, and Ctrl/Cmd-S saves the Settings panel as it already did the editor.
+
 ### Deprecated
 
-- `DOJO_BOT_PATH` and the unsuffixed `DOJO_SCREEPS_*` keys. Both still work and
-  mean the profile named `default`; Settings offers one-click migration.
+- `DOJO_BOT_PATH` and the unsuffixed `DOJO_SCREEPS_*` keys. Both still resolve,
+  and boot rewrites them for you.
 
 ## [0.6.0] — 2026-08-06
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
+import { openSettings } from '../../state/settingsOverlay';
 import type { BotProfile, ScreepsProfile } from '../../api/types';
 import {
   canonicalName, optionsFor, parseDoc, serializeDoc, validateForm,
@@ -23,6 +24,17 @@ interface Registry {
 function names(profiles: Array<{ name: string }>): string[] {
   return profiles.map((profile) => profile.name);
 }
+
+const BOT_SNIPPET = `const { allBotModules } = require('../../src/botModules');
+
+module.exports = {
+  modules: allBotModules(),
+  ...
+};`;
+
+const SIDE_SNIPPET = `const { allBotModules, botDir } = require('../../src/botModules');
+
+world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) });`;
 
 export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
   const [registry, setRegistry] = useState<Registry | null>(null);
@@ -104,6 +116,13 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
     );
   };
 
+  const registerLink = (
+    <div className={styles.hint}>
+      Only registered codebases can be chosen here.{' '}
+      <button className={styles.link} onClick={() => openSettings('bots')}>Add or edit bots…</button>
+    </div>
+  );
+
   const botNote = (name: string) => {
     const profile = registry?.bots.find((b) => b.name.toLowerCase() === name.trim().toLowerCase());
     if (!profile) return null;
@@ -124,18 +143,26 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
       {warnings.map((w, i) => <div key={i} className={styles.warn}>⚠ {w}</div>)}
 
       <div className={styles.section}>
-        <div className={styles.label}>Bot</div>
+        <div className={styles.label}>My bot</div>
         <div className={styles.field}>
           <span>main</span>
           {picker(form.bot, botNames, inheritLabel(registry?.botDefault || ''), Boolean(problems.bot), (bot) => update({ ...form, bot }))}
         </div>
         {problems.bot && <div className={styles.bad}>{problems.bot}</div>}
         {botNote(form.bot || registry?.botDefault || '')}
+        {/* Which codebase this is only matters if the scenario actually pulls it
+            in, and that is one line most people copy rather than remember. */}
+        <div className={styles.hint}>
+          The codebase this scenario&rsquo;s own bot runs. It is what{' '}
+          <code>allBotModules()</code> returns:
+          <pre className={styles.code}>{BOT_SNIPPET}</pre>
+        </div>
+        {registerLink}
       </div>
 
       <div className={styles.section}>
-        <div className={styles.label}>Other sides</div>
-        {form.sides.length === 0 && <div className={styles.hint}>No extra sides — only the scenario's own bot runs.</div>}
+        <div className={styles.label}>Other bots</div>
+        {form.sides.length === 0 && <div className={styles.hint}>No other bots &mdash; only this scenario&rsquo;s own bot runs.</div>}
         {form.sides.map((row, index) => (
           <div key={index}>
             <div className={styles.field}>
@@ -153,17 +180,26 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
             {botNote(row.profile)}
           </div>
         ))}
-        <button className={styles.add} onClick={() => setSides(form.sides.concat([{ side: '', profile: '' }]))}>+ Add side</button>
+        <button className={styles.add} onClick={() => setSides(form.sides.concat([{ side: '', profile: '' }]))}>+ Add another bot</button>
+        {form.sides.length > 0 && (
+          <div className={styles.hint}>
+            Give each one a name, then load it in <code>setup()</code>:
+            <pre className={styles.code}>{SIDE_SNIPPET}</pre>
+          </div>
+        )}
       </div>
 
       <div className={styles.section}>
-        <div className={styles.label}>Server profile</div>
+        <div className={styles.label}>Import server profile</div>
         <div className={styles.field}>
           <span>server</span>
           {picker(form.server, serverNames, inheritLabel(registry?.serverDefault || ''), Boolean(problems.server), (server) => update({ ...form, server }))}
         </div>
         {problems.server && <div className={styles.bad}>{problems.server}</div>}
-        <div className={styles.hint}>Which live server this scenario imports rooms from.</div>
+        <div className={styles.hint}>
+          Which live server <b>Import a room</b> pulls from for this scenario.{' '}
+          <button className={styles.link} onClick={() => openSettings('servers')}>Manage servers…</button>
+        </div>
       </div>
     </div>
   );

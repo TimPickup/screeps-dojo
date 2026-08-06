@@ -10,6 +10,12 @@
 const { createServer } = require('../src/server');
 const bootstrap = require('../src/server/bootstrap');
 
+// Fold any old unsuffixed keys into profile form before anything reads them, so
+// nobody is ever asked to understand two naming schemes at once. Boot must not
+// depend on it working — the legacy keys still resolve either way.
+try { require('../src/envMigrate').migrate({ log: console.log }); }
+catch (e) { console.log('[dojo] .env migration skipped: ' + String((e && e.message) || e)); }
+
 const port = Number(process.env.DOJO_UI_PORT) || 8787;
 const { ready } = bootstrap.start();
 const server = createServer({ ready: ready });

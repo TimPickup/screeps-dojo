@@ -3,8 +3,7 @@ import type { BotProfilesResponse } from '../../api/types';
 import { api } from '../../api/client';
 import {
   listBotProfiles, defaultBotProfileName, botStatusLabel, setBotProfile, renameBotProfile,
-  deleteBotProfile, setDefaultBotProfile, migrateLegacy, validateProfileName, normalizeProfileName,
-  usesLegacyBotKeys
+  deleteBotProfile, setDefaultBotProfile, validateProfileName, normalizeProfileName
 } from './profileEnv';
 import type { EnvPatch } from './profileEnv';
 import { HostAgentAction } from './HostAgentAction';
@@ -69,22 +68,9 @@ export function BotProfiles({ values, onPatch, refreshKey }: Props) {
     }));
   };
 
-  // Scoped to the bot key: the server settings have their own banner, and a
-  // host path is never a secret, so nothing here can need re-entering.
-  const convert = () => onPatch(migrateLegacy(values, 'bot'));
-
   return (
     <div className={styles.section}>
       <div className={styles.label}>Bot profiles</div>
-
-      {/* The local env is fresher than /api/bots, so the banner clears the
-          moment the conversion is applied rather than after the next save. */}
-      {usesLegacyBotKeys(values) && (
-        <div className={styles.legacyBox}>
-          <div><code>DOJO_BOT_PATH</code> is the old single-path form. Converting it makes it the profile named <code>default</code>, which changes nothing about what runs.</div>
-          <button className={styles.linkBtn} onClick={convert}>Convert to profiles</button>
-        </div>
-      )}
 
       <table className={styles.table}>
         <thead>
