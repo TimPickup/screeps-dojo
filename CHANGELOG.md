@@ -5,6 +5,57 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.6.0] — 2026-08-06
+
+One renderer. Replays, scenario previews and the MP4/GIF exports all draw
+through the same canvas code now, so an export shows exactly what the browser
+showed — and the room itself reads far better: walls that join up, swamps that
+move, rampart overlays, and an icon for every deposit type.
+
+### Added
+
+- **A single canvas rendering pipeline** in `ui/src/canvas/`, drawing one frame
+  from one set of modules. The video renderer imports the very same
+  `drawFrame.ts` the browser uses and runs it against `@napi-rs/canvas`, so
+  there is no second implementation to drift: a fix to the replay view is a fix
+  to the export.
+- **Cached static layers.** Terrain, walls, structure shells and ramparts are
+  baked once into their own canvases and reused until an epoch key says the
+  layout actually changed. Per-frame work is now only what genuinely moves —
+  creeps, energy fills, tower turrets, effects.
+- **Terrain that looks like terrain.** Wall tiles merge into softened islands
+  rather than reading as a grid of squares, constructed walls join the terrain
+  they touch, and swamps carry a texture that drifts on two layers.
+- **Rampart overlays** — cached, translucent, tinted by owner, with a marker on
+  public ramparts.
+- **Deposits** — biomass, metal, mist and silicon each render from their own
+  artwork: a filled body, an outline, and the finer detail strokes on top.
+- **Power banks** — a corner-clipped square with a power core.
+- **A map editor inside the UI.** The standalone `editor/dojo-editor.html`
+  build is gone; editing happens in the same canvas the rest of the app draws
+  on.
+- **A render progress protocol** shared by the CLI and the server, so the two
+  cannot quietly disagree about how an export reports its progress.
+
+### Changed
+
+- **Sources are rounded squares with a black border** the shrinking energy core
+  never covers, so a full source still reads as a distinct object against dark
+  terrain. Tombstones became a translucent outline with a dark X.
+- **Creep body parts, structure shells and tower turrets** are drawn from
+  shared modules rather than per-view code, and towers and spawn transitions
+  animate between ticks.
+- Room visuals, fonts and draw order moved behind the canvas modules, which the
+  UI suite now covers at 106 tests across 23 files — each asserting the exact
+  sequence of draw calls against a recording mock context.
+
+### Removed
+
+- **The SVG renderer.** `src/render/frameRenderer.js`, `svgPrimitives.js`,
+  `creepSprite.js`, the `SvgStage` component and the standalone editor build
+  (`scripts/buildEditor.js`) are all deleted — about 8,800 lines out against
+  6,500 in.
+
 ## [0.5.0] — 2026-08-04
 
 Speed, and a safety net. The two lists you look at most now open in
