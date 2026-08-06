@@ -21,8 +21,13 @@ const isWin = process.platform === 'win32';
 // The host agent (scripts/hostAgent.js) lets the GUI ask for the host-side
 // commands it cannot run itself. It starts in the background by default;
 // --agent keeps this terminal as the agent instead, --no-agent skips it.
-const WITH_AGENT = process.argv.slice(2).includes('--agent');
-const NO_AGENT = process.argv.slice(2).includes('--no-agent');
+const ARGS = process.argv.slice(2);
+const WITH_AGENT = ARGS.includes('--agent');
+const NO_AGENT = ARGS.includes('--no-agent');
+// The image is rebuilt only when its inputs changed (see below). --build forces
+// it, --no-build never does.
+const FORCE_BUILD = ARGS.includes('--build');
+const NO_BUILD = ARGS.includes('--no-build');
 const PORT = Number(process.env.DOJO_UI_PORT) || 8787;
 const URL = 'http://localhost:' + PORT + '/';
 
@@ -44,13 +49,72 @@ if (run('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 }
 
 // 2. Build the images (BOTH services, so neither ships a stale/un-baked
-// node_modules). docker compose build is cached and fast once nothing has
-// changed; the first build bakes the toolchain in and takes a few minutes.
-console.log('[dojo-ui] building the container image…');
-console.log('[dojo-ui]   First run compiles the engine (isolated-vm), builds the mock server,');
-console.log('[dojo-ui]   and downloads ffmpeg — a few minutes, and it may look quiet mid-compile.');
-console.log('[dojo-ui]   This is cached, so every later run skips it. (docker stats shows it working.)');
-if (run('docker', ['compose', 'build', '--progress=plain']).status !== 0) fail('image build failed.');
+// node_modules) — but ONLY when something the build actually depends on has
+// changed since the image was made.
+//
+// "docker compose build is cached" is true of the layers and misleading in
+// practice: the Dockerfile copies package.json before `npm ci`, so editing a
+// SCRIPT in that file invalidates the layer and re-runs the whole native
+// toolchain build — isolated-vm compile, mockup TypeScript, ffmpeg download.
+// Minutes, for a change that touched nothing the image contains. Worse, the
+// build then wakes Docker Scout, whose image scan hammers the disk long after
+// the build itself has finished.
+//
+// So: compare the image's creation time against the files the Dockerfile
+// actually reads. Anything unexpected (no image, no timestamp, a docker that
+// will not answer) falls through to building, because a stale image is the far
+// worse failure.
+const BUILD_INPUTS = [
+	'Dockerfile', 'package.json', 'package-lock.json',
+	'server-mock-patches', 'tools/mockEnginePatches.cjs'
+];
+
+function newestInputMs() {
+	let newest = 0;
+	for (const rel of BUILD_INPUTS) {
+		const full = path.join(ROOT, rel);
+		let stat;
+		try { stat = fs.statSync(full); } catch (e) { continue; }
+		newest = Math.max(newest, stat.mtimeMs);
+		if (!stat.isDirectory()) continue;
+		for (const entry of fs.readdirSync(full)) {
+			try { newest = Math.max(newest, fs.statSync(path.join(full, entry)).mtimeMs); } catch (e) { /* skip */ }
+		}
+	}
+	return newest;
+}
+
+function imageCreatedMs() {
+	// Ask compose which image belongs to the service; fall back to the default
+	// <project>-<service> name for a checkout whose containers were removed.
+	let id = out('docker', ['compose', 'images', '-q', 'dojo']).trim().split('\n')[0].trim();
+	if (!id) id = path.basename(ROOT).toLowerCase() + '-dojo';
+	const created = out('docker', ['image', 'inspect', id, '--format', '{{.Created}}']).trim();
+	const parsed = Date.parse(created);
+	return parsed > 0 ? parsed : 0;
+}
+
+function buildReason() {
+	if (FORCE_BUILD) return 'asked for with --build';
+	if (NO_BUILD) return null;
+	const imageMs = imageCreatedMs();
+	if (!imageMs) return 'no image yet';
+	const inputMs = newestInputMs();
+	if (inputMs > imageMs) return 'Dockerfile or dependencies changed since the image was built';
+	return null;
+}
+
+const reason = buildReason();
+if (reason) {
+	console.log('[dojo-ui] building the container image (' + reason + ')…');
+	console.log('[dojo-ui]   This compiles the engine (isolated-vm), builds the mock server,');
+	console.log('[dojo-ui]   and downloads ffmpeg — a few minutes, and it may look quiet mid-compile.');
+	if (run('docker', ['compose', 'build', '--progress=plain']).status !== 0) fail('image build failed.');
+} else if (NO_BUILD) {
+	console.log('[dojo-ui] skipping the build (--no-build) — the image may be out of date.');
+} else {
+	console.log('[dojo-ui] image is up to date — skipping the build (force it with: npm run ui -- --build).');
+}
 
 // 3. frontend built?
 if (!fs.existsSync(path.join(ROOT, 'ui', 'dist', 'index.html'))) {

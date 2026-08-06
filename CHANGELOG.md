@@ -92,6 +92,14 @@ bot path.
 
 ### Changed
 
+- **`npm run ui` no longer rebuilds the image every launch.** It compares the
+  image against what the Dockerfile actually reads (Dockerfile, `package.json`,
+  `package-lock.json`, the mock-engine patches) and builds only when one of
+  those is newer. The layer cache was never the protection it looked like: the
+  Dockerfile copies `package.json` before `npm ci`, so editing a *script* in it
+  re-ran the whole native toolchain build — and the build then woke Docker
+  Scout, whose scan hammers the disk long after the build finished. `--build`
+  forces it, `--no-build` never does.
 - Brighter foreground throughout: `--muted` lifted, and both ⚙ buttons sit at
   full text colour rather than reading as disabled.
 - Section headings in both settings surfaces are larger and weighted; the

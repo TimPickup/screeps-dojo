@@ -138,6 +138,8 @@ output streams into the button's own log view, so an update is not a spinner and
 a promise.
 
     npm run ui                  # start the GUI, with the agent behind it
+    npm run ui -- --build       # force an image rebuild
+    npm run ui -- --no-build    # never rebuild, even if inputs changed
     npm run ui -- --agent       # ...but keep THIS terminal as the agent, to watch it
     npm run ui -- --no-agent    # ...and don't start it at all
     npm run host-agent          # start it on its own
