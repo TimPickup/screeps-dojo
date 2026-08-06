@@ -18,6 +18,8 @@ interface Props {
   // Renaming edits the saved file directly, so it cannot run over the top of
   // unsaved edits; the panel tells us whether there are any.
   dirty: boolean;
+  // Narrower than `dirty`: only edits that a mount actually depends on.
+  botDirty: boolean;
   onExternalChange: () => void;
 }
 
@@ -25,7 +27,7 @@ interface Props {
 // because a bind mount is fixed when the container is created, only a PATH
 // change needs `npm run ui` — picking a different default is free. That
 // distinction is why status lives per row instead of in one blanket warning.
-export function BotProfiles({ values, onPatch, refreshKey, dirty, onExternalChange }: Props) {
+export function BotProfiles({ values, onPatch, refreshKey, dirty, botDirty, onExternalChange }: Props) {
   const [remote, setRemote] = useState<BotProfilesResponse | null>(null);
   const [verified, setVerified] = useState<Record<string, string>>({});
   const [addName, setAddName] = useState('');
@@ -67,17 +69,21 @@ export function BotProfiles({ values, onPatch, refreshKey, dirty, onExternalChan
     }
   };
 
-  // What still needs a recreate, in words, or null when nothing does. Drives
-  // the Apply button so it is never live for no reason.
-  const pendingMount = (() => {
-    if (dirty) return 'Save first, then apply.';
-    const waiting = rows.filter((row) => {
+  // Which profiles are genuinely waiting on a recreate. `remote` is the server's
+  // probe of what is actually mounted, so this settles by itself once the
+  // recreate finishes and the probe is re-read.
+  const waiting = remote
+    ? rows.filter((row) => {
       const status = statusFor(row.name);
       return !status || !status.mounted || status.hostPath !== row.hostPath;
-    });
-    if (!waiting.length) return null;
-    return waiting.map((r) => r.name).join(', ') + (waiting.length > 1 ? ' are' : ' is') + ' not mounted yet.';
-  })();
+    })
+    : [];
+  // Applying now would recreate against the .env still on disk, so an unsaved
+  // path change means "save first", not "go".
+  const applyBlocked = botDirty ? 'Save your bot path changes first.' : null;
+  const applyNote = waiting.length
+    ? waiting.map((r) => r.name).join(', ') + (waiting.length > 1 ? ' are' : ' is') + ' not mounted yet.'
+    : null;
 
   const remove = (name: string) => {
     // Scenarios pin a bot by name, so a delete can break a scenario elsewhere.
@@ -175,9 +181,9 @@ export function BotProfiles({ values, onPatch, refreshKey, dirty, onExternalChan
         action="recreate"
         label="Apply mount changes"
         fallback="npm run ui"
-        enabled={pendingMount !== null}
-        disabledReason={pendingMount === null ? 'Every registered path is already mounted.' : undefined}
-        note={pendingMount || undefined}
+        enabled={waiting.length > 0 && !applyBlocked}
+        disabledReason={applyBlocked || (waiting.length ? undefined : 'Every registered path is already mounted.')}
+        note={applyNote || undefined}
       />
     </div>
   );

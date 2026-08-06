@@ -16,6 +16,12 @@ const bootstrap = require('../src/server/bootstrap');
 try { require('../src/envMigrate').migrate({ log: console.log }); }
 catch (e) { console.log('[dojo] .env migration skipped: ' + String((e && e.message) || e)); }
 
+// ...then seed the Screeps shards, once ever. Order matters: migration turns the
+// old unsuffixed keys into a profile, and seeding is what renames that profile
+// away from "default" and puts the real shards alongside it.
+try { require('../src/envSeed').seed({ log: console.log }); }
+catch (e) { console.log('[dojo] server profile seeding skipped: ' + String((e && e.message) || e)); }
+
 const port = Number(process.env.DOJO_UI_PORT) || 8787;
 const { ready } = bootstrap.start();
 const server = createServer({ ready: ready });

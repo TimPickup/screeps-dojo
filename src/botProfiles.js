@@ -23,7 +23,10 @@ const PREFIX = 'DOJO_BOT_PROFILE_';
 const KEYS = ['PATH'];
 const LEGACY_PATH_KEY = 'DOJO_BOT_PATH';
 const DEFAULT_PROFILE = 'default';
-const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+// No hyphen: the name becomes part of an env key, and .env keys are
+// [A-Z0-9_] only — a hyphenated name would produce a line the parser
+// skips entirely, silently losing whatever it held.
+const NAME_RE = /^[a-z0-9][a-z0-9_]*$/;
 
 function botsDir(env) { return (env && env.DOJO_BOTS_DIR) || '/bots'; }
 

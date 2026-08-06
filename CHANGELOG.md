@@ -25,6 +25,15 @@ bot path.
   and `botDir('enemy')` gives another side its own — you can now pit two
   versions of your bot against each other. It opens in its own form editor (or
   raw JSON) from the ⚙ beside the Edit tab.
+- **The Screeps shards are set up for you**, once, at first boot: `shard0`
+  through `shard3`, `shardx` (a template for a private or custom shard) and
+  `season`, each prefilled apart from the credentials. Seeding is flagged in
+  `.env`, so deleting or renaming one of them sticks — it is a decision, not
+  something to undo on the next start.
+
+  There is no profile called `default` any more; a name meaning "the fallback"
+  said nothing about which server it was. An existing one is renamed to
+  `a_server`, keeping its settings, its token and its place as the default.
 - **Screeps server profiles.** `DOJO_SCREEPS_PROFILE_<NAME>_<KEY>`. Each one
   **stands alone** — nothing is inherited from another profile, so a row shows
   what it will actually connect with. (They briefly overlaid the profile named

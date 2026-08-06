@@ -5,7 +5,7 @@ import {
   listBotProfiles, listScreepsProfiles, screepsOwnValue,
   setBotProfile, deleteBotProfile, setDefaultBotProfile, defaultBotProfileName,
   setScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile, defaultScreepsProfileName,
-  validateProfileName, isMasked, botStatusLabel
+  validateProfileName, isMasked, botStatusLabel, botKeysChanged
 } from '../profileEnv';
 
 // Applying a patch the way Settings does, so the tests can assert on the
@@ -253,7 +253,7 @@ describe('screeps profile edits', () => {
 describe('validateProfileName', () => {
   it('accepts a usable name', () => {
     expect(validateProfileName('main', [])).toBeNull();
-    expect(validateProfileName('my_bot-2', ['other'])).toBeNull();
+    expect(validateProfileName('my_bot2', ['other'])).toBeNull();
     expect(validateProfileName('  Main  ', [])).toBeNull();   // normalised before checking
   });
 
@@ -262,10 +262,13 @@ describe('validateProfileName', () => {
     expect(validateProfileName('   ', [])).toMatch(/Name a profile/);
   });
 
-  // The name becomes a directory under /bots, so anything outside the regex
-  // would be unusable as a mount.
+  // The name becomes a directory under /bots AND part of an env key, so
+  // anything outside the regex is unusable as one or the other.
   it('rejects characters that cannot be a mount directory', () => {
     expect(validateProfileName('my bot', [])).toMatch(/lowercase letters/);
+    // A hyphen is the trap: it looks fine and produces DOJO_..._MY-BOT_PATH,
+    // a line .env's parser skips entirely, silently losing the value.
+    expect(validateProfileName('my-bot', [])).toMatch(/No hyphen/);
     expect(validateProfileName('_main', [])).toMatch(/lowercase letters/);
     expect(validateProfileName('main/../etc', [])).toMatch(/lowercase letters/);
   });
@@ -324,5 +327,29 @@ describe('botStatusLabel', () => {
   it('flags a row the server has never seen', () => {
     expect(botStatusLabel(undefined, 'C:/bots/new').tone).toBe('warn');
     expect(botStatusLabel(undefined, 'C:/bots/new').text).toMatch(/not registered yet/);
+  });
+});
+
+describe('botKeysChanged', () => {
+  // Why the Apply button exists at all: only a MOUNT needs a container
+  // recreate. Arming it for anything else taught people it meant nothing.
+  it('sees a bot path edit', () => {
+    expect(botKeysChanged({ DOJO_BOT_PROFILE_MAIN_PATH: 'C:/a' }, { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/b' })).toBe(true);
+    expect(botKeysChanged({}, { DOJO_BOT_PROFILE_NEW_PATH: 'C:/n' })).toBe(true);
+    expect(botKeysChanged({ DOJO_BOT_PATH: 'C:/legacy' }, {})).toBe(true);
+  });
+
+  it('ignores everything a mount does not depend on', () => {
+    expect(botKeysChanged(
+      { DOJO_DEFAULT_SCREEPS_PROFILE: 'shard0', DOJO_SCREEPS_PROFILE_SHARD0_TOKEN: 'a' },
+      { DOJO_DEFAULT_SCREEPS_PROFILE: 'season', DOJO_SCREEPS_PROFILE_SHARD0_TOKEN: 'b' }
+    )).toBe(false);
+    // which bot is the default is a name lookup, not a mount
+    expect(botKeysChanged({ DOJO_DEFAULT_BOT_PROFILE: 'main' }, { DOJO_DEFAULT_BOT_PROFILE: 'alt' })).toBe(false);
+  });
+
+  it('sees nothing in an untouched env', () => {
+    const values = { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/a', DOJO_UI_PORT: '8787' };
+    expect(botKeysChanged(values, { ...values })).toBe(false);
   });
 });

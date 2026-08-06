@@ -6,6 +6,8 @@ import { BotProfiles } from './BotProfiles';
 import { ServerProfiles } from './ServerProfiles';
 import { HostAgentAction } from './HostAgentAction';
 import type { EnvPatch } from './profileEnv';
+import { botKeysChanged } from './profileEnv';
+import { useHostAction } from '../../state/hostAction';
 import styles from './Settings.module.css';
 
 export function Settings({ onClose, section }: { onClose: () => void; section?: SettingsSection }) {
@@ -31,6 +33,20 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
   }, [section]);
 
   const dirty = JSON.stringify(env) !== JSON.stringify(orig) || removed.length > 0;
+  // Only mount-relevant edits should arm the Apply button; a server-profile
+  // change cannot need a container recreate.
+  const botDirty = botKeysChanged(orig, env) || removed.some((k) => k.startsWith('DOJO_BOT'));
+
+  // A host action changes what is mounted, so re-probe when one finishes rather
+  // than leaving the button lit against a status read before the recreate.
+  const hostAction = useHostAction();
+  const hostActionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (hostAction.action) { hostActionRef.current = hostAction.action; return; }
+    if (!hostActionRef.current) return;
+    hostActionRef.current = null;
+    setRefreshKey((k) => k + 1);
+  }, [hostAction.action]);
 
   // The profile editors are pure renderers: they hand back an env patch and this
   // is the only place that decides what the panel is holding.
@@ -111,7 +127,7 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
         </div>
 
         <div ref={botsRef}>
-          <BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} onExternalChange={reload} />
+          <BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} botDirty={botDirty} onExternalChange={reload} />
         </div>
         <div ref={serversRef}>
           <ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} onExternalChange={reload} />

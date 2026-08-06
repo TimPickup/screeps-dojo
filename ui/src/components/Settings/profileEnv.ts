@@ -23,7 +23,9 @@ export type ScreepsKey = typeof SCREEPS_KEYS[number];
 export const SCREEPS_SECRET_KEYS: ScreepsKey[] = ['TOKEN', 'PASSWORD'];
 
 export const DEFAULT_PROFILE = 'default';
-export const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+// No hyphen: the name becomes part of an env key, and .env keys are [A-Z0-9_]
+// only — a hyphenated name would produce a line the parser skips entirely.
+export const NAME_RE = /^[a-z0-9][a-z0-9_]*$/;
 
 // A patch for api.putEnv. `needsReentry` names env keys the browser could not
 // carry across because it only ever saw them masked — the user has to type them
@@ -247,10 +249,23 @@ export function setDefaultScreepsProfile(values: Record<string, string>, name: s
   return patch;
 }
 
+// Whether anything a MOUNT depends on has been edited. Panel-wide dirtiness is
+// the wrong question for the Apply button: changing which server profile is the
+// default cannot possibly need a container recreate, and lighting the button up
+// for it taught people the button means nothing.
+export function botKeysChanged(before: Record<string, string>, after: Record<string, string>): boolean {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    if (key !== BOT_LEGACY_PATH_KEY && !parseBotKey(key)) continue;
+    if (before[key] !== after[key]) return true;
+  }
+  return false;
+}
+
 export function validateProfileName(name: string, existing: string[]): string | null {
   const wanted = normalizeProfileName(name);
   if (!wanted) return 'Name a profile first.';
-  if (!NAME_RE.test(wanted)) return 'Use lowercase letters, digits, - or _, starting with a letter or digit.';
+  if (!NAME_RE.test(wanted)) return 'Use lowercase letters, digits and _ only, starting with a letter or digit. (No hyphen — the name becomes part of an environment variable.)';
   if (existing.map(normalizeProfileName).includes(wanted)) return 'A profile called "' + wanted + '" already exists.';
   return null;
 }

@@ -22,7 +22,10 @@ const PREFIX = 'DOJO_SCREEPS_PROFILE_';
 const KEYS = ['PROTOCOL', 'HOSTNAME', 'USERNAME', 'PASSWORD', 'TOKEN', 'SHARD', 'EMAIL', 'PORT', 'PATH'];
 const SECRET_KEYS = ['TOKEN', 'PASSWORD'];
 const DEFAULT_PROFILE = 'default';
-const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+// No hyphen: the name becomes part of an env key, and .env keys are
+// [A-Z0-9_] only — a hyphenated name would produce a line the parser
+// skips entirely, silently losing whatever it held.
+const NAME_RE = /^[a-z0-9][a-z0-9_]*$/;
 
 function legacyKeyFor(key) { return 'DOJO_SCREEPS_' + key; }
 function envKeyFor(name, key) { return PREFIX + String(name).toUpperCase() + '_' + key; }
@@ -116,11 +119,15 @@ function resolve(name, env, sourceLabel) {
 	const byName = parseProfiles(env);
 	if (!Object.prototype.hasOwnProperty.call(byName, wanted)) {
 		const registered = Object.keys(byName).sort();
-		// The default profile is allowed to be absent — a checkout with no .env
-		// has no server settings at all, and createClient() reports that itself.
-		if (wanted === DEFAULT_PROFILE) return Object.assign({}, env);
+		// A checkout with no .env has no server settings at all; createClient()
+		// reports that itself and its message is the better one.
+		if (!registered.length) return Object.assign({}, env);
+		if (wanted === DEFAULT_PROFILE && !env.DOJO_DEFAULT_SCREEPS_PROFILE) {
+			throw new Error('no default screeps profile is set — choose one in Settings'
+				+ ' (registered: ' + registered.join(', ') + ')');
+		}
 		throw new Error(where + 'unknown screeps profile "' + wanted + '"'
-			+ (registered.length ? ' (registered: ' + registered.join(', ') + ')' : ' (none registered)'));
+			+ ' (registered: ' + registered.join(', ') + ')');
 	}
 	const own = ownKeysOf(byName, wanted);
 	const out = Object.assign({}, env);
