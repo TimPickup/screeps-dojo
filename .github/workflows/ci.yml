@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 env:
-  # Matches Dockerfile:1 (node:24-bookworm). Also part of the cache keys below:
-  # node_modules holds isolated-vm's compiled binding, which is tied to the
-  # Node ABI and must not survive a major-version bump.
+  # Matches Dockerfile:1 (node:24-bookworm), and deliberately tracks the major
+  # so both follow the same stream. NOT usable as a cache key on its own: see
+  # the backend job's `Restore node_modules`.
   NODE_VERSION: '24'
 
 jobs:
@@ -44,6 +44,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
+        id: setup-node
         with:
           node-version: ${{ env.NODE_VERSION }}
           # Deliberately no `cache: npm`. That caches the download tarballs, so
@@ -65,13 +66,22 @@ jobs:
         uses: actions/cache@v5
         with:
           path: node_modules
+          # Keyed on the RESOLVED Node version (e.g. 24.19.0), not NODE_VERSION.
+          # isolated-vm's binding embeds a V8 startup snapshot, and V8's snapshot
+          # version moves on Node PATCH releases, not just major ones: a cache
+          # keyed on '24' hands a binding built against node.50 to a runner that
+          # has since moved to node.51, and the process dies at isolate creation
+          # with "Version mismatch between V8 binary and snapshot" before any
+          # test can report. Keying on the full version rebuilds instead, at the
+          # cost of one cold install per patch bump.
+          #
           # The patch set is in the key on purpose: `postinstall` rewrites files
           # inside node_modules and generates a runtime snapshot there
           # (tools/mockEnginePatches.cjs). A cache keyed on the lockfile alone
           # could serve a tree patched by a manifest that no longer applies.
           # No restore-keys — a near-miss restore of native modules is worse
           # than a clean install.
-          key: node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json', 'server-mock-patches/**', 'tools/mockEnginePatches.cjs') }}
+          key: node-modules-${{ runner.os }}-node${{ steps.setup-node.outputs.node-version }}-${{ hashFiles('package-lock.json', 'server-mock-patches/**', 'tools/mockEnginePatches.cjs') }}
 
       - name: Install dependencies
         if: steps.node-modules.outputs.cache-hit != 'true'
@@ -111,6 +121,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ui/node_modules
+          # NODE_VERSION is enough here, unlike the backend job: nothing under
+          # ui/ compiles against the Node ABI. Its only binaries are esbuild's
+          # and rollup's prebuilt platform executables, which the runtime never
+          # loads into the Node process. Keying on the resolved patch version
+          # would throw this cache away on every Node bump and buy nothing.
           key: ui-node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('ui/package-lock.json') }}
 
       - name: Install dependencies
