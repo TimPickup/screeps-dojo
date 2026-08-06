@@ -33,8 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # docker-compose.yml supplies these; a bare runner does not.
-      # src/botModules.js:9 would otherwise look for the bot at /bot.
+      # docker-compose.yml supplies these; a bare runner does not. DOJO_BOT_DIR
+      # is the non-Docker escape hatch in src/botProfiles.js implicitDir(): with
+      # no /bots mounts to resolve a profile against, it is what the runner uses.
       DOJO_BOT_DIR: ${{ github.workspace }}
       DOJO_FAST_MOCK_ENGINE: '1'
       # scripts/test.js prints an update notice after every run. Nothing in CI
