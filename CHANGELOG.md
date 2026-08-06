@@ -5,6 +5,28 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.8.0] — 2026-08-06
+
+Construction sites show up in replays. They were listed as part of the cached
+background but never actually drawn, so a site under construction rendered as
+nothing at all.
+
+### Added
+
+- **Construction sites render**, as an ownership-coloured ring filled by a
+  progress wedge, pulsing so a pending site reads differently from a finished
+  structure. The pulse is driven by replay time rather than the wall clock, so a
+  scrubbed frame and an exported video frame look identical, and a paused replay
+  sits at the peak instead of flickering.
+
+### Fixed
+
+- Construction sites are no longer part of the static layer's epoch key. They
+  were in the key but not in the draw list — the worst of both: nothing appeared
+  on screen, and the whole cached background rebuilt every time a site appeared,
+  moved or completed. They are drawn per frame now, which is what their
+  per-tick progress requires anyway (#11).
+
 ## [0.7.0] — 2026-08-06
 
 Register each of your bot codebases once and let every scenario pick between
