@@ -52,6 +52,9 @@ bot path.
   grants no new privilege: anything that can write that file can already write
   `scripts/ui.js`. Requests are consumed before they run, handled once per id,
   dropped when stale, rate-limited, and logged to `.dojo-host/agent.log`. The
+  channel files are written to a temp name and renamed into place, so a reader
+  polling on a timer never catches one half-written, and a single exclusive lock
+  file — not a check-then-act — is what makes two agents impossible. The
   rejected alternative was mounting the Docker socket into the container, which
   would give the process running your bot code control of the host daemon.
 

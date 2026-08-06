@@ -18,6 +18,7 @@ const DIR = path.join(ROOT, '.dojo-host');
 const REQUEST_PATH = path.join(DIR, 'request.json');
 const STATUS_PATH = path.join(DIR, 'status.json');
 const LOG_PATH = path.join(DIR, 'agent.log');
+const LOCK_PATH = path.join(DIR, 'agent.lock');
 
 // The agent heartbeats every 5s; three missed beats means it is gone. Long
 // enough that a busy host does not flicker the GUI, short enough that stopping
@@ -40,9 +41,27 @@ function readJson(file) {
 	try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; }
 }
 
+// Write to a sibling, then rename over the target. A plain writeFileSync
+// truncates first, so a reader landing in that window gets half a file: the
+// status would read as "no agent" and blink the GUI's buttons away, and a
+// half-written request would be deleted as unparseable — losing it silently.
+// Both sides poll on a timer, so that window is hit eventually. rename() is
+// atomic within a filesystem, which is what makes the reader see one or the
+// other and never a mixture.
+//
+// The suffix is the writer's pid: the agent and the server both write in here,
+// and two writers sharing one temp name would corrupt each other's file.
 function writeJson(file, value) {
 	fs.mkdirSync(DIR, { recursive: true });
-	fs.writeFileSync(file, JSON.stringify(value, null, '\t') + '\n', 'utf8');
+	const temp = file + '.' + process.pid + '.tmp';
+	fs.writeFileSync(temp, JSON.stringify(value, null, '\t') + '\n', 'utf8');
+	try {
+		fs.renameSync(temp, file);
+	} catch (e) {
+		// Never leave the scratch file behind to be mistaken for real state.
+		try { fs.unlinkSync(temp); } catch (cleanupError) { /* nothing to remove */ }
+		throw e;
+	}
 }
 
 function writeStatus(status) { writeJson(STATUS_PATH, status); }
@@ -70,6 +89,7 @@ module.exports = {
 	REQUEST_PATH: REQUEST_PATH,
 	STATUS_PATH: STATUS_PATH,
 	LOG_PATH: LOG_PATH,
+	LOCK_PATH: LOCK_PATH,
 	STALE_STATUS_MS: STALE_STATUS_MS,
 	ACTIONS: ACTIONS,
 	ACTION_SUMMARY: ACTION_SUMMARY,

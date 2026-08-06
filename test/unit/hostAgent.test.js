@@ -189,6 +189,58 @@ describe('hostAgent', function () {
 		assert.match(hostChannel.readStatus().lastResult.message, /docker exited 1/);
 	});
 
+	describe('concurrent access', function () {
+		afterEach(function () {
+			try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* not locked */ }
+		});
+
+		// writeFileSync truncates before it writes. Both sides poll on a timer, so
+		// a reader WILL eventually land in that window: the status would read as
+		// "no agent" and blink the GUI's buttons away, and a half-written request
+		// would be deleted as unparseable, losing it silently.
+		it('never leaves a half-written file for a reader to find', function () {
+			const big = { pid: 1, heartbeatAt: new Date().toISOString(), actions: hostChannel.ACTIONS, filler: 'x'.repeat(200000) };
+			hostChannel.writeStatus(big);
+			for (let i = 0; i < 40; i++) {
+				hostChannel.writeStatus(Object.assign({}, big, { pid: i }));
+				const seen = hostChannel.readStatus();
+				assert.ok(seen && seen.actions, 'a reader saw a partial file on iteration ' + i);
+			}
+		});
+
+		it('leaves no scratch file behind', function () {
+			hostChannel.writeStatus({ pid: 1, heartbeatAt: new Date().toISOString() });
+			const strays = fs.readdirSync(hostChannel.DIR).filter(function (n) { return n.endsWith('.tmp'); });
+			assert.deepStrictEqual(strays, [], 'temp files must be renamed away, not left to look like state');
+		});
+
+		it('lets exactly one agent hold the lock', function () {
+			assert.strictEqual(hostAgent.acquireLock(), true);
+			// the same process re-entering is fine; a DIFFERENT live pid is not
+			assert.strictEqual(hostAgent.acquireLock(), true);
+			fs.writeFileSync(hostChannel.LOCK_PATH, String(process.pid + 0), 'utf8');
+			assert.strictEqual(Number(hostAgent.readLockOwner()), process.pid);
+		});
+
+		it('takes over a lock whose owner is dead, but not one whose owner lives', function () {
+			fs.mkdirSync(hostChannel.DIR, { recursive: true });
+			fs.writeFileSync(hostChannel.LOCK_PATH, '2147483646', 'utf8');   // no such process
+			assert.strictEqual(hostAgent.acquireLock(), true, 'a force-killed agent must not lock the file forever');
+			assert.strictEqual(Number(hostAgent.readLockOwner()), process.pid);
+
+			// someone else, alive: process 1 exists on every platform this runs on
+			fs.writeFileSync(hostChannel.LOCK_PATH, '1', 'utf8');
+			assert.strictEqual(hostAgent.acquireLock(), false);
+		});
+
+		it('releases only a lock it still owns', function () {
+			fs.mkdirSync(hostChannel.DIR, { recursive: true });
+			fs.writeFileSync(hostChannel.LOCK_PATH, '1', 'utf8');
+			hostAgent.releaseLock();
+			assert.strictEqual(fs.existsSync(hostChannel.LOCK_PATH), true, 'must not remove another agent\'s lock');
+		});
+	});
+
 	describe('single instance', function () {
 		it('sees no agent when nothing has written a status', function () {
 			hostChannel.clearStatus();

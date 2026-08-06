@@ -246,6 +246,44 @@ function pidAlive(pid) {
 	try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
+// Exclusive ownership, so two agents can never both consume one request and run
+// its action twice — two concurrent `update`s would be genuinely bad. The pid
+// check below narrows the window; only an atomic create closes it, because two
+// starts in the same instant would both see no agent and both spawn.
+//
+// 'wx' fails if the file exists, and that failure IS the lock. A lock left by a
+// force-killed agent is detected by its pid being dead and taken over — the one
+// case where deleting someone else's lock is correct.
+function acquireLock() {
+	fs.mkdirSync(hostChannel.DIR, { recursive: true });
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			const fd = fs.openSync(hostChannel.LOCK_PATH, 'wx');
+			fs.writeSync(fd, String(process.pid));
+			fs.closeSync(fd);
+			return true;
+		} catch (e) {
+			if (e.code !== 'EEXIST') throw e;
+			const owner = Number(String(readLockOwner()));
+			if (owner === process.pid) return true;
+			if (pidAlive(owner)) return false;
+			try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (unlinkError) { /* another starter won the takeover */ }
+		}
+	}
+	return false;
+}
+
+function readLockOwner() {
+	try { return fs.readFileSync(hostChannel.LOCK_PATH, 'utf8').trim(); } catch (e) { return ''; }
+}
+
+// Only ever release a lock we still own: a takeover means someone else's pid is
+// in there now, and removing it would let a third agent in.
+function releaseLock() {
+	if (Number(readLockOwner()) !== process.pid) return;
+	try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* already gone */ }
+}
+
 function liveAgent() {
 	const status = hostChannel.readStatus();
 	if (!hostChannel.isLive(status, Date.now())) return null;
@@ -260,6 +298,9 @@ function stopRunning() {
 	if (!status || !pidAlive(status.pid)) { hostChannel.clearStatus(); return false; }
 	try { process.kill(status.pid); } catch (e) { /* raced with its own exit */ }
 	hostChannel.clearStatus();
+	// A killed agent never runs its own handler, so its lock has to go too or the
+	// next start would have to wait for the stale-pid takeover.
+	try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* never locked */ }
 	console.log('[dojo-agent] stopped (pid ' + status.pid + ')');
 	return true;
 }
@@ -292,7 +333,10 @@ function run() {
 		console.log('[dojo-agent] stop it with: npm run ui:stop');
 		return;
 	}
-	fs.mkdirSync(hostChannel.DIR, { recursive: true });
+	if (!acquireLock()) {
+		console.log('[dojo-agent] another agent holds the lock (pid ' + readLockOwner() + ') — nothing to do.');
+		return;
+	}
 	// A request left over from a previous session must not fire the moment the
 	// agent starts — rule 4, applied at the one moment age alone cannot cover.
 	try { fs.unlinkSync(hostChannel.REQUEST_PATH); } catch (e) { /* nothing stale */ }
@@ -315,6 +359,7 @@ function run() {
 		// Clear the status so the GUI stops offering buttons that nothing will
 		// answer, rather than waiting for the heartbeat to age out.
 		hostChannel.clearStatus();
+		releaseLock();
 		log('stopped.');
 		process.exit(0);
 	}
@@ -333,6 +378,9 @@ module.exports = {
 	run: run,
 	startDetached: startDetached,
 	stopRunning: stopRunning,
+	acquireLock: acquireLock,
+	releaseLock: releaseLock,
+	readLockOwner: readLockOwner,
 	liveAgent: liveAgent,
 	pidAlive: pidAlive,
 	MAX_REQUEST_AGE_MS: MAX_REQUEST_AGE_MS,

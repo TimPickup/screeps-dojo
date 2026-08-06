@@ -163,6 +163,10 @@ How it stays safe:
   rate-limited so a wedged server cannot spin your machine.
 - Every decision, including every refusal, is appended to `.dojo-host/agent.log`
   along with the output of whatever it ran — which is what the GUI tails.
+- Both files are written to a temp name and renamed into place, so a reader
+  polling on a timer never catches a half-written one. Only one agent runs at a
+  time, held by an exclusive lock file rather than a check-then-act, so two
+  cannot both consume the same request.
 - It does strictly less than the `npm run ui` you already ran: that command
   builds images and recreates containers itself.
 
