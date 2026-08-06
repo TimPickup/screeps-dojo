@@ -11,6 +11,7 @@ import { CreepRenderer } from './creeps.ts';
 import {
 	drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill, drawTowerTurret,
 	drawSourceCore, drawControllerProgress, drawSpawnFill, drawSpawnProgress, drawTombstone, drawDroppedResource,
+	drawConstructionSite,
 } from './dynamic.ts';
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
 import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
@@ -189,6 +190,8 @@ export function drawFrame(
 
 	// 2d) live structure fills, source cores, controller progress, spawn arcs,
 	//     link beams — all energy-blind in the baked structure layer, so drawn here.
+	//     Construction sites join them: the baked layer is progress-blind too, and
+	//     theirs advances every tick.
 	for (const object of baseObjectsInDrawOrder) {
 		const position = worldPosition(object.room, object.x, object.y);
 		if (!position) continue;
@@ -215,6 +218,9 @@ export function drawFrame(
 			}
 			case 'spawn':
 				drawSpawnProgress(ctx, object, centerX, centerY, baseFrame.gameTime, subFrame === null ? 0 : subFrame);
+				break;
+			case 'constructionSite':
+				drawConstructionSite(ctx, object, centerX, centerY, baseFrame.gameTime + (subFrame ?? 0));
 				break;
 			case 'tombstone': drawTombstone(ctx, centerX, centerY); break;
 			case 'energy': case 'resource': {

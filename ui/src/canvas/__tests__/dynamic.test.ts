@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   energyFillFraction, drawExtensionFill, drawTerminalFill, drawLabFill, drawTowerTurret, towerTurretAngle, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
+  drawConstructionSite, constructionSitePulseOpacity,
 } from '../dynamic';
-import { RENDER_COLORS } from '../renderConstants';
+import { CONSTRUCTION_SITE_RENDER_STYLE, RENDER_COLORS } from '../renderConstants';
 import { mockCtx } from './mockCtx';
 import type { FrameObject } from '../../api/types';
 
@@ -160,6 +161,82 @@ describe('tower turret', () => {
       expect(towerTurretAngle(tower({ [action]: target }), 123)).toBeCloseTo(expected);
     });
   }
+});
+
+describe('construction site', () => {
+  const site = (progress: number, my = true): FrameObject => ({
+    _id: 'site', type: 'constructionSite', room: 'W1N1', x: 5, y: 5,
+    structureType: 'extension', progress, progressTotal: 3000, my,
+  } as unknown as FrameObject);
+
+  it('draws an 80%-tile outline ring in the owner colour, with no fill', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(0), 5.5, 5.5, 0);
+    const ring = log.find((c) => c.op === 'arc') as { args: number[] };
+    expect(ring.args.slice(0, 3)).toEqual([5.5, 5.5, CONSTRUCTION_SITE_RENDER_STYLE.radius]);
+    expect(log.some((c) => c.op === 'fill')).toBe(false);
+    expect(log.some((c) => c.op === 'set:strokeStyle'
+      && c.args[0] === RENDER_COLORS.ownership.ownStructure)).toBe(true);
+  });
+
+  it('uses the enemy colour for a site that is not the bot\'s', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(1500, false), 5.5, 5.5, 0);
+    const colors = log.filter((c) => c.op === 'set:strokeStyle').map((c) => c.args[0]);
+    expect(colors).toEqual([RENDER_COLORS.ownership.otherStructure, RENDER_COLORS.ownership.otherStructure]);
+  });
+
+  it('sweeps the progress wedge clockwise from twelve o\'clock, in proportion to progress', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(750), 5.5, 5.5, 0);
+    const wedge = log.filter((c) => c.op === 'arc')[1] as { args: number[] };
+    expect(wedge.args[3]).toBeCloseTo(-Math.PI / 2);
+    expect(wedge.args[4]).toBeCloseTo(-Math.PI / 2 + 0.25 * Math.PI * 2);
+  });
+
+  it('paints the wedge as a filled pie that stops inside the ring', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(3000), 5.5, 5.5, 0);
+    const { radius, outlineWidth } = CONSTRUCTION_SITE_RENDER_STYLE;
+    const wedgeRadius = radius - outlineWidth / 2;
+    const wedge = log.filter((c) => c.op === 'arc')[1] as { args: number[] };
+    // A stroke of the full wedge width centred half-way out reads as a solid pie.
+    expect(wedge.args[2]).toBeCloseTo(wedgeRadius / 2);
+    const widths = log.filter((c) => c.op === 'set:lineWidth').map((c) => c.args[0]);
+    expect(widths[widths.length - 1]).toBeCloseTo(wedgeRadius);
+    // Its outer edge must not reach the ring, or the two strokes composite.
+    expect(wedgeRadius).toBeLessThanOrEqual(radius - outlineWidth / 2);
+  });
+
+  it('draws the ring but no wedge for an untouched site', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(0), 5.5, 5.5, 0);
+    expect(log.filter((c) => c.op === 'arc')).toHaveLength(1);
+  });
+
+  it('pulses between peak and trough opacity once per tick', () => {
+    const { pulsePeakOpacity, pulseTroughOpacity } = CONSTRUCTION_SITE_RENDER_STYLE;
+    expect(constructionSitePulseOpacity(0)).toBeCloseTo(pulsePeakOpacity);
+    expect(constructionSitePulseOpacity(0.5)).toBeCloseTo(pulseTroughOpacity);
+    expect(constructionSitePulseOpacity(1)).toBeCloseTo(pulsePeakOpacity);
+    // Never outside the band, and identical one cycle later (no drift).
+    for (let phase = 0; phase <= 1; phase += 0.05) {
+      const opacity = constructionSitePulseOpacity(phase);
+      expect(opacity).toBeGreaterThanOrEqual(pulseTroughOpacity - 1e-9);
+      expect(opacity).toBeLessThanOrEqual(pulsePeakOpacity + 1e-9);
+      expect(constructionSitePulseOpacity(phase + 7)).toBeCloseTo(opacity);
+    }
+  });
+
+  it('applies the pulse to both the ring and the wedge', () => {
+    const { ctx, log } = mockCtx();
+    drawConstructionSite(ctx, site(1500), 5.5, 5.5, 0.5);
+    const alphas = log.filter((c) => c.op === 'set:globalAlpha').map((c) => c.args[0]);
+    expect(alphas).toEqual([
+      CONSTRUCTION_SITE_RENDER_STYLE.pulseTroughOpacity,
+      CONSTRUCTION_SITE_RENDER_STYLE.pulseTroughOpacity,
+    ]);
+  });
 });
 
 describe('constants', () => {

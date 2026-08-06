@@ -210,6 +210,11 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'extractor',
 ]);
 
+// The epoch cache KEY, not the draw list: an object type belongs here only if
+// it is baked into the cached structure canvas, because listing it makes the
+// whole background rebuild whenever one appears, moves, or disappears.
+// Construction sites are deliberately absent — they are drawn per frame (their
+// progress changes every tick), so keying on them would rebuild for nothing.
 export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([
 	...STRUCTURE_SHELL_TYPES,
 	'constructedWall',
@@ -217,8 +222,16 @@ export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([
 	'source',
 	'mineral',
 	'deposit',
-	'constructionSite',
 ]);
+
+export const CONSTRUCTION_SITE_RENDER_STYLE = {
+	// 80% of a tile across, matching the owned-structure outline weight.
+	radius: 0.25,
+	outlineWidth: 0.10,
+	// Pulses between these once per tick, which is one second of replay at 1x.
+	pulsePeakOpacity: 0.7,
+	pulseTroughOpacity: 0.5,
+} as const;
 
 // Screeps controller progress totals (from @screeps/common constants).
 export const CONTROLLER_LEVEL_PROGRESS: Readonly<Record<number, number>> = {
