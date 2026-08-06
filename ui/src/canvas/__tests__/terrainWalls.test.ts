@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { WALL_RENDER_STYLE } from '../renderConstants';
 import { buildWallIslands, drawWallIslands } from '../terrainWalls';
 import { mockCtx } from './mockCtx';
 
@@ -38,13 +39,13 @@ describe('terrain wall islands', () => {
     expect(fullRoom.log.filter((call) => call.op === 'quadraticCurveTo')).toHaveLength(0);
   });
 
-  it('draws the supplied texture once per room at ten percent opacity', () => {
+  it('draws the supplied texture once per room at the configured opacity', () => {
     const { ctx, log } = mockCtx();
     const texture = {} as CanvasImageSource;
     drawWallIslands(ctx, terrainWithWalls([[5, 5]]), texture);
     expect(log.filter((call) => call.op === 'drawImage')).toHaveLength(1);
     expect(log.some((call) => call.op === 'set:globalAlpha'
-      && call.args[0] === 0.1)).toBe(true);
+      && call.args[0] === WALL_RENDER_STYLE.textureOpacity)).toBe(true);
     expect(log.some((call) => call.op === 'set:globalCompositeOperation'
       && call.args[0] === 'source-over')).toBe(true);
   });

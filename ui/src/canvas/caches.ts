@@ -1,7 +1,9 @@
 import type { Frame, Recording, StageLayout } from '../api/types.ts';
 import { buildTerrainCanvas, buildStructureCanvas, type CanvasFactory } from './staticLayers.ts';
 import { populateFrameMy } from './ownership.ts';
-import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION } from './renderConstants.ts';
+import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION, SWAMP_RENDER_STYLE } from './renderConstants.ts';
+import { AnimatedSwampRenderer } from './terrainSwamps.ts';
+import type { TerrainRenderResources, TerrainTextures } from './terrainTextures.ts';
 
 // ---- Per-epoch static-scene background cache ----
 // Epoch = a run of frames with the same structure layout. Key excludes
@@ -26,19 +28,42 @@ export class StaticLayers {
 	private resolution: number;
 	private canvasFactory?: CanvasFactory;
 	private botUserId?: string;
+	private animatedSwamps?: AnimatedSwampRenderer;
 
 	constructor(
 		recording: Recording,
 		layout: StageLayout,
 		resolution = STATIC_LAYER_RESOLUTION,
 		canvasFactory?: CanvasFactory,
-		terrainTexture?: CanvasImageSource,
+		terrainResources: TerrainRenderResources = {},
 	) {
 		this.layout = layout;
 		this.resolution = resolution;
 		this.canvasFactory = canvasFactory;
 		this.botUserId = recording.meta.botUserId;
-		this.terrain = buildTerrainCanvas(recording, layout, resolution, canvasFactory, terrainTexture);
+		const firstSwampTexture = terrainResources.textures?.swampNoise1;
+		const secondSwampTexture = terrainResources.textures?.swampNoise2;
+		const animateSwamps = SWAMP_RENDER_STYLE.animated
+			&& Boolean(firstSwampTexture)
+			&& Boolean(secondSwampTexture);
+		let cachedTerrainTextures = terrainResources.textures;
+		if (animateSwamps && cachedTerrainTextures) {
+			cachedTerrainTextures = {
+				...cachedTerrainTextures,
+				swampNoise1: undefined,
+				swampNoise2: undefined,
+			} satisfies TerrainTextures;
+		}
+		this.terrain = buildTerrainCanvas(recording, layout, resolution, canvasFactory, cachedTerrainTextures);
+		if (animateSwamps && firstSwampTexture && secondSwampTexture) {
+			const pathFactory = terrainResources.pathFactory || (() => new Path2D());
+			this.animatedSwamps = new AnimatedSwampRenderer(
+				recording.terrain,
+				layout,
+				[firstSwampTexture, secondSwampTexture],
+				pathFactory,
+			);
+		}
 		const firstFrame = recording.frames[0];
 		this.prepare(firstFrame);
 		this.key = epochKey(firstFrame);
@@ -47,6 +72,10 @@ export class StaticLayers {
 
 	prepare(frame: Frame): void {
 		populateFrameMy(frame, this.botUserId);
+	}
+
+	drawSwamps(ctx: CanvasRenderingContext2D, animationTime: number): void {
+		this.animatedSwamps?.draw(ctx, animationTime);
 	}
 
 	// Rebuild the structure layer only when the structure set changes.

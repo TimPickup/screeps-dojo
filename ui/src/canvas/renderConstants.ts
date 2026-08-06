@@ -49,7 +49,8 @@ export const RENDER_COLORS = {
 	},
 	terrain: {
 		plain: '#2b2b2b',
-		swamp: '#29301d',
+		swamp: '#3a4429',
+		swampOutline: '#292a208e',
 		wall: '#101010',
 		wallOuterShadow: '#00000020',
 		wallInnerGlow: '#FFFFFF05',
@@ -120,6 +121,18 @@ export const WALL_RENDER_STYLE = {
 	innerGlowWidth: 0.7,
 	innerHighlightWidth: 0.2,
 	outlineWidth: 0.045,
+} as const;
+
+export const SWAMP_RENDER_STYLE = {
+	animated: true,
+	cornerRadius: 0.45,
+	outlineWidth: 0.25,
+	textureOpacity: 0.3,
+	textureRepeatsPerRoom: 2,
+	textureLayers: [
+		{ velocityX: 0.32, velocityY: 0.14 },
+		{ velocityX: -0.19, velocityY: -0.27 },
+	],
 } as const;
 
 export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([

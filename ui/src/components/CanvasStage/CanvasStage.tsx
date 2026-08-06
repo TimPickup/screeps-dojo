@@ -4,7 +4,7 @@ import { StaticLayers } from '../../canvas/caches';
 import { CreepRenderer } from '../../canvas/creeps';
 import { drawFrame } from '../../canvas/drawFrame';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
-import { useTerrainTexture } from '../../hooks/useTerrainTexture';
+import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
 import styles from './CanvasStage.module.css';
 
@@ -47,7 +47,7 @@ interface Props {
 // native Canvas2D creeps, interpolation, effects and RoomVisual playback.
 export function CanvasStage({ recording, layout, relPath, playing, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
   const fontsReady = useRenderFonts();
-  const terrainTexture = useTerrainTexture();
+  const terrainTextures = useTerrainTextures();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
@@ -71,15 +71,15 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    if (!fontsReady || !terrainTexture) return () => { cancelled = true; };
+    if (!fontsReady || !terrainTextures) return () => { cancelled = true; };
     const initial = recordingRef.current;
     const sprites = new CreepRenderer();
-    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, terrainTexture);
+    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, { textures: terrainTextures });
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
     if (!cancelled) setReady(true);
     return () => { cancelled = true; };
-  }, [layout, relPath, recording.meta.botUserId, fontsReady, terrainTexture]);
+  }, [layout, relPath, recording.meta.botUserId, fontsReady, terrainTextures]);
 
   // keep playhead synced to a scrubbed tick when paused
   useEffect(() => { if (!playing) playhead.current = tick; }, [tick, playing]);

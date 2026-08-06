@@ -3,7 +3,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
-const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts, loadImage, Path2D } = require('@napi-rs/canvas');
 
 const FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
 const FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf';
@@ -41,7 +41,7 @@ function makeRecording() {
 }
 
 describe('shared Canvas2D renderer', function () {
-	let drawFrame, StaticLayers, CreepRenderer, computeStageLayout, creepFacing, renderFont, terrainTexture;
+	let drawFrame, StaticLayers, CreepRenderer, computeStageLayout, creepFacing, renderFont, terrainTextures;
 
 	before(async function () {
 		const modules = await Promise.all([
@@ -57,7 +57,12 @@ describe('shared Canvas2D renderer', function () {
 		computeStageLayout = modules[3].computeStageLayout;
 		creepFacing = modules[3].creepFacing;
 		renderFont = modules[4];
-		terrainTexture = await loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png'));
+		const textures = await Promise.all([
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png')),
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/swamp-noise1.png')),
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/swamp-noise2.png'))
+		]);
+		terrainTextures = { wallNoise: textures[0], swampNoise1: textures[1], swampNoise2: textures[2] };
 		if (!GlobalFonts.families.some(function (entry) { return entry.family === renderFont.RENDER_FONT_FAMILY; })) {
 			assert.ok(GlobalFonts.registerFromPath(FONT_REGULAR, renderFont.RENDER_FONT_FAMILY));
 			assert.ok(GlobalFonts.registerFromPath(FONT_BOLD, renderFont.RENDER_FONT_FAMILY));
@@ -79,7 +84,10 @@ describe('shared Canvas2D renderer', function () {
 		const canvas = createCanvas(layout.width, layout.height);
 		const ctx = canvas.getContext('2d');
 		const scale = layout.pixelsPerRoom / 50;
-		const layers = new StaticLayers(recording, layout, scale, createCanvas, terrainTexture);
+		const layers = new StaticLayers(recording, layout, scale, createCanvas, {
+			textures: terrainTextures,
+			pathFactory: function () { return new Path2D(); }
+		});
 		const sprites = new CreepRenderer();
 
 		function render(sub) {

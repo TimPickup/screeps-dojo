@@ -4,7 +4,7 @@ import { drawStaticScene } from '../../canvas/staticLayers';
 import type { ScenarioPreviewScene } from '../../render/scenarioPreview';
 import { buildScenarioPreviewScene } from '../../render/scenarioPreview';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
-import { useTerrainTexture } from '../../hooks/useTerrainTexture';
+import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import styles from './ScenarioPreview.module.css';
 
 interface CachedPreview {
@@ -36,7 +36,7 @@ function cacheScene(scenario: string, cached: CachedPreview): void {
 
 export function ScenarioPreview({ scenario }: { scenario: string }) {
   const fontsReady = useRenderFonts();
-  const terrainTexture = useTerrainTexture();
+  const terrainTextures = useTerrainTextures();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [scene, setScene] = useState<ScenarioPreviewScene | null>(null);
@@ -71,7 +71,7 @@ export function ScenarioPreview({ scenario }: { scenario: string }) {
   useEffect(() => {
     const host = hostRef.current;
     const canvas = canvasRef.current;
-    if (!host || !canvas || !scene || !fontsReady || !terrainTexture) return;
+    if (!host || !canvas || !scene || !fontsReady || !terrainTextures) return;
     let raf = 0;
     const render = () => {
       raf = 0;
@@ -101,7 +101,7 @@ export function ScenarioPreview({ scenario }: { scenario: string }) {
       const tx = (width - worldWidth * scale) / 2;
       const ty = (height - worldHeight * scale) / 2;
       ctx.setTransform(scale * dpr, 0, 0, scale * dpr, tx * dpr, ty * dpr);
-      drawStaticScene(ctx, scene, { initialSourceEnergy: true, terrainTexture });
+      drawStaticScene(ctx, scene, { initialSourceEnergy: true, terrainTextures });
     };
     const schedule = () => {
       if (!raf) raf = window.requestAnimationFrame(render);
@@ -110,7 +110,7 @@ export function ScenarioPreview({ scenario }: { scenario: string }) {
     observer.observe(host);
     schedule();
     return () => { observer.disconnect(); if (raf) window.cancelAnimationFrame(raf); };
-  }, [scene, fontsReady, terrainTexture]);
+  }, [scene, fontsReady, terrainTextures]);
 
   const roomCount = scene ? Object.keys(scene.terrain).length : 0;
   const duplicateCount = scene?.duplicateRooms.length || 0;

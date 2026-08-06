@@ -25,7 +25,11 @@ describe('drawFrame spawn transition', () => {
     const sprites = {
       draw: (_ctx: unknown, object: { spawning?: unknown }, x: number, y: number) => draws.push({ object, x, y }),
     };
-    const layers = { terrain: {}, structure: {}, prepare: () => undefined };
+    let swampAnimationTime = -1;
+    const layers = {
+      terrain: {}, structure: {}, prepare: () => undefined,
+      drawSwamps: (_ctx: unknown, animationTime: number) => { swampAnimationTime = animationTime; },
+    };
 
     const { ctx } = mockCtx();
     drawFrame(ctx, recording, 0, 0.75, {
@@ -36,5 +40,6 @@ describe('drawFrame spawn transition', () => {
     expect(draws[0].object.spawning).toBe(false);
     expect(draws[0].x).toBeCloseTo(10.5);
     expect(draws[0].y).toBe(10);
+    expect(swampAnimationTime).toBe(0.75);
   });
 });

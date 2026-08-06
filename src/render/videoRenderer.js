@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { once } = require('events');
-const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts, loadImage, Path2D } = require('@napi-rs/canvas');
 const ffmpegPath = require('ffmpeg-static');
 
 const FONT_FILES = [
@@ -16,15 +16,20 @@ const FONT_FILES = [
 	'/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf'
 ];
 let sharedRendererPromise = null;
-let terrainTexturePromise = null;
+let terrainTexturesPromise = null;
 let fontsRegistered = false;
 
-function loadTerrainTexture() {
-	if (!terrainTexturePromise) {
-		const texturePath = path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png');
-		terrainTexturePromise = loadImage(texturePath);
+function loadTerrainTextures() {
+	if (!terrainTexturesPromise) {
+		terrainTexturesPromise = Promise.all([
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png')),
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/swamp-noise1.png')),
+			loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/swamp-noise2.png'))
+		]).then(function (textures) {
+			return { wallNoise: textures[0], swampNoise1: textures[1], swampNoise2: textures[2] };
+		});
 	}
-	return terrainTexturePromise;
+	return terrainTexturesPromise;
 }
 
 function loadSharedRenderer() {
@@ -129,7 +134,7 @@ async function renderRecording(recording, outFile, options) {
 		options);
 	validateSettings(recording, settings);
 	throwIfCancelled(settings.signal);
-	const [shared, terrainTexture] = await Promise.all([loadSharedRenderer(), loadTerrainTexture()]);
+	const [shared, terrainTextures] = await Promise.all([loadSharedRenderer(), loadTerrainTextures()]);
 	registerFonts(shared.renderFontFamily);
 	const availableRooms = Object.keys(recording.terrain || {});
 	const rooms = Array.isArray(settings.rooms) && settings.rooms.length
@@ -147,7 +152,10 @@ async function renderRecording(recording, outFile, options) {
 	const canvas = createCanvas(width, height);
 	const ctx = canvas.getContext('2d');
 	const layerResolution = settings.pixelsPerRoom / 50;
-	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas, terrainTexture);
+	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas, {
+		textures: terrainTextures,
+		pathFactory: function () { return new Path2D(); }
+	});
 	const sprites = new shared.CreepRenderer();
 	const expectedBytes = width * height * 4;
 	const lastIndex = recording.frames.length - 1;

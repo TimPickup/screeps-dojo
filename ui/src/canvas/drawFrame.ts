@@ -58,6 +58,7 @@ export function drawFrame(
 
 	// 1) static layers (client-side, synchronous — never black)
 	ctx.drawImage(options.layers.terrain, 0, 0, widthInTiles, heightInTiles);
+	options.layers.drawSwamps(ctx, frameIndex + (subFrame ?? 0));
 	ctx.drawImage(options.layers.structure, 0, 0, widthInTiles, heightInTiles);
 
 	// world tile coords for a room-local position
