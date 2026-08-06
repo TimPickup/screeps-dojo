@@ -1,7 +1,10 @@
 node_modules/
-.env
-# Copies of .env taken before it is rewritten into profile form (src/envMigrate.js).
-.env.bak*
+# Everything .env EXCEPT the example: the real one holds an API token, and so do
+# the copies people make of it (".env copy", ".env.local") and the backups taken
+# before it is rewritten into profile form (src/envMigrate.js). Allow-listing the
+# example is the only safe shape here — a token committed once is compromised.
+.env*
+!.env.example
 .noratelimit.url
 # Generated from the bot profiles in .env by scripts/composeOverride.js; the
 # host paths in it are machine-specific.

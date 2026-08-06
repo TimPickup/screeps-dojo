@@ -57,8 +57,17 @@ data. A few notes on its security posture:
 
 - It uses `screeps-api@2.x`, which depends on a patched `axios` (the old `0.28.x` line in
   `screeps-api@1.x` carried the SSRF / credential-leak advisories).
-- Your token is read from `.env` (gitignored) and is **never printed to the console**. When
-  the importer needs to surface the no-rate-limit activation link (which the Screeps page
-  requires the token to be embedded in), it writes the full link to `.noratelimit.url`
-  (gitignored) and prints only a masked token. Keep both files out of shared logs and
-  screenshots, and rotate your token if it is ever exposed.
+- Your token is read from `.env` and is **never printed to the console**. When the importer
+  needs to surface the no-rate-limit activation link (which the Screeps page requires the
+  token to be embedded in), it writes the full link to `.noratelimit.url` and prints only a
+  masked token. Keep both files out of shared logs and screenshots, and rotate your token if
+  it is ever exposed.
+- `.gitignore` covers `.env` **and every copy of it** — `.env copy`, `.env.local`, and the
+  `.env.bak*` backups the server writes before rewriting the file — with `.env.example`
+  allow-listed back in. A token committed once is compromised even if a later commit removes
+  it, so the ignore rule is deliberately a blanket one.
+- The GUI never receives a token. `/api/env` masks secrets before they leave the server, and
+  the browser is careful never to write a mask back. That is also why **renaming a profile
+  happens server-side**: the browser could not carry a value it is not allowed to see.
+- The host agent (`npm run host-agent`) accepts only a fixed set of action *names* from the
+  container — never a command — and is described in full in the README.

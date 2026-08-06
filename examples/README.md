@@ -23,7 +23,12 @@ every required piece of the `scenario.js` contract.
   `flags`. Paint these by hand or with the GUI's visual Edit tab.
 - **`main.js`** — the bot code uploaded into the game VM. Here it is a tiny
   inline bot; in a real scenario you pull your own modules with
-  `loadBotModules([...])` / `allBotModules()` from `src/botModules`.
+  `loadBotModules([...])` / `allBotModules()` from `src/botModules`. Which
+  codebase those come from is the scenario's **bot profile** — add an optional
+  `settings.json` (or use the ⚙ beside the Edit tab) to point one scenario at a
+  different one:
+
+      { "bot": "speedrun", "bots": { "enemy": "default" }, "server": "season" }
 - **`scenario.js`** — wires it together:
   - `modules` — code to run in the VM.
   - `setup(world)` — `loadScenarioMaps([map], spawnOpts)`, then `addCreep`,

@@ -124,7 +124,9 @@ changing a path** is a mount change, and Settings has a button for that (see
 below). Each row shows its own mount status, so you always know which are live
 and which are still waiting.
 
-The older `DOJO_BOT_PATH` still works and means the profile named `default`.
+The older `DOJO_BOT_PATH` still works and means the bot profile named `default`;
+the server rewrites it into the profile form on boot. (Server profiles have no
+`default` — see below.)
 
 ### Applying a mount change without leaving the browser
 
@@ -201,30 +203,43 @@ error.
 
 ## Screeps server profiles
 
-The room importer takes the same treatment, except that each server profile
-**stands alone** — it inherits nothing from any other profile, so what a row
-shows is what it will connect with:
+The room importer takes the same treatment. **The shards are set up for you** on
+first boot — `shard0` through `shard3`, `shardx` and `season` — prefilled except
+for the credentials, which are the only part nobody can guess:
 
-    DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN=...
-    DOJO_SCREEPS_PROFILE_DEFAULT_SHARD=shard0
-    DOJO_SCREEPS_PROFILE_SEASON_TOKEN=...
-    DOJO_SCREEPS_PROFILE_SEASON_SHARD=season
-    DOJO_DEFAULT_SCREEPS_PROFILE=default
+    DOJO_SCREEPS_PROFILE_SHARD0_HOSTNAME=screeps.com
+    DOJO_SCREEPS_PROFILE_SHARD0_SHARD=shard0
+    DOJO_SCREEPS_PROFILE_SHARD0_TOKEN=...        # you add this
+    DOJO_SCREEPS_PROFILE_SEASON_PATH=/season/
+    DOJO_SCREEPS_PROFILE_SEASON_SHARD=shardSeason
+    DOJO_DEFAULT_SCREEPS_PROFILE=shard0
+
+Seeding happens **once** and is recorded in `.env`, so deleting or renaming one
+of them sticks. `shardx` is the spare — edit it for a private server, or a shard
+that has no row of its own.
+
+Each profile **stands alone**: it inherits nothing from another profile, so what
+a row shows is what it will connect with. A key you leave out falls back to the
+built-in default (`screeps.com`, `443`, `https`, `/`, `shard0`), never to
+another profile's value.
 
 Authentication is either/or: set a **token**, or set **username + password** for
 a private server whose token is accepted over REST but rejected by the WebSocket
 (e.g. screepsmod-auth). The address fields — hostname, port, protocol, path —
-describe where the server is and apply to either. A key you leave out falls back
-to the built-in default (`screeps.com`, `443`, `https`, `/`, `shard0`), never to
-another profile's value.
+describe where the server is and apply to either.
 
 Renaming a profile is done by the server, not the browser, so a token comes with
 it — the browser is only ever sent a mask.
 
 `npm run import-room -- <scenario> <ROOM>` reads that scenario's
 `settings.json`, so the CLI and the GUI always import from the same server the
-scenario is about. The unsuffixed `DOJO_SCREEPS_*` keys still work and mean the
-`default` profile.
+scenario is about. The unsuffixed `DOJO_SCREEPS_*` keys still work; the server
+rewrites them into a profile on boot (named `a_server`) and keeps a `.env.bak`.
+
+**Never commit `.env`.** It holds an API token, and a token in a commit is
+compromised even after you delete it. `.gitignore` covers `.env` and every copy
+of it — `.env copy`, `.env.local`, the `.env.bak*` backups — with `.env.example`
+allow-listed back in.
 
 ## Writing a scenario
 
