@@ -87,6 +87,7 @@ export const api = {
     return res.json() as Promise<{ ok: boolean; restartRequired: boolean }>;
   },
   hostAgent: () => jget<HostAgentStatus>('/api/host-agent'),
+  hostAgentLog: (lines = 40) => jget<{ lines: string[] }>('/api/host-agent/log?lines=' + lines),
   // The action is a name from a closed server-side list; nothing else is sent,
   // and nothing sent ever reaches a command line on the host.
   hostAgentRequest: (action: string) =>

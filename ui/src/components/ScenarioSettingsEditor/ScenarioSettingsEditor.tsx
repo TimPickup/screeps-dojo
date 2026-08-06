@@ -110,7 +110,7 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
     // Registered in .env but never bind-mounted: the container only picks up a
     // mount when it is (re)created, so the fix is a host-side command.
     if (!profile.mounted) {
-      return <div className={styles.warn}>{profile.name} is registered but not mounted — run <code>npm run ui</code> on the host, then this scenario can use it.</div>;
+      return <div className={styles.warn}>{profile.name} is registered but not mounted — apply it from Settings, then this scenario can use it.</div>;
     }
     if (profile.error) return <div className={styles.bad}>{profile.name}: {profile.error}</div>;
     return null;

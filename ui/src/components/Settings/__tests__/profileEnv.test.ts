@@ -421,10 +421,11 @@ describe('botStatusLabel', () => {
   });
 
   // A bind mount is fixed when the container is created, so a registered profile
-  // is not usable until `npm run ui` recreates it.
-  it('asks for npm run ui when the profile is registered but not mounted', () => {
+  // is not usable until the container is recreated, which the Apply button
+  // right below the table asks the host agent to do.
+  it('points at Apply when the profile is registered but not mounted', () => {
     const label = botStatusLabel(status({ mounted: false, jsModuleCount: 0, error: 'not mounted — run npm run ui' }), 'C:/bots/main');
-    expect(label).toEqual({ text: '⚠ registered — run npm run ui to mount', tone: 'warn' });
+    expect(label).toEqual({ text: '⚠ registered — not mounted yet, Apply below', tone: 'warn' });
   });
 
   it('shows a real filesystem error instead of the generic line', () => {
@@ -436,7 +437,7 @@ describe('botStatusLabel', () => {
   // live yet however healthy the existing mount looks.
   it('flags a path that has been changed since the mount was made', () => {
     expect(botStatusLabel(status(), 'C:/bots/other'))
-      .toEqual({ text: '⚠ path changed — Save, then run npm run ui to re-mount', tone: 'warn' });
+      .toEqual({ text: '⚠ path changed — Save, then Apply below', tone: 'warn' });
   });
 
   it('flags a row the server has never seen', () => {

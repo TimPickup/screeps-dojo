@@ -333,12 +333,12 @@ export interface StatusLabel { text: string; tone: 'ok' | 'warn' }
 // itself knows which it is in — a blanket "restart needed" warning on every save
 // would just train people to ignore it.
 export function botStatusLabel(status: BotProfile | undefined, hostPath: string): StatusLabel {
-  if (!status) return { text: '⚠ not registered yet — Save, then run npm run ui to mount it', tone: 'warn' };
+  if (!status) return { text: '⚠ not registered yet — Save, then Apply below', tone: 'warn' };
   // The mount carries the path it was created with; a newer path in .env is not
   // live until the container is recreated.
-  if (status.hostPath !== hostPath) return { text: '⚠ path changed — Save, then run npm run ui to re-mount', tone: 'warn' };
+  if (status.hostPath !== hostPath) return { text: '⚠ path changed — Save, then Apply below', tone: 'warn' };
   if (!status.mounted) {
-    const detail = status.error && status.error.indexOf('not mounted') === -1 ? status.error : 'registered — run npm run ui to mount';
+    const detail = status.error && status.error.indexOf('not mounted') === -1 ? status.error : 'registered — not mounted yet, Apply below';
     return { text: '⚠ ' + detail, tone: 'warn' };
   }
   if (status.jsModuleCount === 0) return { text: '⚠ ' + (status.error || 'mounted but holds no .js modules'), tone: 'warn' };

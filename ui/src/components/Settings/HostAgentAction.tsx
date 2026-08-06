@@ -21,19 +21,36 @@ export function HostAgentAction({ action, fallback, label }: Props) {
   const [status, setStatus] = useState<HostAgentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [asked, setAsked] = useState(false);
+  const [tail, setTail] = useState<string[]>([]);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
     let live = true;
     const poll = () => {
       api.hostAgent()
-        .then((s) => { if (live) { setStatus(s); if (!s.pending && !s.busy) setAsked(false); } })
+        .then((s) => {
+          if (!live) return;
+          setStatus(s);
+          if (!s.pending && !s.busy) setAsked(false);
+        })
         .catch(() => { if (live) setStatus(null); });
     };
     poll();
     timer.current = window.setInterval(poll, POLL_MS);
     return () => { live = false; if (timer.current) window.clearInterval(timer.current); };
   }, []);
+
+  // Tail the agent's log only while something is actually running — polling a
+  // file every few seconds for a button nobody pressed is pure noise.
+  const busyNow = Boolean(status && (status.busy || status.pending)) || asked;
+  useEffect(() => {
+    if (!busyNow) { setTail([]); return; }
+    let live = true;
+    const pull = () => { api.hostAgentLog(12).then((r) => { if (live) setTail(r.lines); }).catch(() => {}); };
+    pull();
+    const id = window.setInterval(pull, 1500);
+    return () => { live = false; window.clearInterval(id); };
+  }, [busyNow]);
 
   const offered = status?.running && status.actions.includes(action);
   // `recreate` restarts the very server this page is talking to, so the page
@@ -42,10 +59,13 @@ export function HostAgentAction({ action, fallback, label }: Props) {
 
   if (!offered) {
     if (!fallback) return null;
+    // No agent answering. `npm run ui` normally starts one, so this is either
+    // --no-agent, a stopped agent, or a machine where spawning it failed —
+    // in every case the command is still the answer.
     return (
       <div className={styles.hint}>
-        Run <code>{fallback}</code> on the host. (Start <code>npm run host-agent</code> once and this
-        becomes a button.)
+        Run <code>{fallback}</code> on the host, or start the helper that does it for you:{' '}
+        <code>npm run host-agent</code>.
       </div>
     );
   }
@@ -61,17 +81,24 @@ export function HostAgentAction({ action, fallback, label }: Props) {
   const last = status.lastResult && status.lastResult.action === action ? status.lastResult : null;
 
   return (
-    <div className={styles.row}>
-      <button className={styles.btn} disabled={working} onClick={run}>
-        {working ? 'working…' : label}
-      </button>
-      {interrupts && !working && <span className={styles.hint}>the GUI will reconnect on its own</span>}
-      {error && <span className={styles.err}>{error}</span>}
-      {!working && last && (
-        <span className={last.ok ? styles.ok : styles.err}>
-          {last.ok ? '✓ done' : '✗ ' + (last.message || 'failed')}
-        </span>
+    <>
+      <div className={styles.row}>
+        <button className={styles.btn} disabled={working} onClick={run}>
+          {working ? 'working…' : label}
+        </button>
+        {interrupts && !working && <span className={styles.hint}>the GUI will reconnect on its own</span>}
+        {error && <span className={styles.err}>{error}</span>}
+        {!working && last && (
+          <span className={last.ok ? styles.ok : styles.err}>
+            {last.ok ? '✓ done' : '✗ ' + (last.message || 'failed')}
+          </span>
+        )}
+      </div>
+      {/* An update rebuilds the image for minutes. The agent streams that
+          output to its log, so show it rather than a spinner and a promise. */}
+      {working && tail.length > 0 && (
+        <pre className={styles.log}>{tail.join('\n')}</pre>
       )}
-    </div>
+    </>
   );
 }

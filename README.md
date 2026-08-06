@@ -120,24 +120,32 @@ up front, and selects between them **by name**:
 
 Every profile is mounted read-only at `/bots/<name>`, so switching which one a
 scenario runs — or which one is the default — is instant. Only **adding or
-changing a path** is a mount change, and needs `npm run ui` once afterwards.
-The Settings screen shows per-profile mount status, so you always know which
-rows are live and which are still waiting.
+changing a path** is a mount change, and Settings has a button for that (see
+below). Each row shows its own mount status, so you always know which are live
+and which are still waiting.
 
 The older `DOJO_BOT_PATH` still works and means the profile named `default`.
 
 ### Applying a mount change without leaving the browser
 
 The GUI runs inside the container, so it cannot recreate its own container or
-rebuild its own image — those are host commands. Start the **host agent** and it
-can ask you to:
+rebuild its own image — those are host commands. `npm run ui` therefore starts a
+small **host agent** behind it, and the GUI asks that.
 
-    npm run host-agent          # watch until you stop it (Ctrl-C)
-    npm run ui -- --agent       # open the GUI, then keep watching in this terminal
+So Settings has an **Apply mount changes** button and the update banner has an
+**Update now** button, and neither needs you to open a terminal. A rebuild's
+output streams into the button's own log view, so an update is not a spinner and
+a promise.
 
-With it running, Settings grows an **Apply mount changes** button and the update
-banner grows an **Update now** button. Without it, both show the command to type
-instead — nothing breaks, and nothing is installed or left running behind you.
+    npm run ui                  # start the GUI, with the agent behind it
+    npm run ui -- --agent       # ...but keep THIS terminal as the agent, to watch it
+    npm run ui -- --no-agent    # ...and don't start it at all
+    npm run host-agent          # start it on its own
+    npm run ui:stop             # stop the GUI and the agent together
+
+Nothing is installed: no service, no scheduled task, no autostart. It lives and
+dies with `npm run ui` / `npm run ui:stop`, only one runs at a time, and with no
+agent running the GUI just shows the command to type, exactly as before.
 
 How it stays safe:
 
@@ -154,7 +162,9 @@ How it stays safe:
   most once per id, dropped if they were made while no agent was listening, and
   rate-limited so a wedged server cannot spin your machine.
 - Every decision, including every refusal, is appended to `.dojo-host/agent.log`
-  and printed in the agent's terminal.
+  along with the output of whatever it ran — which is what the GUI tails.
+- It does strictly less than the `npm run ui` you already ran: that command
+  builds images and recreates containers itself.
 
 ### Per-scenario overrides
 

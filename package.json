@@ -25,8 +25,8 @@
 		"serve:inner": "node scripts/serve.js",
 		"build:ui": "cd ui && npm install && npm run build",
 		"ui": "node scripts/ui.js",
-		"ui:stop": "docker compose stop ui",
-		"ui:down": "docker compose down",
+		"ui:stop": "node scripts/hostAgent.js --stop && docker compose stop ui",
+		"ui:down": "node scripts/hostAgent.js --stop && docker compose down",
 		"host-agent": "node scripts/hostAgent.js"
 	},
 	"dependencies": {

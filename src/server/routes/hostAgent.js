@@ -9,6 +9,7 @@
 // closed list (src/hostChannel.js) and nothing else — no path, no argument, no
 // flag — so the worst a compromised server could ask for is one of the three
 // things you already agreed to when you started the agent.
+const fs = require('fs');
 const crypto = require('crypto');
 const hostChannel = require('../../hostChannel');
 
@@ -32,6 +33,17 @@ module.exports = function registerHostAgentRoutes(router, ctx) {
 	router.get('/api/host-agent', function (req, res) {
 		try { ctx.sendJson(res, 200, statusPayload()); }
 		catch (e) { ctx.sendJson(res, 500, { error: String((e && e.message) || e) }); }
+	});
+
+	// The tail of the agent's log. An update rebuilds the image for minutes with
+	// its output streaming here, so without this the GUI could only say "working"
+	// and ask you to trust it.
+	router.get('/api/host-agent/log', function (req, res) {
+		const wanted = Math.min(Math.max(parseInt(req.query.get('lines'), 10) || 40, 1), 500);
+		let text = '';
+		try { text = fs.readFileSync(hostChannel.LOG_PATH, 'utf8'); } catch (e) { /* nothing logged yet */ }
+		const lines = text.split('\n').filter(function (line) { return line.trim() !== ''; });
+		ctx.sendJson(res, 200, { lines: lines.slice(-wanted) });
 	});
 
 	router.post('/api/host-agent/request', function (req, res) {

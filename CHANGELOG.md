@@ -16,9 +16,9 @@ bot path.
 - **Bot profiles.** `DOJO_BOT_PROFILE_<NAME>_PATH` registers a codebase; every
   one is mounted read-only at `/bots/<name>`, so switching which one runs is a
   name lookup rather than a mount change. `DOJO_DEFAULT_BOT_PROFILE` picks the
-  default, and changing it is free. Only adding or repointing a *path* still
-  needs one `npm run ui`, because a bind mount is fixed when the container is
-  created.
+  default, and changing it is free. Adding or repointing a *path* is a mount
+  change — a bind mount is fixed when the container is created — so Settings
+  offers a button that has the host agent apply it.
 - **Per-scenario `settings.json`** — `{ "bot": "speedrun", "bots": { "enemy":
   "default" }, "server": "season" }`. It resolves before `scenario.js` is
   required, so `allBotModules()` picks the right codebase with no code change,
@@ -31,14 +31,19 @@ bot path.
   the GUI always import from the server that scenario is about.
 - **Per-profile status in Settings**, replacing the blanket "changing the bot
   path needs a container restart" warning: each row says whether it is mounted,
-  how many `.js` modules it holds, or that it is still waiting on `npm run ui`.
+  how many `.js` modules it holds, or that it is still waiting to be mounted.
 - `npm run bots:sync` regenerates `docker-compose.override.yml` from `.env`.
   `npm run ui` and `npm test` do it for you.
-- **A host agent** (`npm run host-agent`, or `npm run ui -- --agent`) that
-  performs the handful of things the container cannot do for itself: recreate
+- **A host agent**, started by `npm run ui` and stopped by `npm run ui:stop`,
+  performing the handful of things the container cannot do for itself: recreate
   itself so a new bot mount takes effect, restart, or take an update. Settings
-  and the update banner turn into buttons while it is running, and back into a
-  command to type when it is not.
+  and the update banner are buttons now, not commands to copy, and a rebuild's
+  output streams into the button's own log view. It does strictly less than the
+  launcher that starts it, which already builds images and recreates containers.
+
+  Nothing is installed — no service, no scheduled task, no autostart; one agent
+  at a time, and `--no-agent` skips it, after which the GUI shows commands to
+  type exactly as before.
 
   The container asks through a file — `.dojo-host/request.json` — naming an
   action from a fixed list (`restart`, `recreate`, `update`) and nothing else;

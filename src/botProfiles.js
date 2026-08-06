@@ -108,7 +108,7 @@ function resolveDir(name, env, sourceLabel) {
 	const dir = dirFor(wanted, env);
 	if (!isReadableDir(dir)) {
 		throw new Error(where + 'bot profile "' + wanted + '" is registered but not mounted at '
-			+ dir + ' — run npm run ui to mount it');
+			+ dir + ' — apply it from Settings, or run npm run ui');
 	}
 	return dir;
 }
@@ -144,7 +144,7 @@ function status(profile, env) {
 			name: profile.name, hostPath: profile.hostPath, legacy: profile.legacy,
 			dir: dir, mounted: false, jsModuleCount: 0,
 			error: e && e.code === 'ENOENT'
-				? 'not mounted — run npm run ui'
+				? 'not mounted — apply it from Settings, or run npm run ui'
 				: String((e && e.message) || e)
 		};
 	}

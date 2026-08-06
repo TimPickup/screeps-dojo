@@ -18,10 +18,11 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
-// `npm run ui -- --agent`: stay in the foreground afterwards as the host agent
-// (scripts/hostAgent.js), so the GUI can ask for the host-side commands it
-// cannot run itself.
+// The host agent (scripts/hostAgent.js) lets the GUI ask for the host-side
+// commands it cannot run itself. It starts in the background by default;
+// --agent keeps this terminal as the agent instead, --no-agent skips it.
 const WITH_AGENT = process.argv.slice(2).includes('--agent');
+const NO_AGENT = process.argv.slice(2).includes('--no-agent');
 const PORT = Number(process.env.DOJO_UI_PORT) || 8787;
 const URL = 'http://localhost:' + PORT + '/';
 
@@ -85,13 +86,29 @@ const timer = setInterval(function () {
 			// the GUI shows its own update banner, but this process keeps the
 			// terminal, so say it here too
 			require('../src/updateCheck').printNotice().then(function () {
-				// --agent keeps this terminal alive as the host agent, so the GUI
-				// can ask for a recreate/restart/update instead of printing a
-				// command for you to run. Without it, nothing changes: the GUI
-				// shows the command, exactly as before.
-				if (WITH_AGENT) require('./hostAgent').run();
-				else console.log('[dojo-ui] tip: `npm run ui -- --agent` (or `npm run host-agent`) lets the GUI\n'
-					+ '[dojo-ui]      apply bot-path changes and updates without you typing a command.');
+				// The host agent comes up with the GUI. It can do strictly less
+				// than this launcher already did (build the image, recreate the
+				// container), so making it a second command to remember only meant
+				// the GUI's buttons quietly did not appear.
+				//
+				//   --no-agent  don't start it (the GUI prints commands instead)
+				//   --agent     keep THIS terminal as the agent, to watch it work
+				if (NO_AGENT) {
+					console.log('[dojo-ui] host agent not started (--no-agent): the GUI will show commands to run.');
+					return;
+				}
+				if (WITH_AGENT) { require('./hostAgent').run(); return; }
+				const started = require('./hostAgent').startDetached();
+				if (started.started) {
+					console.log('[dojo-ui] host agent running in the background (pid ' + started.pid + ')'
+						+ ' — Settings can now apply bot-path changes and updates for you.');
+					console.log('[dojo-ui] it logs to .dojo-host/agent.log and stops with: npm run ui:stop');
+				} else if (started.reason === 'already running') {
+					console.log('[dojo-ui] host agent already running (pid ' + started.pid + ').');
+				} else {
+					console.log('[dojo-ui] could not start the host agent (' + started.reason + ')'
+						+ ' — the GUI will show commands to run instead.');
+				}
 			});
 		}
 	});

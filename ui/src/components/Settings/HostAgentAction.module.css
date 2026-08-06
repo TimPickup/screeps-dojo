@@ -8,3 +8,4 @@
 .hint code { color: var(--accent); }
 .ok { color: var(--accent); font-size: 11px; }
 .err { color: var(--hostile); font-size: 11px; }
+.log { margin: 6px 0 0; padding: 6px 8px; max-height: 150px; overflow: auto; background: #0f120e; border: 1px solid var(--line2); border-radius: var(--radius); color: var(--muted); font-size: 10px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
