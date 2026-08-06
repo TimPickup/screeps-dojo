@@ -1,15 +1,11 @@
 'use strict';
 
-// Implements the RoomVisual drawing surface (spec §8): the five primitives
-// plus clear(), collecting plain element objects. SVG conversion lives in
-// frameRenderer; this class stays renderer-agnostic so the same drawing code
-// can back the browser editor later.
+// Installs lib/RoomVisual.js on a renderer-independent command surface.
 const { installVisualGlobals } = require('./visualGlobals');
-const { FakeRoomVisual } = require('./svgPrimitives');
+const { FakeRoomVisual } = require('./visualSurface');
 
 let libraryInstalled = false;
 
-// Loads lib/RoomVisual.js on top of FakeRoomVisual exactly once per process.
 function installRoomVisualLibrary() {
 	installVisualGlobals(FakeRoomVisual);
 	if (!libraryInstalled) {

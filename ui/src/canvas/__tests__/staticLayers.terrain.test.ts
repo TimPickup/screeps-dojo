@@ -11,23 +11,22 @@ function rows(fill: string): string[] {
 }
 
 describe('drawTerrain', () => {
-  it('fills wall tiles and skips plain tiles', () => {
+  it('leaves walls for the epoch-cached merged wall layer', () => {
     const { ctx, log } = mockCtx();
     drawTerrain(ctx, rows('.'));
-    // The room background is one big rect; wall tiles add fillRects. Plain (.) tiles
-    // are skipped, so the wall at (3,4) must appear as a 1x1 fillRect.
-    const wall = log.find((c) => c.op === 'fillRect' && c.args[0] === 3 && c.args[1] === 4 && c.args[2] === 1);
-    expect(wall).toBeTruthy();
+    expect(log.some((call) => call.op === 'quadraticCurveTo')).toBe(false);
+    expect(log.some((call) => call.op === 'fillRect'
+      && call.args[0] === 3 && call.args[1] === 4 && call.args[2] === 1)).toBe(false);
   });
 
   it('does not emit a 1x1 fillRect for every plain tile', () => {
     const { ctx, log } = mockCtx();
     drawTerrain(ctx, rows('.'));
     const unitRects = log.filter((c) => c.op === 'fillRect' && c.args[2] === 1 && c.args[3] === 1);
-    expect(unitRects.length).toBeLessThan(5); // just the wall(s), not ~2500 plains
+    expect(unitRects.length).toBe(0);
   });
 
-  it('exit chevrons match frameRenderer geometry (left border: base x=0.65, tip x=0.2)', () => {
+  it('draws left-border exit chevrons with base x=0.65 and tip x=0.2', () => {
     const { ctx, log } = mockCtx();
     // All-plain terrain with no walls means all borders are walkable
     const allPlain: string[] = [];

@@ -1,117 +1,143 @@
-import type { Frame, FrameObject, Recording, StageLayout } from '../api/types';
-import { generateCreepSvg, countBodyParts } from '../render/creepSprite';
-import { INVADER_INNER, INVADER_VIEWBOX } from '../render/invaderAsset';
-import { svgToImage } from './rasterize';
-import { buildTerrainCanvas, buildStructureCanvas, STATIC_RES } from './staticLayers';
-
-const NPC_USERS = new Set(['2', '3']);
-const CREEP_SIZE_TILES = 1.25;
-const SPRITE_PX = 96; // rasterization resolution per creep sprite (crisp to ~3x zoom)
-const STORE_BUCKETS = 8;
-
-// ---- Creep + invader sprite cache (rasterized from the exact SVG generator) ----
-// Sprites are rasterized centred in a CREEP_SIZE_TILES box (in tile units) and
-// drawn at world tile coords; rotation is applied at draw time, not baked.
-export class SpriteCache {
-  private creeps = new Map<string, HTMLImageElement>();
-  private invader: HTMLImageElement | null = null;
-  private botUserId?: string;
-
-  constructor(botUserId?: string) { this.botUserId = botUserId; }
-
-  private key(o: FrameObject): string {
-    const counts = countBodyParts(o.body);
-    const body = Object.keys(counts).sort().map((k) => k + counts[k]).join('');
-    const owner = o.user === this.botUserId ? 'me' : (NPC_USERS.has(String(o.user)) ? 'npc' : 'enemy');
-    const store = o.store || {};
-    let used = 0; for (const r of Object.keys(store)) used += store[r];
-    const cap = (o.storeCapacity as number) || 0;
-    const bucket = cap > 0 ? Math.round(Math.min(1, used / cap) * STORE_BUCKETS) : (used > 0 ? STORE_BUCKETS : 0);
-    const onlyEnergy = Object.keys(store).filter((r) => store[r] > 0).every((r) => r === 'energy');
-    return owner + '|' + body + '|' + bucket + '|' + (onlyEnergy ? 'e' : 'x');
-  }
-
-  // Pre-rasterize every distinct creep appearance + the invader, so the first
-  // frame paints with all creeps present (no pop-in). Resolves when ready.
-  async prewarm(recording: Recording): Promise<void> {
-    const jobs: Promise<void>[] = [];
-    const seen = new Set<string>();
-    for (const frame of recording.frames) {
-      for (const o of frame.objects) {
-        if (o.type !== 'creep' || o.spawning) continue;
-        if (NPC_USERS.has(String(o.user))) continue; // invader handled separately
-        const k = this.key(o);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        jobs.push(this.rasterizeCreep(k, o));
-      }
-    }
-    jobs.push(this.rasterizeInvader());
-    await Promise.all(jobs);
-  }
-
-  private async rasterizeCreep(key: string, o: FrameObject): Promise<void> {
-    const counts = countBodyParts(o.body);
-    const inner = o.user === this.botUserId ? '#5577ff' : '#ff5555';
-    const S = CREEP_SIZE_TILES;
-    const inner_svg = generateCreepSvg(S / 2, S / 2, S, counts, o.store, 1, inner, o.storeCapacity as number);
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + SPRITE_PX + '" height="' + SPRITE_PX + '" viewBox="0 0 ' + S + ' ' + S + '">' + inner_svg + '</svg>';
-    try { this.creeps.set(key, await svgToImage(svg)); } catch (e) { /* skip */ }
-  }
-
-  private async rasterizeInvader(): Promise<void> {
-    const size = 0.95; // tiles (matches frameRenderer)
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + SPRITE_PX + '" height="' + SPRITE_PX + '" viewBox="0 0 ' + INVADER_VIEWBOX.width + ' ' + INVADER_VIEWBOX.height + '">' + INVADER_INNER + '</svg>';
-    try { this.invader = await svgToImage(svg); } catch (e) { /* skip */ }
-    void size;
-  }
-
-  creepSprite(o: FrameObject): HTMLImageElement | null { return this.creeps.get(this.key(o)) || null; }
-  invaderSprite(): HTMLImageElement | null { return this.invader; }
-  isBot(o: FrameObject): boolean { return !!this.botUserId && o.user === this.botUserId; }
-  isNpc(o: FrameObject): boolean { return NPC_USERS.has(String(o.user)); }
-}
+import type { Frame, Recording, StageLayout } from '../api/types.ts';
+import {
+	buildRampartCanvas,
+	buildTerrainCanvas,
+	buildStructureCanvas,
+	type CanvasFactory,
+} from './staticLayers.ts';
+import { populateFrameMy } from './ownership.ts';
+import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION, SWAMP_RENDER_STYLE } from './renderConstants.ts';
+import { AnimatedSwampRenderer } from './terrainSwamps.ts';
+import type { TerrainRenderResources, TerrainTextures } from './terrainTextures.ts';
 
 // ---- Per-epoch static-scene background cache ----
 // Epoch = a run of frames with the same structure layout. Key excludes
 // energy/progress (those would change every tick); minor in-epoch staleness of
-// energy fills is accepted (SVG mode is exact).
-const STRUCT_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
-  'factory', 'observer', 'nuker', 'powerSpawn', 'container', 'road', 'rampart', 'constructedWall',
-  'controller', 'invaderCore', 'keeperLair', 'extractor', 'source', 'mineral', 'constructionSite']);
-
+// energy fills is accepted by the cached static layer.
 export function epochKey(frame: Frame): string {
-  const parts: string[] = [];
-  for (const o of frame.objects) {
-    if (!STRUCT_TYPES.has(o.type)) continue;
-    parts.push(o.type + ',' + o.room + ',' + o.x + ',' + o.y + ',' + (o.level ?? '') + ',' + (o.user ?? ''));
-  }
-  parts.sort();
-  return parts.join('|');
+	const parts: string[] = [];
+	for (const object of frame.objects) {
+		if (!STATIC_LAYER_OBJECT_TYPES.has(object.type)) continue;
+		parts.push(object.type + ',' + object.room + ',' + object.x + ',' + object.y + ','
+			+ (object.level ?? '') + ',' + (object.user ?? '') + ',' + (object.depositType ?? ''));
+	}
+	for (const flag of frame.flags || []) parts.push('flag,' + JSON.stringify(flag));
+	parts.sort();
+	return parts.join('|');
+}
+
+export function rampartEpochKey(frame: Frame): string {
+	const parts: string[] = [];
+	for (const object of frame.objects) {
+		if (object.type !== 'rampart') continue;
+		parts.push([
+			object.room,
+			object.x,
+			object.y,
+			object.my ? 'own' : 'other',
+			object.isPublic === true ? 'public' : 'private',
+		].join(','));
+	}
+	parts.sort();
+	return parts.join('|');
 }
 
 export class StaticLayers {
-  terrain: HTMLCanvasElement;
-  structure: HTMLCanvasElement;
-  private key: string;
-  private layout: StageLayout;
-  private res: number;
+	terrain: HTMLCanvasElement;
+	structure: HTMLCanvasElement;
+	rampart: HTMLCanvasElement | null;
+	private structureKey: string;
+	private rampartKey: string;
+	private layout: StageLayout;
+	private resolution: number;
+	private canvasFactory?: CanvasFactory;
+	private botUserId?: string;
+	private animatedSwamps?: AnimatedSwampRenderer;
+	private terrainRowsByRoom: Record<string, string[]>;
+	private wallTexture?: CanvasImageSource;
 
-  constructor(recording: Recording, layout: StageLayout, res = STATIC_RES) {
-    this.layout = layout;
-    this.res = res;
-    this.terrain = buildTerrainCanvas(recording, layout, res);
-    const first = recording.frames[0];
-    this.key = epochKey(first);
-    this.structure = buildStructureCanvas(first, layout, res);
-  }
+	constructor(
+		recording: Recording,
+		layout: StageLayout,
+		resolution = STATIC_LAYER_RESOLUTION,
+		canvasFactory?: CanvasFactory,
+		terrainResources: TerrainRenderResources = {},
+	) {
+		this.layout = layout;
+		this.resolution = resolution;
+		this.canvasFactory = canvasFactory;
+		this.botUserId = recording.meta.botUserId;
+		this.terrainRowsByRoom = recording.terrain;
+		this.wallTexture = terrainResources.textures?.wallNoise;
+		const firstSwampTexture = terrainResources.textures?.swampNoise1;
+		const secondSwampTexture = terrainResources.textures?.swampNoise2;
+		const animateSwamps = SWAMP_RENDER_STYLE.animated
+			&& Boolean(firstSwampTexture)
+			&& Boolean(secondSwampTexture);
+		let cachedTerrainTextures = terrainResources.textures;
+		if (animateSwamps && cachedTerrainTextures) {
+			cachedTerrainTextures = {
+				...cachedTerrainTextures,
+				swampNoise1: undefined,
+				swampNoise2: undefined,
+			} satisfies TerrainTextures;
+		}
+		this.terrain = buildTerrainCanvas(recording, layout, resolution, canvasFactory, cachedTerrainTextures);
+		if (animateSwamps && firstSwampTexture && secondSwampTexture) {
+			const pathFactory = terrainResources.pathFactory || (() => new Path2D());
+			this.animatedSwamps = new AnimatedSwampRenderer(
+				recording.terrain,
+				layout,
+				[firstSwampTexture, secondSwampTexture],
+				pathFactory,
+			);
+		}
+		const firstFrame = recording.frames[0];
+		this.prepare(firstFrame);
+		this.structureKey = epochKey(firstFrame);
+		this.rampartKey = rampartEpochKey(firstFrame);
+		this.structure = buildStructureCanvas(
+			firstFrame,
+			layout,
+			resolution,
+			canvasFactory,
+			this.terrainRowsByRoom,
+			this.wallTexture,
+		);
+		this.rampart = this.rampartKey
+			? buildRampartCanvas(firstFrame, layout, resolution, canvasFactory)
+			: null;
+	}
 
-  // Rebuild the structure layer only when the structure set changes.
-  sync(frame: Frame): void {
-    const k = epochKey(frame);
-    if (k !== this.key) {
-      this.key = k;
-      this.structure = buildStructureCanvas(frame, this.layout, this.res);
-    }
-  }
+	prepare(frame: Frame): void {
+		populateFrameMy(frame, this.botUserId);
+	}
+
+	drawSwamps(ctx: CanvasRenderingContext2D, animationTime: number): void {
+		this.animatedSwamps?.draw(ctx, animationTime);
+	}
+
+	// Rebuild each cached overlay only when its own visual layout changes.
+	sync(frame: Frame): void {
+		this.prepare(frame);
+		const nextStructureKey = epochKey(frame);
+		if (nextStructureKey !== this.structureKey) {
+			this.structureKey = nextStructureKey;
+			this.structure = buildStructureCanvas(
+				frame,
+				this.layout,
+				this.resolution,
+				this.canvasFactory,
+				this.terrainRowsByRoom,
+				this.wallTexture,
+			);
+		}
+		const nextRampartKey = rampartEpochKey(frame);
+		if (nextRampartKey !== this.rampartKey) {
+			this.rampartKey = nextRampartKey;
+			this.rampart = nextRampartKey
+				? buildRampartCanvas(frame, this.layout, this.resolution, this.canvasFactory)
+				: null;
+		}
+	}
 }

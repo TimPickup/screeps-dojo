@@ -6,12 +6,22 @@ export function mockCtx(): { ctx: CanvasRenderingContext2D; log: Call[] } {
   const log: Call[] = [];
   const methods = [
     'save', 'restore', 'beginPath', 'closePath', 'moveTo', 'lineTo', 'arc',
-    'arcTo', 'rect', 'fill', 'stroke', 'fillRect', 'strokeRect', 'translate',
+    'arcTo', 'quadraticCurveTo', 'bezierCurveTo', 'rect', 'fill', 'stroke', 'clip', 'fillRect', 'strokeRect', 'translate',
     'rotate', 'scale', 'setLineDash', 'fillText', 'drawImage', 'setTransform',
   ];
   const target: Record<string, unknown> = {};
   for (const m of methods) target[m] = (...args: unknown[]) => { log.push({ op: m, args }); };
-  const props = ['fillStyle', 'strokeStyle', 'lineWidth', 'globalAlpha', 'font', 'textAlign', 'lineCap', 'textBaseline'];
+  target.createPattern = (...args: unknown[]) => {
+    log.push({ op: 'createPattern', args });
+    return {
+      setTransform: (...transformArgs: unknown[]) => log.push({ op: 'pattern.setTransform', args: transformArgs }),
+    };
+  };
+  target.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+  const props = [
+    'fillStyle', 'strokeStyle', 'lineWidth', 'globalAlpha', 'globalCompositeOperation',
+    'imageSmoothingEnabled', 'font', 'textAlign', 'lineCap', 'lineJoin', 'textBaseline',
+  ];
   const store: Record<string, unknown> = {};
   const handler: ProxyHandler<Record<string, unknown>> = {
     get: (t, p: string) => (props.includes(p) ? store[p] : t[p]),

@@ -5,11 +5,10 @@ import { useSyncExternalStore } from 'react';
 export interface Prefs {
   showUserVisuals: boolean;
   defaultReplaySpeed: number;
-  renderer: 'svg' | 'canvas';
 }
 
 const KEY = 'dojo.prefs';
-const DEFAULTS: Prefs = { showUserVisuals: true, defaultReplaySpeed: 1, renderer: 'canvas' };
+const DEFAULTS: Prefs = { showUserVisuals: true, defaultReplaySpeed: 1 };
 
 function read(): Prefs {
   try {

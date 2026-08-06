@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { api } from '../../../api/client';
+import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
 import styles from './EditTab.module.css';
 
 interface FileEntry { path: string; kind: string; }
@@ -65,8 +66,6 @@ export function EditTab({ scenario }: { scenario: string }) {
   const [rooms, setRooms] = useState('');
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const loadingRef = useRef(false);
 
   const selectedKind = files.find((f) => f.path === selected)?.kind;
   const isMap = selectedKind === 'map';
@@ -87,35 +86,12 @@ export function EditTab({ scenario }: { scenario: string }) {
     api.file(scenario, sc.path).then(({ content: c }) => { setSelected(sc.path); setContent(c); setMapDraft(c); setSavedContent(c); }).catch(() => {});
   }, [files, selected, scenario]);
 
-  // bridge with the embedded visual map editor (dojo-editor.html?embed=1)
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (!e.data) return;
-      if (e.data.type === 'dojoEditorReady') {
-        loadingRef.current = true; // the next change is the load echo, not an edit
-        iframeRef.current?.contentWindow?.postMessage({ type: 'dojoLoadMap', map: savedContent }, '*');
-      } else if (e.data.type === 'dojoMapChanged') {
-        if (loadingRef.current) {
-          loadingRef.current = false;
-          setMapDraft(e.data.map);
-          // The editor re-serialises a loaded map into its canonical form. If
-          // that's purely cosmetic (key order / whitespace) rebaseline so simply
-          // opening a map isn't reported as "unsaved changes". But if the editor
-          // had to REPAIR the map — generate missing source/mineral ids, migrate
-          // legacy structures[] sources to the top-level sources/minerals arrays —
-          // the echo differs semantically from disk; keep the on-disk content as
-          // the saved baseline so the repair shows as dirty and can be saved.
-          if (canonicalJson(e.data.map) === canonicalJson(savedContent)) {
-            setSavedContent(e.data.map);
-          }
-        } else {
-          setMapDraft(e.data.map);
-        }
-      }
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, [savedContent]);
+  const onMapEditorChange = (next: string, kind: CanvasMapEditorChangeKind) => {
+    setMapDraft(next);
+    // Loading canonicalizes harmless key order/empty values, while generated
+    // source/mineral ids remain a genuine repair that should be saved.
+    if (kind === 'load' && canonicalJson(next) === canonicalJson(savedContent)) setSavedContent(next);
+  };
 
   const open = async (f: FileEntry) => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
@@ -216,11 +192,11 @@ export function EditTab({ scenario }: { scenario: string }) {
                 <span className={styles.viewToggle}>
                   <button
                     className={mapView === 'visual' ? styles.viewActive : styles.viewBtn}
-                    onClick={() => { iframeRef.current?.contentWindow?.postMessage({ type: 'dojoLoadMap', map: mapDraft }, '*'); setMapView('visual'); }}
+                    onClick={() => setMapView('visual')}
                   >Visual</button>
                   <button
                     className={mapView === 'json' ? styles.viewActive : styles.viewBtn}
-                    onClick={() => { iframeRef.current?.contentWindow?.postMessage({ type: 'dojoLoadMap', map: mapDraft }, '*'); setMapView('json'); }}
+                    onClick={() => setMapView('json')}
                     title="Edit the raw map JSON"
                   >JSON</button>
                 </span>
@@ -231,15 +207,9 @@ export function EditTab({ scenario }: { scenario: string }) {
             </div>
             {isMap ? (
               <div className={styles.mapPane}>
-                <iframe
-                  key={selected}
-                  ref={iframeRef}
-                  className={styles.mapFrame}
-                  style={{ display: mapView === 'visual' ? 'block' : 'none' }}
-                  src="/dojo-editor.html?embed=1"
-                  title="map editor"
-                />
-                {mapView === 'json' && (
+                {mapView === 'visual' ? (
+                  <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} />
+                ) : (
                   <div className={styles.monaco}>
                     <Editor
                       height="100%"

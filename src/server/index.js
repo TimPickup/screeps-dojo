@@ -85,16 +85,6 @@ function createServer(opts) {
 			}
 			return;
 		}
-		// the standalone visual editor (embedded by the Edit tab via iframe)
-		if (pathname === '/dojo-editor.html') {
-			const fs = require('fs');
-			const editorPath = path.join(REPO_ROOT, 'editor', 'dojo-editor.html');
-			if (fs.existsSync(editorPath)) {
-				res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-				fs.createReadStream(editorPath).pipe(res);
-				return;
-			}
-		}
 		staticServer.serve(req, res, pathname);
 	});
 
