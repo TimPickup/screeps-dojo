@@ -5,11 +5,13 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
-## [Unreleased]
+## [0.7.0] — 2026-08-06
 
-Bot and server profiles. Register each of your codebases once and every scenario
-can pick between them by name — no container restart, and no more single global
-bot path.
+Register each of your bot codebases once and let every scenario pick between
+them by name. Screeps servers get the same treatment, with the shards set up
+for you, and a small host agent performs the few things the container cannot
+do for itself — so applying a new bot path or taking an update is a button
+rather than a command to go and type.
 
 ### Added
 
@@ -73,6 +75,19 @@ bot path.
   file — not a check-then-act — is what makes two agents impossible. The
   rejected alternative was mounting the Docker socket into the container, which
   would give the process running your bot code control of the host daemon.
+- **Old `.env` keys are migrated automatically** at server boot, with the
+  original copied to `.env.bak`. `DOJO_BOT_PATH` becomes
+  `DOJO_BOT_PROFILE_DEFAULT_PATH`, each `DOJO_SCREEPS_*` becomes
+  `DOJO_SCREEPS_PROFILE_DEFAULT_*`. This replaces the "Convert to profiles"
+  buttons, which could never finish the job: the browser only ever sees secrets
+  masked, so a token had to be left behind and retyped by hand.
+- **A full-screen wait while the host acts.** Restarting or updating takes the
+  server away, so the whole app says so — title, bouncing dots, and the agent's
+  live output underneath. Losing the connection is treated as the expected
+  middle of a restart, not a failure; past a per-action deadline it says what
+  went wrong and which command finishes the job by hand.
+- Replay speeds run from 0.25x to 128x, from one list shared by the replay
+  control and the Settings default (which persists in local storage).
 
 ### Changed
 
@@ -91,23 +106,6 @@ bot path.
 - `PUT /api/env` reports `restartRequired` only when a bot profile's host path
   actually changed, and can now delete keys outright (blanking one would leave a
   nameless profile behind).
-
-- **Old `.env` keys are migrated automatically** at server boot, with the
-  original copied to `.env.bak`. `DOJO_BOT_PATH` becomes
-  `DOJO_BOT_PROFILE_DEFAULT_PATH`, each `DOJO_SCREEPS_*` becomes
-  `DOJO_SCREEPS_PROFILE_DEFAULT_*`. This replaces the "Convert to profiles"
-  buttons, which could never finish the job: the browser only ever sees secrets
-  masked, so a token had to be left behind and retyped by hand.
-- **A full-screen wait while the host acts.** Restarting or updating takes the
-  server away, so the whole app says so — title, bouncing dots, and the agent's
-  live output underneath. Losing the connection is treated as the expected
-  middle of a restart, not a failure; past a per-action deadline it says what
-  went wrong and which command finishes the job by hand.
-- Replay speeds run from 0.25x to 128x, from one list shared by the replay
-  control and the Settings default (which persists in local storage).
-
-### Changed
-
 - **`npm run ui` no longer rebuilds the image every launch.** It compares the
   image against what the Dockerfile actually reads (Dockerfile, `package.json`,
   `package-lock.json`, the mock-engine patches) and builds only when one of
@@ -124,6 +122,12 @@ bot path.
   straight to the matching part of the main Settings panel.
 - The scenario settings file is labelled **(Scenario Overrides)** in the editor
   header, and Ctrl/Cmd-S saves the Settings panel as it already did the editor.
+
+### Fixed
+
+- CI caches the backend `node_modules` against the resolved Node version, so a
+  Node bump can no longer restore a cache holding isolated-vm's binding compiled
+  for the previous ABI (#12).
 
 ### Deprecated
 
