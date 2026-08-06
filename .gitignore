@@ -1,6 +1,14 @@
 node_modules/
-.env
+# Everything .env EXCEPT the example: the real one holds an API token, and so do
+# the copies people make of it (".env copy", ".env.local") and the backups taken
+# before it is rewritten into profile form (src/envMigrate.js). Allow-listing the
+# example is the only safe shape here — a token committed once is compromised.
+.env*
+!.env.example
 .noratelimit.url
+# Generated from the bot profiles in .env by scripts/composeOverride.js; the
+# host paths in it are machine-specific.
+docker-compose.override.yml
 /server/
 *.log
 recordings/
@@ -20,3 +28,7 @@ docs/superpowers/
 # Scoped to the .local. file by convention, so a shared .claude/settings.json
 # could still be committed deliberately if the project ever wants one.
 .claude/settings.local.json
+
+# Host-agent channel: request/status/log between the container and the host
+# agent (scripts/hostAgent.js). Runtime state, never committed.
+.dojo-host/

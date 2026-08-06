@@ -7,6 +7,11 @@ export interface Prefs {
   defaultReplaySpeed: number;
 }
 
+// Playback speeds, shared by the Settings default and the replay control so the
+// two can never offer different sets. 128x is the top end the animation loop
+// stays smooth at (it advances by dt * speed, so nothing else has to change).
+export const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128];
+
 const KEY = 'dojo.prefs';
 const DEFAULTS: Prefs = { showUserVisuals: true, defaultReplaySpeed: 1 };
 

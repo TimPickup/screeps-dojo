@@ -10,6 +10,18 @@
 const { createServer } = require('../src/server');
 const bootstrap = require('../src/server/bootstrap');
 
+// Fold any old unsuffixed keys into profile form before anything reads them, so
+// nobody is ever asked to understand two naming schemes at once. Boot must not
+// depend on it working — the legacy keys still resolve either way.
+try { require('../src/envMigrate').migrate({ log: console.log }); }
+catch (e) { console.log('[dojo] .env migration skipped: ' + String((e && e.message) || e)); }
+
+// ...then seed the Screeps shards, once ever. Order matters: migration turns the
+// old unsuffixed keys into a profile, and seeding is what renames that profile
+// away from "default" and puts the real shards alongside it.
+try { require('../src/envSeed').seed({ log: console.log }); }
+catch (e) { console.log('[dojo] server profile seeding skipped: ' + String((e && e.message) || e)); }
+
 const port = Number(process.env.DOJO_UI_PORT) || 8787;
 const { ready } = bootstrap.start();
 const server = createServer({ ready: ready });

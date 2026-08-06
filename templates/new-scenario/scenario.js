@@ -15,7 +15,9 @@ function loadMap(room) {
 
 module.exports = {
 	// Code uploaded into the game VM. Use a local main.js, OR pull your real
-	// modules with allBotModules() to run your whole bot.
+	// modules with allBotModules() to run your whole bot. WHICH codebase that is
+	// comes from your default bot profile — add a settings.json here (the ⚙ next
+	// to the Edit tab) to point this scenario at a different one.
 	modules: {
 		main: fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8')
 	},

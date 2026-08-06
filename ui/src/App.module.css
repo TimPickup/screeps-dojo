@@ -6,7 +6,7 @@
 .back { background: transparent; border: 1px solid var(--line); color: var(--text-dim); padding: 3px 10px; border-radius: var(--radius); }
 .back:hover { background: #1d1d1d; color: var(--text); }
 .spacer { margin-left: auto; }
-.cog { background: transparent; border: none; color: var(--muted); font-size: 18px; }
+.cog { background: transparent; border: none; color: var(--text); font-size: 18px; }
 .cog:hover { color: var(--accent); }
 .main { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .error { color: var(--hostile); padding: 8px 12px; }

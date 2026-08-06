@@ -23,10 +23,42 @@ const path = require('path');
 const assert = require('assert');
 const DojoWorld = require('./dojoWorld');
 const harnessWarnings = require('./harnessWarnings');
+const botModules = require('./botModules');
+const botProfiles = require('./botProfiles');
+const scenarioSettings = require('./scenarioSettings');
+const { loadEnvConfig } = require('./envConfig');
 const { createRecorder } = require('./recording');
 const { getMockEngineFeatures } = require('./serverBoot');
 
 const DEFAULT_TICK_TIMEOUT_MS = 60000;
+
+// Turns the scenario's settings.json into { side -> container dir } and installs
+// it, so allBotModules()/botDir() resolve against THIS scenario's bot profiles.
+// Must run before scenario.js is required: a scenario may build its `modules`
+// eagerly in the exported object literal, which evaluates at require time.
+function installSideContext(scenarioDir, emitWarning) {
+	const loaded = scenarioSettings.load(scenarioDir);
+	for (const warning of loaded.warnings) emitWarning(warning);
+	const label = path.basename(scenarioDir) + '/' + scenarioSettings.FILE_NAME;
+	// .env, not process.env: docker compose reads .env on the HOST to build the
+	// compose file and does NOT pass those variables into the container, so the
+	// profiles exist in here only as that file.
+	const env = loadEnvConfig();
+	const sides = {};
+	for (const side of Object.keys(loaded.settings.bots)) {
+		sides[side] = botProfiles.resolveDir(loaded.settings.bots[side], env, label);
+	}
+	if (sides.main === undefined) {
+		// A scenario that names no bot still gets the default — but a BROKEN
+		// default must not fail scenarios that never load bot code at all (the
+		// fixtures and anything with inline modules). Leave it unresolved and let
+		// botDir() raise the same error on first use, where it is actually about
+		// something the scenario asked for.
+		try { sides.main = botProfiles.implicitDir(env); } catch (e) { /* reported on first use */ }
+	}
+	botModules.setSides(sides);
+	return { sides: sides, settings: loaded.settings };
+}
 
 function snapshotHits(state) {
 	const hits = {};
@@ -51,6 +83,11 @@ async function runScenario(scenarioDir, options) {
 	function emit(evt) { if (onEvent) { try { onEvent(evt); } catch (e) { /* listener errors never break the run */ } } }
 	function isAborted() { const s = options.signal; return !!(s && s.aborted === true); }
 
+	// Resolve bot profiles BEFORE requiring the scenario — see installSideContext.
+	// harnessWarnings is reset below, so settings warnings are buffered until then.
+	const pendingWarnings = [];
+	const { sides } = installSideContext(scenarioDir, function (w) { pendingWarnings.push(w); });
+
 	const scenario = require(path.join(scenarioDir, 'scenario.js'));
 	if (typeof scenario.maxTicks !== 'number' || scenario.maxTicks <= 0) throw new Error(scenarioDir + ': maxTicks is required');
 	if (typeof scenario.setup !== 'function') throw new Error(scenarioDir + ': setup(world) is required');
@@ -68,6 +105,9 @@ async function runScenario(scenarioDir, options) {
 			scenario: path.basename(scenarioDir),
 			createdAt: new Date().toISOString(),
 			botUserId: world.botUserId,
+			// which codebase produced this replay — a recording is a lot less
+			// useful if you cannot tell which bot was running
+			bots: sides,
 			endReason: endReason,
 			ticks: ticks
 		};
@@ -116,6 +156,7 @@ async function runScenario(scenarioDir, options) {
 
 	try {
 		harnessWarnings.reset();   // a fresh run starts with a clean slate
+		for (const warning of pendingWarnings) harnessWarnings.warnOnce(warning, warning);
 		await world.reset();
 		world.modules = typeof scenario.modules === 'function' ? scenario.modules() : scenario.modules;
 		await scenario.setup(world);
@@ -138,7 +179,7 @@ async function runScenario(scenarioDir, options) {
 		let state = await world.readState();
 		emit({
 			type: 'start', scenario: path.basename(scenarioDir), maxTicks: scenario.maxTicks,
-			botUserId: world.botUserId, mockEngineFeatures: getMockEngineFeatures()
+			botUserId: world.botUserId, bots: sides, mockEngineFeatures: getMockEngineFeatures()
 		});
 
 		// terrain is captured once (it never changes); feed both the recorder
@@ -257,6 +298,9 @@ async function runScenario(scenarioDir, options) {
 			process.removeListener('SIGTERM', onKillSignal);
 			process.removeListener('SIGINT', onKillSignal);
 		}
+		// test/scenarios.test.js runs every scenario in one process — leaving this
+		// scenario's bot profiles installed would silently apply them to the next
+		botModules.clearSides();
 		world.stop();
 	}
 }

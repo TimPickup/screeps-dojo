@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { api } from '../../../api/client';
 import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
+import { ScenarioSettingsEditor } from '../../ScenarioSettingsEditor/ScenarioSettingsEditor';
 import styles from './EditTab.module.css';
 
 interface FileEntry { path: string; kind: string; }
@@ -54,37 +55,69 @@ function newFileContent(name: string): string {
   return '';
 }
 
-export function EditTab({ scenario }: { scenario: string }) {
+export function EditTab({ scenario, initialFile }: { scenario: string; initialFile?: string }) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [mapDraft, setMapDraft] = useState('');
-  const [mapView, setMapView] = useState<'visual' | 'json'>('visual');
+  const [settingsDraft, setSettingsDraft] = useState('');
+  const [view, setView] = useState<'visual' | 'json'>('visual');
   const [savedContent, setSavedContent] = useState('');
   const [status, setStatus] = useState<string>('');
   const [importing, setImporting] = useState(false);
   const [rooms, setRooms] = useState('');
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
+  const jumpingRef = useRef(false);
 
   const selectedKind = files.find((f) => f.path === selected)?.kind;
   const isMap = selectedKind === 'map';
-  const current = isMap ? mapDraft : content;
-  // maps: compare normalized JSON so the editor's re-serialized whitespace
-  // doesn't show as "dirty" the instant the map loads.
-  const dirty = isMap ? normalizedJson(current) !== normalizedJson(savedContent) : current !== savedContent;
+  const isSettings = selectedKind === 'settings';
+  const structured = isMap || isSettings;
+  const current = isMap ? mapDraft : isSettings ? settingsDraft : content;
+  // maps and settings: compare normalized JSON so the editor's re-serialized
+  // whitespace doesn't show as "dirty" the instant the file loads.
+  const dirty = structured ? normalizedJson(current) !== normalizedJson(savedContent) : current !== savedContent;
 
   const refreshFiles = () => api.files(scenario).then(setFiles).catch(() => {});
   useEffect(() => { refreshFiles(); }, [scenario]);
-  useEffect(() => { setMapView('visual'); }, [selected]);
+  useEffect(() => { setView('visual'); }, [selected]);
+
+  const load = (path: string, text: string) => {
+    setSelected(path); setContent(text); setMapDraft(text); setSettingsDraft(text); setSavedContent(text);
+  };
 
   // auto-open scenario.js (or the first file) when nothing is selected yet —
   // direct fetch so it doesn't trip the unsaved-changes guard in open().
   useEffect(() => {
-    if (selected || !files.length) return;
+    if (selected || !files.length || jumpingRef.current) return;
     const sc = files.find((f) => f.path === 'scenario.js') || files[0];
-    api.file(scenario, sc.path).then(({ content: c }) => { setSelected(sc.path); setContent(c); setMapDraft(c); setSavedContent(c); }).catch(() => {});
+    api.file(scenario, sc.path).then(({ content: c }) => load(sc.path, c)).catch(() => {});
   }, [files, selected, scenario]);
+
+  // The workspace's cog asks for a file by name; it may not exist yet, so probe
+  // by reading rather than by looking in `files`, which can still be empty here
+  // and would make us clobber a real settings.json with an empty one.
+  useEffect(() => {
+    if (!initialFile) return;
+    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    jumpingRef.current = true;
+    (async () => {
+      const path = initialFile;
+      try {
+        let text: string;
+        try {
+          text = (await api.file(scenario, path)).content;
+        } catch {
+          text = newFileContent(path);
+          await api.saveFile(scenario, path, text);
+          refreshFiles();
+        }
+        load(path, text); setStatus('');
+      } catch (e) { window.alert('Could not open ' + path + ': ' + (e as Error).message); }
+      jumpingRef.current = false;
+    })();
+  }, [initialFile, scenario]);
 
   const onMapEditorChange = (next: string, kind: CanvasMapEditorChangeKind) => {
     setMapDraft(next);
@@ -96,7 +129,7 @@ export function EditTab({ scenario }: { scenario: string }) {
   const open = async (f: FileEntry) => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
     const { content: c } = await api.file(scenario, f.path);
-    setSelected(f.path); setContent(c); setMapDraft(c); setSavedContent(c); setStatus('');
+    load(f.path, c); setStatus('');
   };
   const save = async () => {
     if (!selected) return;
@@ -128,7 +161,7 @@ export function EditTab({ scenario }: { scenario: string }) {
       await api.saveFile(scenario, nm, newFileContent(nm));
       refreshFiles();
       const c = await api.file(scenario, nm);
-      setSelected(nm); setContent(c.content); setMapDraft(c.content); setSavedContent(c.content);
+      load(nm, c.content);
     } catch (err) { window.alert('Create failed: ' + (err as Error).message); }
   };
 
@@ -163,7 +196,7 @@ export function EditTab({ scenario }: { scenario: string }) {
         {files.map((f) => (
           <div key={f.path} className={`${styles.row} ${selected === f.path ? styles.rowSel : ''}`} onClick={() => open(f)}>
             <span className={styles.fileName}>{f.path}</span>
-            {f.kind === 'map' ? <span className={styles.tag}>map</span> : null}
+            {f.kind === 'map' || f.kind === 'settings' ? <span className={styles.tag}>{f.kind}</span> : null}
             {f.path !== 'scenario.js' && (
               <button className={styles.del} title="Rename file" onClick={(e) => renameFile(f, e)}>✎</button>
             )}
@@ -183,21 +216,25 @@ export function EditTab({ scenario }: { scenario: string }) {
 
       <section className={styles.editor}>
         {!selected ? (
-          <div className={styles.empty}>Select a file to edit. <code>.js</code>/<code>.json</code> open in the code editor; <code>map*.json</code> opens the visual map editor.</div>
+          <div className={styles.empty}>Select a file to edit. <code>.js</code>/<code>.json</code> open in the code editor; <code>map*.json</code> opens the visual map editor; <code>settings.json</code> opens the bot/server profile form.</div>
         ) : (
           <>
             <div className={styles.toolbar}>
-              <span className={styles.fname}>{selected}{dirty ? ' ●' : ''}</span>
-              {isMap && (
+              <span className={styles.fname}>
+                {selected}
+                {isSettings && <span className={styles.fnameNote}>(Scenario Overrides)</span>}
+                {dirty ? ' ●' : ''}
+              </span>
+              {structured && (
                 <span className={styles.viewToggle}>
                   <button
-                    className={mapView === 'visual' ? styles.viewActive : styles.viewBtn}
-                    onClick={() => setMapView('visual')}
-                  >Visual</button>
+                    className={view === 'visual' ? styles.viewActive : styles.viewBtn}
+                    onClick={() => setView('visual')}
+                  >{isSettings ? 'Form' : 'Visual'}</button>
                   <button
-                    className={mapView === 'json' ? styles.viewActive : styles.viewBtn}
-                    onClick={() => setMapView('json')}
-                    title="Edit the raw map JSON"
+                    className={view === 'json' ? styles.viewActive : styles.viewBtn}
+                    onClick={() => setView('json')}
+                    title={isSettings ? 'Edit the raw settings JSON' : 'Edit the raw map JSON'}
                   >JSON</button>
                 </span>
               )}
@@ -205,18 +242,22 @@ export function EditTab({ scenario }: { scenario: string }) {
               <span className={styles.status}>{status}</span>
               <button className={styles.save} disabled={!dirty} onClick={save}>Save</button>
             </div>
-            {isMap ? (
-              <div className={styles.mapPane}>
-                {mapView === 'visual' ? (
-                  <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} />
+            {structured ? (
+              <div className={styles.pane}>
+                {view === 'visual' ? (
+                  isSettings ? (
+                    <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} />
+                  ) : (
+                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} />
+                  )
                 ) : (
                   <div className={styles.monaco}>
                     <Editor
                       height="100%"
                       theme="vs-dark"
                       language="json"
-                      value={mapDraft}
-                      onChange={(v) => setMapDraft(v ?? '')}
+                      value={current}
+                      onChange={(v) => (isSettings ? setSettingsDraft(v ?? '') : setMapDraft(v ?? ''))}
                       options={{ fontFamily: 'monospace', fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false }}
                     />
                   </div>

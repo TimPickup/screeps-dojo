@@ -1,7 +1,7 @@
 'use strict';
 
 // Tiny, fully self-contained scenario for unit-testing the runner's options
-// (events / cooperative abort / runExpect). No dependency on the /bot mount or
+// (events / cooperative abort / runExpect). No dependency on a bot profile or
 // any external map file: the bot module and the map are both inline, and the
 // creep walks 3 tiles to a flag so the run finishes in a handful of ticks.
 const fs = require('fs');

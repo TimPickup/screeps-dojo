@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Scenario } from '../../api/types';
 import { api } from '../../api/client';
 import { useJobStream } from '../../hooks/useJobStream';
+import { HostAgentAction } from '../Settings/HostAgentAction';
 import logo from '../../assets/logo.png';
 import styles from './ScenarioList.module.css';
 
@@ -114,7 +115,8 @@ export function ScenarioList({ scenarios, loading = false, version, onSelect, on
                   ⬆ A new version (<b>v{version.latest}</b>) is available — you have v{version.current}.
                 </div>
                 {/* The GUI runs inside the container and cannot rebuild the image
-                    or restart itself, so it hands over the one command that can. */}
+                    or restart itself. With a host agent running it can ASK for
+                    that; without one it hands over the command that does it. */}
                 <div className={styles.updateCmdRow}>
                   <span className={styles.dimLabel}>Run in your terminal:</span>
                   <code className={styles.updateCmd}>npm run update</code>
@@ -129,6 +131,7 @@ export function ScenarioList({ scenarios, loading = false, version, onSelect, on
                     }}
                   >{copied ? 'copied' : 'copy'}</button>
                 </div>
+                <HostAgentAction action="update" label={'Update to v' + version.latest + ' now'} />
                 <div>
                   <a href={version.repoUrl + '/releases'} target="_blank" rel="noreferrer">What changed →</a>
                 </div>

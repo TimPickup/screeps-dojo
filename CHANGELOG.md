@@ -5,6 +5,131 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+Bot and server profiles. Register each of your codebases once and every scenario
+can pick between them by name — no container restart, and no more single global
+bot path.
+
+### Added
+
+- **Bot profiles.** `DOJO_BOT_PROFILE_<NAME>_PATH` registers a codebase; every
+  one is mounted read-only at `/bots/<name>`, so switching which one runs is a
+  name lookup rather than a mount change. `DOJO_DEFAULT_BOT_PROFILE` picks the
+  default, and changing it is free. Adding or repointing a *path* is a mount
+  change — a bind mount is fixed when the container is created — so Settings
+  offers a button that has the host agent apply it.
+- **Per-scenario `settings.json`** — `{ "bot": "speedrun", "bots": { "enemy":
+  "default" }, "server": "season" }`. It resolves before `scenario.js` is
+  required, so `allBotModules()` picks the right codebase with no code change,
+  and `botDir('enemy')` gives another side its own — you can now pit two
+  versions of your bot against each other. It opens in its own form editor (or
+  raw JSON) from the ⚙ beside the Edit tab.
+- **The Screeps shards are set up for you**, once, at first boot: `shard0`
+  through `shard3`, `shardx` (a template for a private or custom shard) and
+  `season`, each prefilled apart from the credentials. Seeding is flagged in
+  `.env`, so deleting or renaming one of them sticks — it is a decision, not
+  something to undo on the next start.
+
+  There is no profile called `default` any more; a name meaning "the fallback"
+  said nothing about which server it was. An existing one is renamed to
+  `a_server`, keeping its settings, its token and its place as the default.
+- **Screeps server profiles.** `DOJO_SCREEPS_PROFILE_<NAME>_<KEY>`. Each one
+  **stands alone** — nothing is inherited from another profile, so a row shows
+  what it will actually connect with. (They briefly overlaid the profile named
+  `default`, which meant a row could display a hostname nobody typed and, worse,
+  quietly carry another server's token.) `npm run import-room` reads the
+  scenario's own `settings.json`, so the CLI and the GUI always import from the
+  server that scenario is about.
+- **Renaming a profile happens on the server**, which is the only side that can
+  see a token — the browser receives a mask, so a browser-side rename had to
+  leave secrets behind and ask for them to be retyped. The default pointer moves
+  with the profile, including when the implicit default is the one renamed.
+- **Per-profile status in Settings**, replacing the blanket "changing the bot
+  path needs a container restart" warning: each row says whether it is mounted,
+  how many `.js` modules it holds, or that it is still waiting to be mounted.
+- `npm run bots:sync` regenerates `docker-compose.override.yml` from `.env`.
+  `npm run ui` and `npm test` do it for you.
+- **A host agent**, started by `npm run ui` and stopped by `npm run ui:stop`,
+  performing the handful of things the container cannot do for itself: recreate
+  itself so a new bot mount takes effect, restart, or take an update. Settings
+  and the update banner are buttons now, not commands to copy, and a rebuild's
+  output streams into the button's own log view. It does strictly less than the
+  launcher that starts it, which already builds images and recreates containers.
+
+  Nothing is installed — no service, no scheduled task, no autostart; one agent
+  at a time, and `--no-agent` skips it, after which the GUI shows commands to
+  type exactly as before.
+
+  The container asks through a file — `.dojo-host/request.json` — naming an
+  action from a fixed list (`restart`, `recreate`, `update`) and nothing else;
+  each maps to a constant command chosen host-side, so nothing from the request
+  ever reaches a command line, and there is no "run this command" action. It
+  grants no new privilege: anything that can write that file can already write
+  `scripts/ui.js`. Requests are consumed before they run, handled once per id,
+  dropped when stale, rate-limited, and logged to `.dojo-host/agent.log`. The
+  channel files are written to a temp name and renamed into place, so a reader
+  polling on a timer never catches one half-written, and a single exclusive lock
+  file — not a check-then-act — is what makes two agents impossible. The
+  rejected alternative was mounting the Docker socket into the container, which
+  would give the process running your bot code control of the host daemon.
+
+### Changed
+
+- **Profile resolution reads `.env`, not just `process.env`.** Docker Compose
+  reads that file on the *host* to build the compose file; it does not pass the
+  variables into the container. So a run resolved "unknown bot profile (none
+  registered)" for a profile the Settings screen was listing quite happily.
+  `src/envConfig.js` moved out of `src/server/` because the runner needs the
+  same merged view the routes use.
+- The `/bot` mount is gone; the default profile lives at `/bots/default`. A
+  checkout with no `.env` still runs the bundled examples unchanged.
+- Recordings and the run's `start` event now carry which codebase produced them.
+- A scenario naming an unknown or unmounted profile fails immediately, listing
+  the profiles that *are* registered, instead of failing later as a missing
+  module.
+- `PUT /api/env` reports `restartRequired` only when a bot profile's host path
+  actually changed, and can now delete keys outright (blanking one would leave a
+  nameless profile behind).
+
+- **Old `.env` keys are migrated automatically** at server boot, with the
+  original copied to `.env.bak`. `DOJO_BOT_PATH` becomes
+  `DOJO_BOT_PROFILE_DEFAULT_PATH`, each `DOJO_SCREEPS_*` becomes
+  `DOJO_SCREEPS_PROFILE_DEFAULT_*`. This replaces the "Convert to profiles"
+  buttons, which could never finish the job: the browser only ever sees secrets
+  masked, so a token had to be left behind and retyped by hand.
+- **A full-screen wait while the host acts.** Restarting or updating takes the
+  server away, so the whole app says so — title, bouncing dots, and the agent's
+  live output underneath. Losing the connection is treated as the expected
+  middle of a restart, not a failure; past a per-action deadline it says what
+  went wrong and which command finishes the job by hand.
+- Replay speeds run from 0.25x to 128x, from one list shared by the replay
+  control and the Settings default (which persists in local storage).
+
+### Changed
+
+- **`npm run ui` no longer rebuilds the image every launch.** It compares the
+  image against what the Dockerfile actually reads (Dockerfile, `package.json`,
+  `package-lock.json`, the mock-engine patches) and builds only when one of
+  those is newer. The layer cache was never the protection it looked like: the
+  Dockerfile copies `package.json` before `npm ci`, so editing a *script* in it
+  re-ran the whole native toolchain build — and the build then woke Docker
+  Scout, whose scan hammers the disk long after the build finished. `--build`
+  forces it, `--no-build` never does.
+- Brighter foreground throughout: `--muted` lifted, and both ⚙ buttons sit at
+  full text colour rather than reading as disabled.
+- Section headings in both settings surfaces are larger and weighted; the
+  scenario form now says **My bot**, **Other bots** and **Import server
+  profile**, shows the `allBotModules()` snippet each setting affects, and links
+  straight to the matching part of the main Settings panel.
+- The scenario settings file is labelled **(Scenario Overrides)** in the editor
+  header, and Ctrl/Cmd-S saves the Settings panel as it already did the editor.
+
+### Deprecated
+
+- `DOJO_BOT_PATH` and the unsuffixed `DOJO_SCREEPS_*` keys. Both still resolve,
+  and boot rewrites them for you.
+
 ## [0.6.0] — 2026-08-06
 
 One renderer. Replays, scenario previews and the MP4/GIF exports all draw

@@ -3,4 +3,7 @@
 .tab, .active { background: transparent; border: none; color: var(--muted); padding: 8px 18px; border-bottom: 2px solid transparent; }
 .tab:hover { color: var(--text-dim); }
 .active { color: var(--text); border-bottom-color: var(--accent); }
+/* an action, not a section: no underline, sits just past the last tab */
+.cog { align-self: center; margin-left: 6px; background: transparent; border: 1px solid var(--line2); border-radius: var(--radius); color: var(--text); padding: 2px 8px; line-height: 1.4; }
+.cog:hover { border-color: var(--accent); color: var(--accent); }
 .content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

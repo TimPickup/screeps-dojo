@@ -4,6 +4,73 @@ export interface Scenario {
   files: string[];
 }
 
+// A registered bot codebase, mounted read-only at /bots/<name>. `mounted` is
+// probed on the server: a profile can be declared in .env but not yet mounted,
+// because a bind mount is only established when the container is created.
+export interface BotProfile {
+  name: string;
+  hostPath: string;
+  legacy: boolean;
+  dir: string;
+  mounted: boolean;
+  jsModuleCount: number;
+  error: string | null;
+}
+
+export interface BotProfilesResponse {
+  profiles: BotProfile[];
+  default: string;
+  usesLegacyKeys: boolean;
+}
+
+// Never carries a token or password — only whether one is set.
+export interface ScreepsProfile {
+  name: string;
+  hostname: string;
+  shard: string;
+  port: string;
+  protocol: string;
+  path: string;
+  hasToken: boolean;
+  hasPassword: boolean;
+  ownKeys: string[];
+}
+
+export interface ScreepsProfilesResponse {
+  profiles: ScreepsProfile[];
+  default: string;
+  usesLegacyKeys: boolean;
+}
+
+// The host agent performs what the container cannot do for itself (recreate
+// itself, rebuild the image). `running` is false unless a heartbeat is fresh,
+// and `actions` is then empty — the UI must show the command to type rather
+// than a button nothing will answer.
+export interface HostAgentStatus {
+  running: boolean;
+  actions: string[];
+  summaries: Record<string, string>;
+  busy: boolean;
+  lastResult: { id: string; action: string; ok: boolean; message: string | null; finishedAt: string } | null;
+  pending: { id: string; action: string; requestedAt: string } | null;
+}
+
+// The parsed contents of a scenario's settings.json. `bots` maps a side
+// ('main' is the scenario's own bot) to a bot profile name.
+export interface ScenarioSettings {
+  bots: Record<string, string>;
+  server?: string;
+}
+
+export interface ScenarioSettingsResponse {
+  present: boolean;
+  settings: ScenarioSettings;
+  warnings: string[];
+  effectiveBot?: string;
+  effectiveServer?: string;
+  error?: string;
+}
+
 export interface ScenarioMapFile {
   path: string;
   map: unknown;
@@ -26,6 +93,9 @@ export interface RecordingMeta {
   ticks: number;
   createdAt?: string;
   botUserId?: string;
+  // side -> container dir of the codebase that produced this recording.
+  // Absent on recordings made before bot profiles existed.
+  bots?: Record<string, string>;
   test?: TestResult | null;
 }
 
@@ -92,7 +162,7 @@ export interface StageLayout {
 }
 
 export type JobEvent =
-  | { type: 'start'; scenario: string; maxTicks: number; botUserId: string; mockEngineFeatures?: Record<string, boolean> }
+  | { type: 'start'; scenario: string; maxTicks: number; botUserId: string; bots?: Record<string, string>; mockEngineFeatures?: Record<string, boolean> }
   | { type: 'terrain'; terrain: Record<string, string[]>; botUserId: string }
   | { type: 'console'; lines: string[] }
   | { type: 'tick'; tick: number; maxTicks: number }

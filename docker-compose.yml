@@ -9,12 +9,13 @@ services:
       # once created, is never re-initialised from the image — so a single failed
       # run could leave it empty and force a slow runtime reinstall.)
       - /dojo/node_modules
-      # bot path is optional — defaults to the project dir so the example
-      # scenarios (local main.js) run with no .env at all. Set DOJO_BOT_PATH to
-      # mount your real bot code read-only at /bot.
-      - ${DOJO_BOT_PATH:-.}:/bot:ro
+      # The "default" bot profile. Optional — it falls back to the project dir so
+      # the example scenarios (local main.js) run with no .env at all. Every
+      # OTHER profile (DOJO_BOT_PROFILE_<NAME>_PATH) is mounted alongside it by
+      # the generated docker-compose.override.yml; see scripts/composeOverride.js.
+      - ${DOJO_BOT_PATH:-.}:/bots/default:ro
     environment:
-      - DOJO_BOT_DIR=/bot
+      - DOJO_BOTS_DIR=/bots
       - DOJO_FAST_MOCK_ENGINE=${DOJO_FAST_MOCK_ENGINE:-1}
       - DOJO_FAST_MOCK_ENGINE_RPC_V8=${DOJO_FAST_MOCK_ENGINE_RPC_V8:-}
       - DOJO_FAST_MOCK_ENGINE_CODE_CACHE=${DOJO_FAST_MOCK_ENGINE_CODE_CACHE:-}
@@ -33,9 +34,9 @@ services:
     volumes:
       - .:/dojo
       - /dojo/node_modules
-      - ${DOJO_BOT_PATH:-.}:/bot:ro
+      - ${DOJO_BOT_PATH:-.}:/bots/default:ro
     environment:
-      - DOJO_BOT_DIR=/bot
+      - DOJO_BOTS_DIR=/bots
       - DOJO_UI_PORT=${DOJO_UI_PORT:-8787}
       - DOJO_FAST_MOCK_ENGINE=${DOJO_FAST_MOCK_ENGINE:-1}
       - DOJO_FAST_MOCK_ENGINE_RPC_V8=${DOJO_FAST_MOCK_ENGINE_RPC_V8:-}

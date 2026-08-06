@@ -1,4 +1,7 @@
-import type { Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob } from './types';
+import type {
+  Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
+  BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus
+} from './types';
 
 async function jget<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -66,17 +69,43 @@ export const api = {
   importRooms: (scenario: string, rooms: string[]) =>
     jpost<{ importId: string }>('/api/scenarios/' + encodeURIComponent(scenario) + '/import', { rooms }),
   importStreamUrl: (id: string) => '/api/import/' + id + '/stream',
-  tokenStatus: () => jget<{ active: boolean; needsActivation: boolean; maskedUrl?: string; error?: string }>('/api/import/token-status'),
+  // Pass the scenario so the token check targets the server profile that
+  // scenario will actually import from.
+  tokenStatus: (scenario?: string) =>
+    jget<{ active: boolean; needsActivation: boolean; maskedUrl?: string; error?: string }>(
+      '/api/import/token-status' + (scenario ? '?scenario=' + encodeURIComponent(scenario) : '')),
   activateUrl: '/api/import/activate',
+  activateUrlFor: (scenario?: string) =>
+    '/api/import/activate' + (scenario ? '?scenario=' + encodeURIComponent(scenario) : ''),
 
   getEnv: () => jget<{ values: Record<string, string>; secrets: string[] }>('/api/env'),
-  putEnv: async (values: Record<string, string>) => {
-    const res = await fetch('/api/env', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
+  // `remove` deletes keys outright — blanking them would leave a nameless
+  // profile in the Settings list, since a bare KEY= still declares one.
+  putEnv: async (values: Record<string, string>, remove: string[] = []) => {
+    const res = await fetch('/api/env', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values, remove }) });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     return res.json() as Promise<{ ok: boolean; restartRequired: boolean }>;
   },
-  verifyBot: () => jget<{ ok: boolean; jsModuleCount?: number; error?: string }>('/api/verify/bot'),
-  verifyServer: () => jget<{ ok: boolean; active?: boolean; error?: string }>('/api/verify/server'),
+  hostAgent: () => jget<HostAgentStatus>('/api/host-agent'),
+  hostAgentLog: (lines = 40) => jget<{ lines: string[] }>('/api/host-agent/log?lines=' + lines),
+  // The action is a name from a closed server-side list; nothing else is sent,
+  // and nothing sent ever reaches a command line on the host.
+  hostAgentRequest: (action: string) =>
+    jpost<{ ok: boolean; id: string; action: string }>('/api/host-agent/request', { action }),
+  // Renaming happens on the server: it is the only side that can see a token,
+  // so a browser-side rename could not carry one across.
+  renameProfile: (kind: 'bot' | 'screeps', from: string, to: string) =>
+    jpost<{ ok: boolean; renamed: number }>('/api/env/rename-profile', { kind, from, to }),
+  bots: () => jget<BotProfilesResponse>('/api/bots'),
+  servers: () => jget<ScreepsProfilesResponse>('/api/servers'),
+  scenarioSettings: (scenario: string) =>
+    jget<ScenarioSettingsResponse>('/api/scenarios/' + encodeURIComponent(scenario) + '/settings'),
+  verifyBot: (profile?: string) =>
+    jget<{ ok: boolean; jsModuleCount?: number; mount?: string; error?: string }>(
+      '/api/verify/bot' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
+  verifyServer: (profile?: string) =>
+    jget<{ ok: boolean; active?: boolean; error?: string }>(
+      '/api/verify/server' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
   bootstrapStatus: () => jget<{ phase: string }>('/api/bootstrap/status'),
   bootstrapStreamUrl: () => '/api/bootstrap/stream'
 };

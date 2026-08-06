@@ -4,6 +4,8 @@ import type { Scenario } from './api/types';
 import { ScenarioList } from './components/ScenarioList/ScenarioList';
 import { ScenarioWorkspace } from './components/ScenarioWorkspace/ScenarioWorkspace';
 import { Settings } from './components/Settings/Settings';
+import { openSettings, closeSettings, useSettingsOverlay } from './state/settingsOverlay';
+import { HostActionOverlay } from './components/HostActionOverlay/HostActionOverlay';
 import { Bootstrap } from './components/Bootstrap/Bootstrap';
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
 import logo from './assets/logo.png';
@@ -13,7 +15,10 @@ export function App() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [startTab, setStartTab] = useState<'Run' | 'Edit'>('Run');
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Owned by a tiny store rather than local state: the scenario settings form
+  // opens this too, and would otherwise need a callback threaded through the
+  // workspace and the edit tab to reach it.
+  const settings = useSettingsOverlay();
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean | null>(null);
   const [version, setVersion] = useState<{ current: string; latest: string | null; updateAvailable: boolean; repoUrl: string } | null>(null);
@@ -59,7 +64,7 @@ export function App() {
           <button className={styles.back} onClick={() => setSelected(null)} title="Back to scenarios">← {selected}</button>
         )}
         <span className={styles.spacer} />
-        <button className={styles.cog} onClick={() => setSettingsOpen(true)} title="Settings">⚙</button>
+        <button className={styles.cog} onClick={() => openSettings()} title="Settings">⚙</button>
       </header>
 
       <main className={styles.main}>
@@ -80,7 +85,10 @@ export function App() {
         </ErrorBoundary>
       </main>
 
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {settings.open && <Settings section={settings.section} onClose={closeSettings} />}
+      {/* Last, and above everything: it covers the Settings panel it is usually
+          launched from, because the server both are talking to is going away. */}
+      <HostActionOverlay />
     </div>
   );
 }

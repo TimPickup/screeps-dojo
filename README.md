@@ -21,8 +21,10 @@ the build takes a few minutes; it's cached afterwards), then opens
 `http://localhost:8787`.
 
 To run your own bot instead of the bundled examples, copy `.env.example` to
-`.env` (PowerShell: `Copy-Item .env.example .env`) and set `DOJO_BOT_PATH` to
-your bot's script folder (flat `.js` modules, mounted read-only at `/bot`).
+`.env` (PowerShell: `Copy-Item .env.example .env`) and set
+`DOJO_BOT_PROFILE_DEFAULT_PATH` to your bot's script folder (flat `.js`
+modules). See **[Bot profiles](#bot-profiles)** to register more than one
+codebase and let each scenario pick between them.
 
 From the UI you can:
 
@@ -42,8 +44,10 @@ From the UI you can:
   controllers, connect roads/walls, see store capacities — or flip to a
   syntax-highlighted JSON view. **Import a room** from a live server straight
   into the scenario.
-- **⚙ Settings** — toggle user visuals and edit/verify your `.env` (bot path,
-  Screeps token); a popup walks you through token activation when needed.
+- **⚙ Settings** — toggle user visuals, and register/verify the bot codebases
+  and Screeps servers in your `.env`; a popup walks you through token activation
+  when needed. Each scenario has its own ⚙ too, for overriding which of those it
+  uses.
 
 The server runs in the background (detached), so stop it with `npm run ui:stop`
 (or `npm run ui:down` to remove the containers); `npm run ui` brings it back up.
@@ -103,6 +107,140 @@ mode remains the supported fallback and can always be selected with:
 
     DOJO_FAST_MOCK_ENGINE=0
 
+## Bot profiles
+
+A bot codebase reaches the container through a bind mount, and a bind mount is
+fixed when the container is created — so the container can only ever read paths
+that were mounted at that moment. Dojo therefore registers each codebase once,
+up front, and selects between them **by name**:
+
+    DOJO_BOT_PROFILE_DEFAULT_PATH=M:/screeps/main
+    DOJO_BOT_PROFILE_SPEEDRUN_PATH=M:/screeps/speedrun
+    DOJO_DEFAULT_BOT_PROFILE=default
+
+Every profile is mounted read-only at `/bots/<name>`, so switching which one a
+scenario runs — or which one is the default — is instant. Only **adding or
+changing a path** is a mount change, and Settings has a button for that (see
+below). Each row shows its own mount status, so you always know which are live
+and which are still waiting.
+
+The older `DOJO_BOT_PATH` still works and means the bot profile named `default`;
+the server rewrites it into the profile form on boot. (Server profiles have no
+`default` — see below.)
+
+### Applying a mount change without leaving the browser
+
+The GUI runs inside the container, so it cannot recreate its own container or
+rebuild its own image — those are host commands. `npm run ui` therefore starts a
+small **host agent** behind it, and the GUI asks that.
+
+So Settings has an **Apply mount changes** button and the update banner has an
+**Update now** button, and neither needs you to open a terminal. A rebuild's
+output streams into the button's own log view, so an update is not a spinner and
+a promise.
+
+    npm run ui                  # start the GUI, with the agent behind it
+    npm run ui -- --build       # force an image rebuild
+    npm run ui -- --no-build    # never rebuild, even if inputs changed
+    npm run ui -- --agent       # ...but keep THIS terminal as the agent, to watch it
+    npm run ui -- --no-agent    # ...and don't start it at all
+    npm run host-agent          # start it on its own
+    npm run ui:stop             # stop the GUI and the agent together
+
+Nothing is installed: no service, no scheduled task, no autostart. It lives and
+dies with `npm run ui` / `npm run ui:stop`, only one runs at a time, and with no
+agent running the GUI just shows the command to type, exactly as before.
+
+How it stays safe:
+
+- The container writes `.dojo-host/request.json` naming **an action from a fixed
+  list** — `restart`, `recreate`, `update` — and nothing else. No path, no
+  argument, no flag. There is deliberately no "run this command" action.
+- Each action maps to a constant command chosen in `scripts/hostAgent.js`.
+  Nothing from the request file ever reaches a command line.
+- This grants nothing new. Anything that can write `request.json` can already
+  write `scripts/ui.js` — they are the same bind-mounted checkout. The
+  alternative, mounting the Docker socket into the container, would hand the
+  process running your bot code full control of the host daemon.
+- Requests are consumed before they run (a crash cannot replay one), handled at
+  most once per id, dropped if they were made while no agent was listening, and
+  rate-limited so a wedged server cannot spin your machine.
+- Every decision, including every refusal, is appended to `.dojo-host/agent.log`
+  along with the output of whatever it ran — which is what the GUI tails.
+- Both files are written to a temp name and renamed into place, so a reader
+  polling on a timer never catches a half-written one. Only one agent runs at a
+  time, held by an exclusive lock file rather than a check-then-act, so two
+  cannot both consume the same request.
+- It does strictly less than the `npm run ui` you already ran: that command
+  builds images and recreates containers itself.
+
+### Per-scenario overrides
+
+Any scenario may carry an optional `settings.json`:
+
+```json
+{
+  "bot": "speedrun",
+  "bots": { "enemy": "default" },
+  "server": "season"
+}
+```
+
+- `bot` — the codebase this scenario's own bot runs (`allBotModules()` picks it
+  up with no code change). It is shorthand for `bots.main`.
+- `bots` — any other side, so you can pit two versions of your bot against each
+  other: `world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) })`.
+- `server` — which Screeps server profile **Import a room** talks to.
+
+Values are profile *names*, never paths. Edit the file through the scenario's ⚙
+(a form, or raw JSON — the same way `map*.json` opens in the map editor), or by
+hand. A scenario with no `settings.json` inherits everything, which is the
+normal case.
+
+An unknown or unmounted profile fails the run immediately, naming the profiles
+that are registered — never halfway through with a confusing missing-module
+error.
+
+## Screeps server profiles
+
+The room importer takes the same treatment. **The shards are set up for you** on
+first boot — `shard0` through `shard3`, `shardx` and `season` — prefilled except
+for the credentials, which are the only part nobody can guess:
+
+    DOJO_SCREEPS_PROFILE_SHARD0_HOSTNAME=screeps.com
+    DOJO_SCREEPS_PROFILE_SHARD0_SHARD=shard0
+    DOJO_SCREEPS_PROFILE_SHARD0_TOKEN=...        # you add this
+    DOJO_SCREEPS_PROFILE_SEASON_PATH=/season/
+    DOJO_SCREEPS_PROFILE_SEASON_SHARD=shardSeason
+    DOJO_DEFAULT_SCREEPS_PROFILE=shard0
+
+Seeding happens **once** and is recorded in `.env`, so deleting or renaming one
+of them sticks. `shardx` is the spare — edit it for a private server, or a shard
+that has no row of its own.
+
+Each profile **stands alone**: it inherits nothing from another profile, so what
+a row shows is what it will connect with. A key you leave out falls back to the
+built-in default (`screeps.com`, `443`, `https`, `/`, `shard0`), never to
+another profile's value.
+
+Authentication is either/or: set a **token**, or set **username + password** for
+a private server whose token is accepted over REST but rejected by the WebSocket
+(e.g. screepsmod-auth). The address fields — hostname, port, protocol, path —
+describe where the server is and apply to either.
+
+Renaming a profile is done by the server, not the browser, so a token comes with
+it — the browser is only ever sent a mask.
+
+`npm run import-room -- <scenario> <ROOM>` reads that scenario's
+`settings.json`, so the CLI and the GUI always import from the same server the
+scenario is about. The unsuffixed `DOJO_SCREEPS_*` keys still work; the server
+rewrites them into a profile on boot (named `a_server`) and keeps a `.env.bak`.
+
+**Never commit `.env`.** It holds an API token, and a token in a commit is
+compromised even after you delete it. `.gitignore` covers `.env` and every copy
+of it — `.env copy`, `.env.local`, the `.env.bak*` backups — with `.env.example`
+allow-listed back in.
+
 ## Writing a scenario
 
 `scenarios/` is **your** workspace — it ships empty and is git-ignored, so your
@@ -118,7 +256,8 @@ See `examples/README.md` for a guided tour. A scenario is a directory
 - `modules` — code uploaded into the game VM: read scenario-local files, use
   `loadBotModules(['CombatMovement', ...])` from `src/botModules` to pull your
   real modules, or `allBotModules()` to run your ENTIRE codebase with its real
-  `main.js`.
+  `main.js`. Which codebase that is comes from the scenario's
+  [bot profile](#bot-profiles); `botDir('enemy')` gives you another one.
 - `setup(world)` — build the world: `world.loadScenarioMaps([map], botOptions)`,
   `world.addCreep(...)`, `world.addEnemyBot(...)`, `world.addFlag(...)`. To
   replay imported state, pass saved Memory/segments in the third (options)
