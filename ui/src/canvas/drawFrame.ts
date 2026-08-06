@@ -14,6 +14,7 @@ import {
 } from './dynamic.ts';
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
 import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
+import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
 
 interface DrawOptions {
@@ -55,6 +56,8 @@ export function drawFrame(
 	const offsets = layout.offsets;
 	const widthInTiles = (layout.width / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
 	const heightInTiles = (layout.height / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
+	const baseObjectsInDrawOrder = frameObjectsInDrawOrder(baseFrame, layout);
+	const nextObjectsInDrawOrder = nextFrame ? frameObjectsInDrawOrder(nextFrame, layout) : null;
 
 	// 1) static layers (client-side, synchronous — never black)
 	ctx.drawImage(options.layers.terrain, 0, 0, widthInTiles, heightInTiles);
@@ -75,7 +78,7 @@ export function drawFrame(
 	const nodTargets = nextFrame ? transferNods(nextFrame, nextObjectsById!) : {};
 
 	// 2) creeps (interpolated) + HP + effects
-	for (const object of baseFrame.objects) {
+	for (const object of baseObjectsInDrawOrder) {
 		if (object.type !== 'creep') continue;
 		if (object.spawning) {
 			const releasedObject = nextObjectsById?.[object._id];
@@ -132,7 +135,7 @@ export function drawFrame(
 	}
 	// creeps that appear only next frame (spawned): fade in
 	if (nextFrame) {
-		for (const nextObject of nextFrame.objects) {
+		for (const nextObject of nextObjectsInDrawOrder!) {
 			if (nextObject.type !== 'creep' || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
 			const position = worldPosition(nextObject.room, nextObject.x, nextObject.y);
 			if (!position) continue;
@@ -152,7 +155,7 @@ export function drawFrame(
 	//     current fill and per-tick actions must be drawn here on top. Beams reuse
 	//     the creep effect renderer — tower actionLog keys (attack/heal/repair)
 	//     are a subset of the creep ones, so they read identically.
-	for (const object of baseFrame.objects) {
+	for (const object of baseObjectsInDrawOrder) {
 		if (object.type !== 'tower') continue;
 		const position = worldPosition(object.room, object.x, object.y);
 		if (!position) continue;
@@ -177,7 +180,7 @@ export function drawFrame(
 	//     epoch background (which is energy-blind), but the background draws only
 	//     the dark base — so the yellow core (scaled by fill, hidden when empty)
 	//     is painted here on top and stays accurate as the spawn fills/drains.
-	for (const object of baseFrame.objects) {
+	for (const object of baseObjectsInDrawOrder) {
 		if (object.type !== 'spawn') continue;
 		const position = worldPosition(object.room, object.x, object.y);
 		if (!position) continue;
@@ -186,7 +189,7 @@ export function drawFrame(
 
 	// 2d) live structure fills, source cores, controller progress, spawn arcs,
 	//     link beams — all energy-blind in the baked structure layer, so drawn here.
-	for (const object of baseFrame.objects) {
+	for (const object of baseObjectsInDrawOrder) {
 		const position = worldPosition(object.room, object.x, object.y);
 		if (!position) continue;
 		const centerX = position.worldX + 0.5, centerY = position.worldY + 0.5;
@@ -239,6 +242,12 @@ export function drawFrame(
 				roomOffset.row * ROOM_SIZE_TILES + 0.5,
 			);
 		}
+	}
+
+	// 4) cached ramparts are deliberately the final overlay, above structures,
+	// creeps, effects, resources, and user RoomVisuals.
+	if (options.layers.rampart) {
+		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
 	}
 }
 

@@ -143,34 +143,44 @@ export function buildTerrainIslands(
 	terrainType: string,
 	additionalTiles: readonly TerrainPoint[] = [],
 ): TerrainIsland[] {
-	const additionalTileKeys = new Set(additionalTiles
-		.filter((tile) => tile.x >= 0 && tile.x < ROOM_SIZE_TILES && tile.y >= 0 && tile.y < ROOM_SIZE_TILES)
-		.map((tile) => tileKey(tile.x, tile.y)));
-	const isOccupied = (x: number, y: number) => x >= 0 && x < ROOM_SIZE_TILES
-		&& y >= 0 && y < ROOM_SIZE_TILES
-		&& (hasTerrainType(rows, terrainType, x, y) || additionalTileKeys.has(tileKey(x, y)));
-	const visited = new Set<number>();
-	const islands: TerrainIsland[] = [];
+	const tiles = Array.from(additionalTiles);
 	for (let y = 0; y < ROOM_SIZE_TILES; y++) {
 		for (let x = 0; x < ROOM_SIZE_TILES; x++) {
-			if (!isOccupied(x, y) || visited.has(tileKey(x, y))) continue;
-			const tiles: TerrainPoint[] = [];
-			const pending: TerrainPoint[] = [{ x, y }];
-			visited.add(tileKey(x, y));
-			while (pending.length > 0) {
-				const tile = pending.pop()!;
-				tiles.push(tile);
-				for (const neighbour of CARDINAL_NEIGHBOURS) {
-					const nextX = tile.x + neighbour.dx;
-					const nextY = tile.y + neighbour.dy;
-					const nextKey = tileKey(nextX, nextY);
-					if (!isOccupied(nextX, nextY) || visited.has(nextKey)) continue;
-					visited.add(nextKey);
-					pending.push({ x: nextX, y: nextY });
-				}
-			}
-			islands.push({ contours: traceContours(boundaryEdgesForTiles(tiles)) });
+			if (hasTerrainType(rows, terrainType, x, y)) tiles.push({ x, y });
 		}
+	}
+	return buildTileIslands(tiles);
+}
+
+export function buildTileIslands(inputTiles: readonly TerrainPoint[]): TerrainIsland[] {
+	const occupiedTiles = new Map<number, TerrainPoint>();
+	for (const tile of inputTiles) {
+		if (!Number.isInteger(tile.x) || !Number.isInteger(tile.y)
+			|| tile.x < 0 || tile.x >= ROOM_SIZE_TILES || tile.y < 0 || tile.y >= ROOM_SIZE_TILES) continue;
+		occupiedTiles.set(tileKey(tile.x, tile.y), tile);
+	}
+	const visited = new Set<number>();
+	const islands: TerrainIsland[] = [];
+	const orderedTileKeys = Array.from(occupiedTiles.keys()).sort((left, right) => left - right);
+	for (const startingKey of orderedTileKeys) {
+		if (visited.has(startingKey)) continue;
+		const startingTile = occupiedTiles.get(startingKey)!;
+		const tiles: TerrainPoint[] = [];
+		const pending: TerrainPoint[] = [startingTile];
+		visited.add(startingKey);
+		while (pending.length > 0) {
+			const tile = pending.pop()!;
+			tiles.push(tile);
+			for (const neighbour of CARDINAL_NEIGHBOURS) {
+				const nextX = tile.x + neighbour.dx;
+				const nextY = tile.y + neighbour.dy;
+				const nextKey = tileKey(nextX, nextY);
+				if (!occupiedTiles.has(nextKey) || visited.has(nextKey)) continue;
+				visited.add(nextKey);
+				pending.push(occupiedTiles.get(nextKey)!);
+			}
+		}
+		islands.push({ contours: traceContours(boundaryEdgesForTiles(tiles)) });
 	}
 	return islands;
 }

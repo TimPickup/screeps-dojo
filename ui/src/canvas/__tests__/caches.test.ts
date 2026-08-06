@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, Recording, StageLayout } from '../../api/types';
-import { epochKey, StaticLayers } from '../caches';
+import { epochKey, rampartEpochKey, StaticLayers } from '../caches';
 import { mockCtx, type Call } from './mockCtx';
 
 const layout = {
@@ -18,6 +18,14 @@ function frameWithWall(x: number, hits = 100): Frame {
   } as unknown as Frame;
 }
 
+function frameWithRampart(x: number, hits = 100, isPublic = false, user = 'me'): Frame {
+  return {
+    gameTime: 1,
+    flags: [],
+    objects: [{ _id: 'rampart', type: 'rampart', room: 'W1N1', x, y: 10, hits, isPublic, user }],
+  } as unknown as Frame;
+}
+
 function plainTerrain(): string[] {
   return Array.from({ length: 50 }, () => '.'.repeat(50));
 }
@@ -30,6 +38,24 @@ describe('static layer epochs', () => {
       ...frameWithWall(10),
       objects: [],
     } as unknown as Frame));
+  });
+
+  it('invalidates the rampart overlay for layout, ownership, and public-state changes only', () => {
+    const mine = frameWithRampart(10, 100);
+    mine.objects[0].my = true;
+    const damaged = frameWithRampart(10, 50);
+    damaged.objects[0].my = true;
+    const moved = frameWithRampart(11, 50);
+    moved.objects[0].my = true;
+    const publicRampart = frameWithRampart(10, 50, true);
+    publicRampart.objects[0].my = true;
+    const opponent = frameWithRampart(10, 50, false, 'enemy');
+    opponent.objects[0].my = false;
+
+    expect(rampartEpochKey(mine)).toBe(rampartEpochKey(damaged));
+    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(moved));
+    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(publicRampart));
+    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(opponent));
   });
 
   it('bakes merged walls into the structure canvas and rebuilds that canvas on change', () => {
@@ -55,6 +81,30 @@ describe('static layer epochs', () => {
     expect(canvasLogs).toHaveLength(2);
     layers.sync(frameWithWall(12, 25));
     expect(canvasLogs).toHaveLength(3);
+  });
+
+  it('rebuilds the rampart canvas independently from the structure canvas', () => {
+    const canvasFactory = (width: number, height: number): HTMLCanvasElement => {
+      const { ctx } = mockCtx();
+      return { width, height, getContext: () => ctx } as unknown as HTMLCanvasElement;
+    };
+    const initialFrame = frameWithRampart(10);
+    const recording = {
+      meta: {},
+      terrain: { W1N1: plainTerrain() },
+      frames: [initialFrame],
+    } as unknown as Recording;
+    const layers = new StaticLayers(recording, layout, 1, canvasFactory);
+    const initialStructureCanvas = layers.structure;
+    const initialRampartCanvas = layers.rampart;
+
+    layers.sync(frameWithRampart(10, 25));
+    expect(layers.structure).toBe(initialStructureCanvas);
+    expect(layers.rampart).toBe(initialRampartCanvas);
+
+    layers.sync(frameWithRampart(11, 25));
+    expect(layers.structure).toBe(initialStructureCanvas);
+    expect(layers.rampart).not.toBe(initialRampartCanvas);
   });
 });
 

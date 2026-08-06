@@ -6,6 +6,7 @@ const HEALTH = '#65fd62';
 const ATTACK = '#f7263f';
 const RANGED_ATTACK = '#5c82b1';
 const LIGHT_GREY = '#aaaaaa';
+const OTHER_STRUCTURE = '#ff9999';
 
 // Semantic canvas palette. Repeated meanings intentionally share the same
 // underlying colour while distinct renderer details keep their own entries.
@@ -32,7 +33,7 @@ export const RENDER_COLORS = {
 		bot: '#5577ff',
 		opponent: '#ff5555',
 		ownStructure: '#8fbb93',
-		otherStructure: '#ff9999',
+		otherStructure: OTHER_STRUCTURE,
 		publicStructure: '#aaaaaa',
 	},
 	creep: {
@@ -73,9 +74,12 @@ export const RENDER_COLORS = {
 		factoryOutline: '#140a0a',
 		factoryInner: '#302a2a',
 		factoryCore: '#3f3f3f',
-		rampart: '#52a052',
 		invaderCore: '#cc2222',
 		keeperLair: '#aa0000',
+	},
+	rampart: {
+		own: '#519752',
+		other: '#95484a',
 	},
 	controller: {
 		base: '#0a0a0a',
@@ -142,6 +146,16 @@ export const SWAMP_RENDER_STYLE = {
 	],
 } as const;
 
+export const RAMPART_RENDER_STYLE = {
+	cornerRadius: WALL_RENDER_STYLE.cornerRadius,
+	fillOpacity: 0.2,
+	outlineOpacity: 0.7,
+	outlineWidth: 0.15,
+	publicMarkerOpacity: 0.7,
+	publicMarkerWidth: 0.15,
+	publicMarkerLength: 0.5,
+} as const;
+
 export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'spawn',
 	'extension',
@@ -156,7 +170,6 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'powerSpawn',
 	'container',
 	'road',
-	'rampart',
 	'invaderCore',
 	'keeperLair',
 	'extractor',

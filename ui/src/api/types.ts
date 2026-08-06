@@ -59,6 +59,7 @@ export interface FrameObject {
   name?: string;
   level?: number;
   progress?: number;
+  isPublic?: boolean;
   [k: string]: unknown;
 }
 

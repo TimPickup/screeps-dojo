@@ -4,6 +4,8 @@ import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, text } from './primitives.ts';
 import { drawWallIslands } from './terrainWalls.ts';
 import { drawSwampIslands } from './terrainSwamps.ts';
+import { drawRamparts } from './ramparts.ts';
+import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import type { TerrainTextures } from './terrainTextures.ts';
 import {
 	DEFAULT_MINERAL_COLOR,
@@ -133,12 +135,13 @@ export function drawStaticStructures(
 	frame: Frame,
 	layout: StageLayout,
 ): void {
+	const objectsInDrawOrder = frameObjectsInDrawOrder(frame, layout);
 	for (const room of Object.keys(layout.offsets)) {
 		const roomOffset = layout.offsets[room];
 		ctx.save();
 		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
 		const roads: number[][] = [];
-		for (const object of frame.objects) {
+		for (const object of objectsInDrawOrder) {
 			if (object.room !== room) continue;
 			if (STRUCTURE_SHELL_TYPES.has(object.type)) {
 				drawStructureShell(ctx, object);
@@ -241,7 +244,7 @@ export function drawStaticScene(
 	drawTerrainScene(ctx, scene.terrain, scene.layout, options.terrainTextures);
 	drawMergedWalls(ctx, scene.terrain, scene.frame, scene.layout, options.terrainTextures?.wallNoise);
 	drawStaticStructures(ctx, scene.frame, scene.layout);
-	for (const object of scene.frame.objects) {
+	for (const object of frameObjectsInDrawOrder(scene.frame, scene.layout)) {
 		const roomOffset = scene.layout.offsets[object.room];
 		if (!roomOffset) continue;
 		const cx = roomOffset.col * ROOM_SIZE_TILES + object.x + 0.5;
@@ -249,6 +252,7 @@ export function drawStaticScene(
 		if (object.type === 'tower') drawTowerTurret(ctx, object, cx, cy, scene.frame.gameTime);
 		else if (options.initialSourceEnergy && object.type === 'source') drawSourceCore(ctx, object, cx, cy);
 	}
+	drawRamparts(ctx, scene.frame, scene.layout);
 }
 
 export function buildStructureCanvas(
@@ -262,5 +266,16 @@ export function buildStructureCanvas(
 	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
 		drawMergedWalls(ctx, terrain, frame, layout, wallTexture);
 		drawStaticStructures(ctx, frame, layout);
+	});
+}
+
+export function buildRampartCanvas(
+	frame: Frame,
+	layout: StageLayout,
+	resolution = STATIC_LAYER_RESOLUTION,
+	canvasFactory: CanvasFactory = browserCanvas,
+): HTMLCanvasElement {
+	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
+		drawRamparts(ctx, frame, layout);
 	});
 }

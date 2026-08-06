@@ -26,12 +26,15 @@ describe('drawFrame spawn transition', () => {
       draw: (_ctx: unknown, object: { spawning?: unknown }, x: number, y: number) => draws.push({ object, x, y }),
     };
     let swampAnimationTime = -1;
+    const terrainCanvas = {};
+    const structureCanvas = {};
+    const rampartCanvas = {};
     const layers = {
-      terrain: {}, structure: {}, prepare: () => undefined,
+      terrain: terrainCanvas, structure: structureCanvas, rampart: rampartCanvas, prepare: () => undefined,
       drawSwamps: (_ctx: unknown, animationTime: number) => { swampAnimationTime = animationTime; },
     };
 
-    const { ctx } = mockCtx();
+    const { ctx, log } = mockCtx();
     drawFrame(ctx, recording, 0, 0.75, {
       sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
     });
@@ -41,5 +44,46 @@ describe('drawFrame spawn transition', () => {
     expect(draws[0].x).toBeCloseTo(10.5);
     expect(draws[0].y).toBe(10);
     expect(swampAnimationTime).toBe(0.75);
+    const canvasDraws = log.filter((call) => call.op === 'drawImage');
+    expect(canvasDraws.map((call) => call.args[0])).toEqual([
+      terrainCanvas,
+      structureCanvas,
+      rampartCanvas,
+    ]);
+    expect(log[log.length - 1].op).toBe('drawImage');
+    expect(log[log.length - 1].args[0]).toBe(rampartCanvas);
+  });
+
+  it('draws smaller-y creeps before larger-y creeps regardless of recording order', () => {
+    const recording = {
+      meta: { scenario: 'draw-order', endReason: 'running', ticks: 1 },
+      terrain: { W0N0: [] },
+      frames: [{
+        gameTime: 1,
+        flags: [],
+        objects: [
+          { _id: 'lower', type: 'creep', room: 'W0N0', x: 10, y: 20 },
+          { _id: 'upper', type: 'creep', room: 'W0N0', x: 10, y: 10 },
+        ],
+      }],
+    } as Recording;
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const drawnObjectIds: string[] = [];
+    const sprites = {
+      draw: (_ctx: unknown, object: { _id: string }) => drawnObjectIds.push(object._id),
+    };
+    const layers = {
+      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
+      drawSwamps: () => undefined,
+    };
+
+    drawFrame(mockCtx().ctx, recording, 0, null, {
+      sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+    });
+
+    expect(drawnObjectIds).toEqual(['upper', 'lower']);
   });
 });

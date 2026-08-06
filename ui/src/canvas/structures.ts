@@ -83,9 +83,6 @@ export function drawStructureShell(ctx: CanvasContext, object: FrameObject): voi
 		case 'road':
 			circle(ctx, cx, cy, { radius: 0.175, fill: RENDER_COLORS.structure.road });
 			break;
-		case 'rampart':
-			rect(ctx, cx - 0.5, cy - 0.5, 1, 1, { fill: RENDER_COLORS.structure.rampart, opacity: 0.25 });
-			break;
 		case 'invaderCore':
 			circle(ctx, cx, cy, { radius: 0.55, fill: RENDER_COLORS.structure.invaderCore, stroke: RENDER_COLORS.black, strokeWidth: 0.1 });
 			break;

@@ -1,5 +1,10 @@
 import type { Frame, Recording, StageLayout } from '../api/types.ts';
-import { buildTerrainCanvas, buildStructureCanvas, type CanvasFactory } from './staticLayers.ts';
+import {
+	buildRampartCanvas,
+	buildTerrainCanvas,
+	buildStructureCanvas,
+	type CanvasFactory,
+} from './staticLayers.ts';
 import { populateFrameMy } from './ownership.ts';
 import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION, SWAMP_RENDER_STYLE } from './renderConstants.ts';
 import { AnimatedSwampRenderer } from './terrainSwamps.ts';
@@ -20,10 +25,28 @@ export function epochKey(frame: Frame): string {
 	return parts.join('|');
 }
 
+export function rampartEpochKey(frame: Frame): string {
+	const parts: string[] = [];
+	for (const object of frame.objects) {
+		if (object.type !== 'rampart') continue;
+		parts.push([
+			object.room,
+			object.x,
+			object.y,
+			object.my ? 'own' : 'other',
+			object.isPublic === true ? 'public' : 'private',
+		].join(','));
+	}
+	parts.sort();
+	return parts.join('|');
+}
+
 export class StaticLayers {
 	terrain: HTMLCanvasElement;
 	structure: HTMLCanvasElement;
-	private key: string;
+	rampart: HTMLCanvasElement | null;
+	private structureKey: string;
+	private rampartKey: string;
 	private layout: StageLayout;
 	private resolution: number;
 	private canvasFactory?: CanvasFactory;
@@ -70,7 +93,8 @@ export class StaticLayers {
 		}
 		const firstFrame = recording.frames[0];
 		this.prepare(firstFrame);
-		this.key = epochKey(firstFrame);
+		this.structureKey = epochKey(firstFrame);
+		this.rampartKey = rampartEpochKey(firstFrame);
 		this.structure = buildStructureCanvas(
 			firstFrame,
 			layout,
@@ -79,6 +103,9 @@ export class StaticLayers {
 			this.terrainRowsByRoom,
 			this.wallTexture,
 		);
+		this.rampart = this.rampartKey
+			? buildRampartCanvas(firstFrame, layout, resolution, canvasFactory)
+			: null;
 	}
 
 	prepare(frame: Frame): void {
@@ -89,12 +116,12 @@ export class StaticLayers {
 		this.animatedSwamps?.draw(ctx, animationTime);
 	}
 
-	// Rebuild the structure layer only when the structure set changes.
+	// Rebuild each cached overlay only when its own visual layout changes.
 	sync(frame: Frame): void {
 		this.prepare(frame);
-		const nextKey = epochKey(frame);
-		if (nextKey !== this.key) {
-			this.key = nextKey;
+		const nextStructureKey = epochKey(frame);
+		if (nextStructureKey !== this.structureKey) {
+			this.structureKey = nextStructureKey;
 			this.structure = buildStructureCanvas(
 				frame,
 				this.layout,
@@ -103,6 +130,13 @@ export class StaticLayers {
 				this.terrainRowsByRoom,
 				this.wallTexture,
 			);
+		}
+		const nextRampartKey = rampartEpochKey(frame);
+		if (nextRampartKey !== this.rampartKey) {
+			this.rampartKey = nextRampartKey;
+			this.rampart = nextRampartKey
+				? buildRampartCanvas(frame, this.layout, this.resolution, this.canvasFactory)
+				: null;
 		}
 	}
 }
