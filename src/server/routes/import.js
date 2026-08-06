@@ -5,6 +5,8 @@ const { spawn } = require('child_process');
 const { pathSafe } = require('../pathSafe');
 const { loadEnvConfig } = require('../envConfig');
 const { openSse } = require('../sse');
+const screepsProfiles = require('../../screepsProfiles');
+const scenarioSettings = require('../../scenarioSettings');
 
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 const imports = new Map(); // id -> { history, done, error, subscribers }
@@ -16,12 +18,25 @@ function broadcast(job, evt) {
 }
 
 module.exports = function registerImportRoutes(router, ctx) {
+	// The server profile a request is about: the scenario's own choice when it
+	// names one, so the activation popup targets the server it will import from.
+	function configFor(req) {
+		const env = loadEnvConfig();
+		const scenario = (req.query.get('scenario') || '').trim();
+		if (!scenario) return screepsProfiles.resolve(undefined, env);
+		let dir;
+		try { dir = pathSafe(ctx.scenariosRoot, scenario); } catch (e) { return screepsProfiles.resolve(undefined, env); }
+		const settings = scenarioSettings.load(dir).settings;
+		return screepsProfiles.resolve(settings.server, env,
+			settings.server ? scenario + '/' + scenarioSettings.FILE_NAME : null);
+	}
+
 	// Token status — masked only; never leaks the raw token to the browser.
 	router.get('/api/import/token-status', async function (req, res) {
 		if (!ctx.isReady()) { ctx.sendJson(res, 503, { error: 'starting up' }); return; }
 		try {
 			const { createClient } = require('../../import/screepsClient');
-			const client = createClient(loadEnvConfig());
+			const client = createClient(configFor(req));
 			const status = await client.checkToken();
 			ctx.sendJson(res, 200, { active: status.active, needsActivation: !status.active, secondsLeft: status.secondsLeft, maskedUrl: status.maskedUrl });
 		} catch (e) {
@@ -35,7 +50,7 @@ module.exports = function registerImportRoutes(router, ctx) {
 		if (!ctx.isReady()) { ctx.sendJson(res, 503, { error: 'starting up' }); return; }
 		try {
 			const { createClient } = require('../../import/screepsClient');
-			const client = createClient(loadEnvConfig());
+			const client = createClient(configFor(req));
 			const status = await client.checkToken();
 			if (status.activateUrl) { res.writeHead(302, { Location: status.activateUrl }); res.end(); return; }
 			ctx.sendJson(res, 400, { error: 'no activation url' });

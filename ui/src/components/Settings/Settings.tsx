@@ -1,22 +1,43 @@
 import { useEffect, useState } from 'react';
 import { usePrefs, setPrefs } from '../../state/prefs';
 import { api } from '../../api/client';
+import { BotProfiles } from './BotProfiles';
+import { ServerProfiles } from './ServerProfiles';
+import type { EnvPatch } from './profileEnv';
 import styles from './Settings.module.css';
-
-const SERVER_FIELDS = ['DOJO_SCREEPS_TOKEN', 'DOJO_SCREEPS_HOSTNAME', 'DOJO_SCREEPS_SHARD', 'DOJO_SCREEPS_PORT', 'DOJO_SCREEPS_PATH', 'DOJO_SCREEPS_PROTOCOL'];
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const prefs = usePrefs();
   const [env, setEnv] = useState<Record<string, string>>({});
   const [orig, setOrig] = useState<Record<string, string>>({});
-  const [verify, setVerify] = useState<{ bot?: string; server?: string }>({});
+  // Keys to DELETE on save. Blanking them instead would leave a nameless profile
+  // in the list, since a bare KEY= still declares one.
+  const [removed, setRemoved] = useState<string[]>([]);
   const [restartNote, setRestartNote] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => { api.getEnv().then((r) => { setEnv(r.values); setOrig(r.values); }).catch(() => {}); }, []);
 
-  const dirty = JSON.stringify(env) !== JSON.stringify(orig);
-  const set = (k: string, v: string) => { setEnv((e) => ({ ...e, [k]: v })); setSaved(false); };
+  const dirty = JSON.stringify(env) !== JSON.stringify(orig) || removed.length > 0;
+
+  // The profile editors are pure renderers: they hand back an env patch and this
+  // is the only place that decides what the panel is holding.
+  const applyPatch = (patch: EnvPatch) => {
+    setEnv((e) => {
+      const next = { ...e, ...patch.values };
+      for (const k of patch.remove) delete next[k];
+      return next;
+    });
+    // A key written again after being removed must not still be queued for
+    // deletion — the removal would win on the server and undo the edit.
+    setRemoved((r) => {
+      const next = r.filter((k) => !(k in patch.values));
+      for (const k of patch.remove) if (next.indexOf(k) === -1) next.push(k);
+      return next;
+    });
+    setSaved(false);
+  };
 
   const tryClose = () => {
     if (dirty && !window.confirm('Discard unsaved environment changes?')) return;
@@ -26,15 +47,15 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const save = async () => {
     const changed: Record<string, string> = {};
     for (const k of Object.keys(env)) if (env[k] !== orig[k]) changed[k] = env[k];
-    const r = await api.putEnv(changed);
-    setOrig(env); setSaved(true);
-    if (r.restartRequired) setRestartNote(true);
-  };
-
-  const doVerifyBot = async () => { const r = await api.verifyBot(); setVerify((v) => ({ ...v, bot: r.ok ? `✓ ${r.jsModuleCount} .js modules` : '✗ ' + (r.error || 'no modules') })); };
-  const doVerifyServer = async () => {
-    const r = await api.verifyServer();
-    setVerify((v) => ({ ...v, server: r.ok ? (r.active ? '✓ token valid, window active' : '✓ token valid (rate-limited)') : '✗ ' + (r.error || 'invalid') }));
+    const r = await api.putEnv(changed, removed);
+    setRemoved([]);
+    setSaved(true);
+    // Re-read rather than trusting what was sent: the server masks secrets, and
+    // a mask is what the inputs must show back.
+    const fresh = await api.getEnv().catch(() => ({ values: env, secrets: [] }));
+    setEnv(fresh.values); setOrig(fresh.values);
+    setRestartNote(r.restartRequired);
+    setRefreshKey((k) => k + 1);
   };
 
   return (
@@ -62,35 +83,14 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </label>
         </div>
 
-        <div className={styles.section}>
-          <div className={styles.label}>Bot</div>
-          <div className={styles.field}>
-            <span>DOJO_BOT_PATH</span>
-            <input value={env.DOJO_BOT_PATH || ''} onChange={(e) => set('DOJO_BOT_PATH', e.target.value)} />
-          </div>
-          <div className={styles.actions}>
-            <button onClick={doVerifyBot}>Verify mount</button>
-            <span className={styles.vresult}>{verify.bot}</span>
-          </div>
-          <div className={styles.warn}>changing the bot path needs a container restart — see note below.</div>
-        </div>
+        <BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} />
+        <ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} />
 
-        <div className={styles.section}>
-          <div className={styles.label}>Live server (room import)</div>
-          {SERVER_FIELDS.map((k) => (
-            <div className={styles.field} key={k}>
-              <span>{k.replace('DOJO_SCREEPS_', '')}</span>
-              <input value={env[k] || ''} placeholder={k === 'DOJO_SCREEPS_TOKEN' ? '(unchanged)' : ''} onChange={(e) => set(k, e.target.value)} />
-            </div>
-          ))}
-          <div className={styles.actions}>
-            <button onClick={doVerifyServer}>Verify connection</button>
-            <span className={styles.vresult}>{verify.server}</span>
-          </div>
-        </div>
-
-        {saved && <div className={styles.note}>Saved. Token/server changes apply immediately.</div>}
-        {restartNote && <div className={styles.warnBox}>Bot path changed. Re-run <code>npm run ui</code> (or <code>docker compose up -d ui</code>) on the host to re-mount the new path.</div>}
+        {saved && <div className={styles.note}>Saved. Default and server changes apply immediately.</div>}
+        {/* Only a MOUNT change needs the container recreated, and the server
+            tells us when that happened — re-pointing the default is free, and
+            warning about it every time would train people to ignore this. */}
+        {restartNote && <div className={styles.warnBox}>A bot profile's host path changed. Run <code>npm run ui</code> (or <code>docker compose up -d ui</code>) on the host to mount it.</div>}
       </div>
     </div>
   );

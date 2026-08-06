@@ -53,7 +53,11 @@ if (!fs.existsSync(path.join(ROOT, 'ui', 'dist', 'index.html'))) {
 	if (run('npm', ['run', 'build:ui']).status !== 0) fail('UI build failed.');
 }
 
-// 4. bring up the service
+// 4. mount every registered bot profile, then bring up the service. This has to
+// happen before `up`: a bind mount is fixed when the container is created, so a
+// profile added to .env since the last launch only becomes readable now.
+require('./composeOverride').write({ log: console.log });
+
 console.log('[dojo-ui] starting the GUI container…');
 if (run('docker', ['compose', 'up', '-d', 'ui']).status !== 0) fail('docker compose up failed.');
 

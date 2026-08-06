@@ -106,6 +106,11 @@ function main(args) {
 		console.log('[dojo] recording enabled -> recordings/<scenario>/<timestamp>/');
 	}
 
+	// Scenarios may select a bot profile in settings.json, and a profile is only
+	// readable inside the container if it is mounted — which the generated
+	// override is what arranges. Local runs have no container to mount into.
+	if (!options.local) require('./composeOverride').write({ log: console.log });
+
 	// buildMochaArgs() leads with the literal 'mocha', which is the argument
 	// `npx` needs on the container path. Spawning the bin directly, drop it.
 	const result = options.local

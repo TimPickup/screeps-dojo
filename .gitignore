@@ -1,6 +1,9 @@
 node_modules/
 .env
 .noratelimit.url
+# Generated from the bot profiles in .env by scripts/composeOverride.js; the
+# host paths in it are machine-specific.
+docker-compose.override.yml
 /server/
 *.log
 recordings/

@@ -1,0 +1,17 @@
+.wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.section { padding: 12px 0; border-bottom: 1px solid var(--line2); max-width: 560px; }
+.label { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 1px; margin-bottom: 8px; }
+.field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.field > span { width: 70px; flex: none; color: var(--muted); font-size: 11px; }
+.select, .badSelect { flex: 1; background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 4px 6px; }
+.input, .badInput { width: 130px; flex: none; background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 4px 6px; }
+.badSelect, .badInput { border-color: var(--hostile); color: var(--hostile); }
+.remove { background: transparent; border: none; color: var(--muted); font-size: 11px; padding: 0 4px; }
+.remove:hover { color: var(--hostile); }
+.add { background: transparent; border: 1px dashed var(--line2); color: var(--muted); border-radius: var(--radius); padding: 4px 12px; margin-top: 2px; }
+.add:hover { border-color: var(--accent); color: var(--accent); }
+.hint { color: var(--muted); font-size: 11px; margin: 4px 0 2px 78px; }
+.bad { color: var(--hostile); font-size: 11px; margin: 2px 0 6px 78px; }
+.parseError { color: var(--hostile); margin-bottom: 6px; }
+.warn { color: var(--warn); font-size: 11px; margin: 4px 0; }
+.warn code { color: var(--accent); }

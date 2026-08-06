@@ -2,11 +2,18 @@
 
 // Imports live rooms from a Screeps server into scenario map.json + memory files.
 // Usage: npm run import-room -- <scenarioName> <ROOM> [ROOM...]
-// Config (.env): DOJO_SCREEPS_TOKEN (or DOJO_SCREEPS_USERNAME/EMAIL +
-//   DOJO_SCREEPS_PASSWORD for a private server whose token is rejected over the
-//   socket, e.g. screepsmod-auth), DOJO_SCREEPS_SHARD (default shard0),
-//   DOJO_SCREEPS_HOSTNAME (default screeps.com), DOJO_SCREEPS_PATH (default /),
-//   DOJO_SCREEPS_PROTOCOL (default https), DOJO_SCREEPS_PORT (default 443).
+//
+// WHICH server is read from the scenario's own settings.json ("server": "<profile>"),
+// falling back to DOJO_DEFAULT_SCREEPS_PROFILE and then the profile named
+// "default" — so importing into a scenario always talks to the server that
+// scenario is about, from the GUI and the CLI alike.
+//
+// Config (.env): DOJO_SCREEPS_PROFILE_<NAME>_TOKEN (or ..._USERNAME/_EMAIL +
+//   ..._PASSWORD for a private server whose token is rejected over the socket,
+//   e.g. screepsmod-auth), plus ..._SHARD (default shard0), ..._HOSTNAME
+//   (default screeps.com), ..._PATH (default /), ..._PROTOCOL (default https),
+//   ..._PORT (default 443). The unsuffixed DOJO_SCREEPS_* keys still work and
+//   map to the profile named "default".
 
 function parseArgs(argv) {
 	const args = argv.slice(2);
@@ -32,6 +39,8 @@ function uniqueFileName(dir, base, ext) {
 	}
 }
 const { roomToMap } = require('../src/import/roomToMap');
+const screepsProfiles = require('../src/screepsProfiles');
+const scenarioSettings = require('../src/scenarioSettings');
 
 // .env is mounted into the container; load it without a dependency.
 function loadEnv() {
@@ -58,7 +67,11 @@ async function buildSyncClassifier(objects, asyncClassify) {
 
 async function main() {
 	const parsed = parseArgs(process.argv);
-	const config = loadEnv();
+	const scenarioDir = path.join(__dirname, '..', 'scenarios', parsed.scenario);
+	const settings = scenarioSettings.load(scenarioDir).settings;
+	const config = screepsProfiles.resolve(settings.server, loadEnv(),
+		settings.server ? parsed.scenario + '/' + scenarioSettings.FILE_NAME : null);
+	if (settings.server) console.log('server profile: ' + settings.server + ' (from settings.json)');
 	const client = createClient(config);
 
 	const window = await client.checkToken();
@@ -80,7 +93,7 @@ async function main() {
 	await client.me();
 	const asyncClassify = client.ownerClassifier();
 
-	const outDir = path.join(__dirname, '..', 'scenarios', parsed.scenario);
+	const outDir = scenarioDir;
 	fs.mkdirSync(outDir, { recursive: true });
 
 	for (const roomName of parsed.rooms) {

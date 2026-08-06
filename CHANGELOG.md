@@ -5,6 +5,53 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+Bot and server profiles. Register each of your codebases once and every scenario
+can pick between them by name — no container restart, and no more single global
+bot path.
+
+### Added
+
+- **Bot profiles.** `DOJO_BOT_PROFILE_<NAME>_PATH` registers a codebase; every
+  one is mounted read-only at `/bots/<name>`, so switching which one runs is a
+  name lookup rather than a mount change. `DOJO_DEFAULT_BOT_PROFILE` picks the
+  default, and changing it is free. Only adding or repointing a *path* still
+  needs one `npm run ui`, because a bind mount is fixed when the container is
+  created.
+- **Per-scenario `settings.json`** — `{ "bot": "speedrun", "bots": { "enemy":
+  "default" }, "server": "season" }`. It resolves before `scenario.js` is
+  required, so `allBotModules()` picks the right codebase with no code change,
+  and `botDir('enemy')` gives another side its own — you can now pit two
+  versions of your bot against each other. It opens in its own form editor (or
+  raw JSON) from the ⚙ beside the Edit tab.
+- **Screeps server profiles.** `DOJO_SCREEPS_PROFILE_<NAME>_<KEY>`, each
+  overlaying the profile named `default` so it only states what differs.
+  `npm run import-room` reads the scenario's own `settings.json`, so the CLI and
+  the GUI always import from the server that scenario is about.
+- **Per-profile status in Settings**, replacing the blanket "changing the bot
+  path needs a container restart" warning: each row says whether it is mounted,
+  how many `.js` modules it holds, or that it is still waiting on `npm run ui`.
+- `npm run bots:sync` regenerates `docker-compose.override.yml` from `.env`.
+  `npm run ui` and `npm test` do it for you.
+
+### Changed
+
+- The `/bot` mount is gone; the default profile lives at `/bots/default`. A
+  checkout with no `.env` still runs the bundled examples unchanged.
+- Recordings and the run's `start` event now carry which codebase produced them.
+- A scenario naming an unknown or unmounted profile fails immediately, listing
+  the profiles that *are* registered, instead of failing later as a missing
+  module.
+- `PUT /api/env` reports `restartRequired` only when a bot profile's host path
+  actually changed, and can now delete keys outright (blanking one would leave a
+  nameless profile behind).
+
+### Deprecated
+
+- `DOJO_BOT_PATH` and the unsuffixed `DOJO_SCREEPS_*` keys. Both still work and
+  mean the profile named `default`; Settings offers one-click migration.
+
 ## [0.6.0] — 2026-08-06
 
 One renderer. Replays, scenario previews and the MP4/GIF exports all draw

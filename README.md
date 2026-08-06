@@ -21,8 +21,10 @@ the build takes a few minutes; it's cached afterwards), then opens
 `http://localhost:8787`.
 
 To run your own bot instead of the bundled examples, copy `.env.example` to
-`.env` (PowerShell: `Copy-Item .env.example .env`) and set `DOJO_BOT_PATH` to
-your bot's script folder (flat `.js` modules, mounted read-only at `/bot`).
+`.env` (PowerShell: `Copy-Item .env.example .env`) and set
+`DOJO_BOT_PROFILE_DEFAULT_PATH` to your bot's script folder (flat `.js`
+modules). See **[Bot profiles](#bot-profiles)** to register more than one
+codebase and let each scenario pick between them.
 
 From the UI you can:
 
@@ -42,8 +44,10 @@ From the UI you can:
   controllers, connect roads/walls, see store capacities — or flip to a
   syntax-highlighted JSON view. **Import a room** from a live server straight
   into the scenario.
-- **⚙ Settings** — toggle user visuals and edit/verify your `.env` (bot path,
-  Screeps token); a popup walks you through token activation when needed.
+- **⚙ Settings** — toggle user visuals, and register/verify the bot codebases
+  and Screeps servers in your `.env`; a popup walks you through token activation
+  when needed. Each scenario has its own ⚙ too, for overriding which of those it
+  uses.
 
 The server runs in the background (detached), so stop it with `npm run ui:stop`
 (or `npm run ui:down` to remove the containers); `npm run ui` brings it back up.
@@ -103,6 +107,67 @@ mode remains the supported fallback and can always be selected with:
 
     DOJO_FAST_MOCK_ENGINE=0
 
+## Bot profiles
+
+A bot codebase reaches the container through a bind mount, and a bind mount is
+fixed when the container is created — so the container can only ever read paths
+that were mounted at that moment. Dojo therefore registers each codebase once,
+up front, and selects between them **by name**:
+
+    DOJO_BOT_PROFILE_DEFAULT_PATH=M:/screeps/main
+    DOJO_BOT_PROFILE_SPEEDRUN_PATH=M:/screeps/speedrun
+    DOJO_DEFAULT_BOT_PROFILE=default
+
+Every profile is mounted read-only at `/bots/<name>`, so switching which one a
+scenario runs — or which one is the default — is instant. Only **adding or
+changing a path** is a mount change, and needs `npm run ui` once afterwards.
+The Settings screen shows per-profile mount status, so you always know which
+rows are live and which are still waiting.
+
+The older `DOJO_BOT_PATH` still works and means the profile named `default`.
+
+### Per-scenario overrides
+
+Any scenario may carry an optional `settings.json`:
+
+```json
+{
+  "bot": "speedrun",
+  "bots": { "enemy": "default" },
+  "server": "season"
+}
+```
+
+- `bot` — the codebase this scenario's own bot runs (`allBotModules()` picks it
+  up with no code change). It is shorthand for `bots.main`.
+- `bots` — any other side, so you can pit two versions of your bot against each
+  other: `world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) })`.
+- `server` — which Screeps server profile **Import a room** talks to.
+
+Values are profile *names*, never paths. Edit the file through the scenario's ⚙
+(a form, or raw JSON — the same way `map*.json` opens in the map editor), or by
+hand. A scenario with no `settings.json` inherits everything, which is the
+normal case.
+
+An unknown or unmounted profile fails the run immediately, naming the profiles
+that are registered — never halfway through with a confusing missing-module
+error.
+
+## Screeps server profiles
+
+The room importer takes the same treatment. Each profile overlays the one named
+`default`, so it only states what differs:
+
+    DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN=...
+    DOJO_SCREEPS_PROFILE_DEFAULT_SHARD=shard0
+    DOJO_SCREEPS_PROFILE_SEASON_SHARD=season
+    DOJO_DEFAULT_SCREEPS_PROFILE=default
+
+`npm run import-room -- <scenario> <ROOM>` reads that scenario's
+`settings.json`, so the CLI and the GUI always import from the same server the
+scenario is about. The unsuffixed `DOJO_SCREEPS_*` keys still work and mean the
+`default` profile.
+
 ## Writing a scenario
 
 `scenarios/` is **your** workspace — it ships empty and is git-ignored, so your
@@ -118,7 +183,8 @@ See `examples/README.md` for a guided tour. A scenario is a directory
 - `modules` — code uploaded into the game VM: read scenario-local files, use
   `loadBotModules(['CombatMovement', ...])` from `src/botModules` to pull your
   real modules, or `allBotModules()` to run your ENTIRE codebase with its real
-  `main.js`.
+  `main.js`. Which codebase that is comes from the scenario's
+  [bot profile](#bot-profiles); `botDir('enemy')` gives you another one.
 - `setup(world)` — build the world: `world.loadScenarioMaps([map], botOptions)`,
   `world.addCreep(...)`, `world.addEnemyBot(...)`, `world.addFlag(...)`. To
   replay imported state, pass saved Memory/segments in the third (options)

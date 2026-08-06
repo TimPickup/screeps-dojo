@@ -36,4 +36,20 @@ function merge(text, patch) {
 	return lines.join('\n');
 }
 
-module.exports = { parse: parse, merge: merge };
+// Drops the given keys entirely. Deleting a profile has to remove its lines
+// rather than blank them: a KEY= line still declares the profile, so blanking
+// would leave a nameless entry in the Settings list forever.
+function remove(text, keys) {
+	const drop = new Set(keys || []);
+	if (!drop.size) return text;
+	const lines = (text || '').split('\n');
+	const kept = [];
+	for (const line of lines) {
+		const m = KEY_RE.exec(line);
+		if (m && drop.has(m[2])) continue;
+		kept.push(line);
+	}
+	return kept.join('\n');
+}
+
+module.exports = { parse: parse, merge: merge, remove: remove };
