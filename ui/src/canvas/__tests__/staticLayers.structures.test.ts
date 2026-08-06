@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { drawStaticStructures } from '../staticLayers';
+import { drawMergedWalls, drawStaticStructures } from '../staticLayers';
 import { mockCtx } from './mockCtx';
 import type { Frame, StageLayout } from '../../api/types';
 
@@ -21,6 +21,22 @@ describe('drawStaticStructures', () => {
     // The extension contributes its shell and empty backing; the dynamic
     // creep/tombstone/resource objects add nothing to the static layer.
     expect(log.filter((c) => c.op === 'arc').length).toBe(2);
+  });
+
+  it('draws constructed walls only through the merged wall layer', () => {
+    const frame = frameWith([
+      { _id: 'wall', type: 'constructedWall', room: 'W1N1', x: 11, y: 10 },
+    ]);
+    const staticStructures = mockCtx();
+    drawStaticStructures(staticStructures.ctx, frame, layout);
+    expect(staticStructures.log.filter((call) => call.op === 'arc')).toHaveLength(0);
+
+    const mergedWalls = mockCtx();
+    const terrain = { W1N1: terrainWithWalls([[10, 10]]) };
+    drawMergedWalls(mergedWalls.ctx, terrain, frame, layout);
+    expect(mergedWalls.log.some((call) => call.op === 'quadraticCurveTo')).toBe(true);
+    expect(mergedWalls.log.some((call) => call.op === 'moveTo'
+      && call.args[0] === 11.3 && call.args[1] === 10 + 1 / 3)).toBe(true);
   });
 
   it('renders an unclaimed controller even when it is positioned at (0,0)', () => {
@@ -50,3 +66,11 @@ describe('drawStaticStructures', () => {
     expect(log.filter((c) => c.op === 'fillText').length).toBe(0);
   });
 });
+
+function terrainWithWalls(walls: Array<[number, number]>): string[] {
+  const rows = Array.from({ length: 50 }, () => '.'.repeat(50));
+  for (const [x, y] of walls) {
+    rows[y] = `${rows[y].slice(0, x)}#${rows[y].slice(x + 1)}`;
+  }
+  return rows;
+}

@@ -16,7 +16,9 @@ import {
 
 export { STATIC_LAYER_RESOLUTION as STATIC_RES } from './renderConstants.ts';
 
-// One room's terrain at room-local integer tile coordinates.
+// One room's immutable ground at room-local integer tile coordinates. Walls
+// are drawn in the epoch-cached structure layer so constructed walls can join
+// their terrain geometry without adding another per-frame canvas layer.
 export function drawTerrain(
 	ctx: CanvasRenderingContext2D,
 	rows: string[],
@@ -37,7 +39,6 @@ export function drawTerrain(
 	ctx.stroke();
 	ctx.globalAlpha = 1;
 	drawSwampIslands(ctx, rows, terrainTextures?.swampNoise1);
-	drawWallIslands(ctx, rows, terrainTextures?.wallNoise);
 	// exit chevrons on walkable border tiles
 	ctx.strokeStyle = RENDER_COLORS.terrain.exit;
 	ctx.lineWidth = 0.08;
@@ -179,6 +180,28 @@ export function drawStaticStructures(
 	drawFlags(ctx, frame.flags, layout);
 }
 
+export function drawMergedWalls(
+	ctx: CanvasRenderingContext2D,
+	terrain: Record<string, string[]>,
+	frame: Frame,
+	layout: StageLayout,
+	wallTexture?: CanvasImageSource,
+): void {
+	const constructedWallsByRoom = new Map<string, Array<{ x: number; y: number }>>();
+	for (const object of frame.objects) {
+		if (object.type !== 'constructedWall' || !layout.offsets[object.room]) continue;
+		const roomWalls = constructedWallsByRoom.get(object.room) || [];
+		roomWalls.push({ x: object.x, y: object.y });
+		constructedWallsByRoom.set(object.room, roomWalls);
+	}
+	for (const [roomName, roomOffset] of Object.entries(layout.offsets)) {
+		ctx.save();
+		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
+		drawWallIslands(ctx, terrain[roomName] || [], wallTexture, constructedWallsByRoom.get(roomName) || []);
+		ctx.restore();
+	}
+}
+
 // Recorded flags use the engine's compact `data` wire string; map previews use
 // direct {room,name,x,y} entries. Normalising both here keeps every canvas
 // consumer on the replay renderer's visual implementation.
@@ -216,6 +239,7 @@ export function drawStaticScene(
 	options: { initialSourceEnergy?: boolean; terrainTextures?: TerrainTextures } = {},
 ): void {
 	drawTerrainScene(ctx, scene.terrain, scene.layout, options.terrainTextures);
+	drawMergedWalls(ctx, scene.terrain, scene.frame, scene.layout, options.terrainTextures?.wallNoise);
 	drawStaticStructures(ctx, scene.frame, scene.layout);
 	for (const object of scene.frame.objects) {
 		const roomOffset = scene.layout.offsets[object.room];
@@ -232,8 +256,11 @@ export function buildStructureCanvas(
 	layout: StageLayout,
 	resolution = STATIC_LAYER_RESOLUTION,
 	canvasFactory: CanvasFactory = browserCanvas,
+	terrain: Record<string, string[]> = {},
+	wallTexture?: CanvasImageSource,
 ): HTMLCanvasElement {
 	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
+		drawMergedWalls(ctx, terrain, frame, layout, wallTexture);
 		drawStaticStructures(ctx, frame, layout);
 	});
 }

@@ -5,6 +5,7 @@ const POWER = '#f53547';
 const HEALTH = '#65fd62';
 const ATTACK = '#f7263f';
 const RANGED_ATTACK = '#5c82b1';
+const LIGHT_GREY = '#aaaaaa';
 
 // Semantic canvas palette. Repeated meanings intentionally share the same
 // underlying colour while distinct renderer details keep their own entries.
@@ -52,6 +53,7 @@ export const RENDER_COLORS = {
 		swamp: '#3a4429',
 		swampOutline: '#292a208e',
 		wall: '#101010',
+		constructedWallMarker: LIGHT_GREY,
 		wallOuterShadow: '#00000020',
 		wallInnerGlow: '#FFFFFF05',
 		wallInnerHighlight: '#99999930',
@@ -62,7 +64,7 @@ export const RENDER_COLORS = {
 	structure: {
 		dark: '#181818',
 		medium: '#555555',
-		light: '#aaaaaa',
+		light: LIGHT_GREY,
 		road: '#666666',
 		spawnOutline: '#cccccc',
 		sourceBase: '#0a0a0a',
@@ -78,7 +80,7 @@ export const RENDER_COLORS = {
 	controller: {
 		base: '#0a0a0a',
 		outline: BLACK,
-		level: '#aaaaaa',
+		level: LIGHT_GREY,
 		unclaimed: '#444444',
 		progress: '#ffffff7c',
 	},
@@ -115,12 +117,17 @@ export const ROOM_SIZE_TILES = 50;
 export const STATIC_LAYER_RESOLUTION = 24;
 
 export const WALL_RENDER_STYLE = {
-	cornerRadius: 0.22,
-	textureOpacity: 0.025,
+	cornerRadius: 0.42,
+	textureOpacity: 0.055,
 	outerShadowWidth: 0.5,
 	innerGlowWidth: 0.7,
 	innerHighlightWidth: 0.2,
 	outlineWidth: 0.045,
+	constructedMarkerWidth: 0.035,
+	constructedMarkers: [
+		{ y: 1 / 3, startX: 0.3, length: 0.3 },
+		{ y: 2 / 3, startX: 0.4, length: 0.3 },
+	],
 } as const;
 
 export const SWAMP_RENDER_STYLE = {
@@ -150,7 +157,6 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'container',
 	'road',
 	'rampart',
-	'constructedWall',
 	'invaderCore',
 	'keeperLair',
 	'extractor',
@@ -158,6 +164,7 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 
 export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([
 	...STRUCTURE_SHELL_TYPES,
+	'constructedWall',
 	'controller',
 	'source',
 	'mineral',

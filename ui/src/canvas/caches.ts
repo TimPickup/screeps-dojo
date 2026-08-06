@@ -29,6 +29,8 @@ export class StaticLayers {
 	private canvasFactory?: CanvasFactory;
 	private botUserId?: string;
 	private animatedSwamps?: AnimatedSwampRenderer;
+	private terrainRowsByRoom: Record<string, string[]>;
+	private wallTexture?: CanvasImageSource;
 
 	constructor(
 		recording: Recording,
@@ -41,6 +43,8 @@ export class StaticLayers {
 		this.resolution = resolution;
 		this.canvasFactory = canvasFactory;
 		this.botUserId = recording.meta.botUserId;
+		this.terrainRowsByRoom = recording.terrain;
+		this.wallTexture = terrainResources.textures?.wallNoise;
 		const firstSwampTexture = terrainResources.textures?.swampNoise1;
 		const secondSwampTexture = terrainResources.textures?.swampNoise2;
 		const animateSwamps = SWAMP_RENDER_STYLE.animated
@@ -67,7 +71,14 @@ export class StaticLayers {
 		const firstFrame = recording.frames[0];
 		this.prepare(firstFrame);
 		this.key = epochKey(firstFrame);
-		this.structure = buildStructureCanvas(firstFrame, layout, resolution, canvasFactory);
+		this.structure = buildStructureCanvas(
+			firstFrame,
+			layout,
+			resolution,
+			canvasFactory,
+			this.terrainRowsByRoom,
+			this.wallTexture,
+		);
 	}
 
 	prepare(frame: Frame): void {
@@ -84,7 +95,14 @@ export class StaticLayers {
 		const nextKey = epochKey(frame);
 		if (nextKey !== this.key) {
 			this.key = nextKey;
-			this.structure = buildStructureCanvas(frame, this.layout, this.resolution, this.canvasFactory);
+			this.structure = buildStructureCanvas(
+				frame,
+				this.layout,
+				this.resolution,
+				this.canvasFactory,
+				this.terrainRowsByRoom,
+				this.wallTexture,
+			);
 		}
 	}
 }

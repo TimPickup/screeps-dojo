@@ -11,10 +11,10 @@ function rows(fill: string): string[] {
 }
 
 describe('drawTerrain', () => {
-  it('draws walls as rounded island paths rather than tile rectangles', () => {
+  it('leaves walls for the epoch-cached merged wall layer', () => {
     const { ctx, log } = mockCtx();
     drawTerrain(ctx, rows('.'));
-    expect(log.some((call) => call.op === 'quadraticCurveTo')).toBe(true);
+    expect(log.some((call) => call.op === 'quadraticCurveTo')).toBe(false);
     expect(log.some((call) => call.op === 'fillRect'
       && call.args[0] === 3 && call.args[1] === 4 && call.args[2] === 1)).toBe(false);
   });

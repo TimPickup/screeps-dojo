@@ -89,9 +89,6 @@ export function drawStructureShell(ctx: CanvasContext, object: FrameObject): voi
 		case 'invaderCore':
 			circle(ctx, cx, cy, { radius: 0.55, fill: RENDER_COLORS.structure.invaderCore, stroke: RENDER_COLORS.black, strokeWidth: 0.1 });
 			break;
-		case 'constructedWall':
-			circle(ctx, cx, cy, { radius: 0.4, fill: RENDER_COLORS.structure.dark, stroke: RENDER_COLORS.structure.light, strokeWidth: 0.05 });
-			break;
 		case 'storage':
 			poly(ctx, translatePoints(cx, cy, [[-0.45, -0.55], [0, -0.65], [0.45, -0.55], [0.55, 0], [0.45, 0.55], [0, 0.65], [-0.45, 0.55], [-0.55, 0]]),
 				{ stroke: my ? RENDER_COLORS.ownership.ownStructure : RENDER_COLORS.ownership.otherStructure, strokeWidth: 0.05, fill: RENDER_COLORS.structure.dark });

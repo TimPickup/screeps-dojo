@@ -11,9 +11,10 @@ import {
 export type WallPoint = TerrainPoint;
 export type WallContour = TerrainContour;
 export type WallIsland = TerrainIsland;
+export type WallTile = TerrainPoint;
 
-export function buildWallIslands(rows: string[]): WallIsland[] {
-	return buildTerrainIslands(rows, '#');
+export function buildWallIslands(rows: string[], constructedWalls: readonly WallTile[] = []): WallIsland[] {
+	return buildTerrainIslands(rows, '#', constructedWalls);
 }
 
 function beginFillPaths(ctx: CanvasRenderingContext2D, islands: WallIsland[]): void {
@@ -47,12 +48,36 @@ function drawRoomTexture(ctx: CanvasRenderingContext2D, texture: CanvasImageSour
 	ctx.drawImage(texture, 0, 0, ROOM_SIZE_TILES, ROOM_SIZE_TILES);
 }
 
+function drawConstructedWallMarkers(
+	ctx: CanvasRenderingContext2D,
+	islands: WallIsland[],
+	constructedWalls: readonly WallTile[],
+): void {
+	if (constructedWalls.length === 0) return;
+	ctx.save();
+	beginFillPaths(ctx, islands);
+	ctx.clip();
+	ctx.beginPath();
+	for (const wall of constructedWalls) {
+		for (const marker of WALL_RENDER_STYLE.constructedMarkers) {
+			ctx.moveTo(wall.x + marker.startX, wall.y + marker.y);
+			ctx.lineTo(wall.x + marker.startX + marker.length, wall.y + marker.y);
+		}
+	}
+	ctx.strokeStyle = RENDER_COLORS.terrain.constructedWallMarker;
+	ctx.lineWidth = WALL_RENDER_STYLE.constructedMarkerWidth;
+	ctx.lineCap = 'butt';
+	ctx.stroke();
+	ctx.restore();
+}
+
 export function drawWallIslands(
 	ctx: CanvasRenderingContext2D,
 	rows: string[],
 	texture?: CanvasImageSource,
+	constructedWalls: readonly WallTile[] = [],
 ): void {
-	const islands = buildWallIslands(rows);
+	const islands = buildWallIslands(rows, constructedWalls);
 	if (islands.length === 0) return;
 
 	ctx.save();
@@ -99,4 +124,6 @@ export function drawWallIslands(
 		WALL_RENDER_STYLE.outlineWidth,
 	);
 	ctx.restore();
+
+	drawConstructedWallMarkers(ctx, islands, constructedWalls);
 }

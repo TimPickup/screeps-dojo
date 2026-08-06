@@ -138,12 +138,22 @@ function boundaryEdgesForTiles(tiles: TerrainPoint[]): BoundaryEdge[] {
 
 // Connectivity is deliberately room-local and cardinal. Diagonally touching
 // terrain remains separate and neighbouring room terrain is never consulted.
-export function buildTerrainIslands(rows: string[], terrainType: string): TerrainIsland[] {
+export function buildTerrainIslands(
+	rows: string[],
+	terrainType: string,
+	additionalTiles: readonly TerrainPoint[] = [],
+): TerrainIsland[] {
+	const additionalTileKeys = new Set(additionalTiles
+		.filter((tile) => tile.x >= 0 && tile.x < ROOM_SIZE_TILES && tile.y >= 0 && tile.y < ROOM_SIZE_TILES)
+		.map((tile) => tileKey(tile.x, tile.y)));
+	const isOccupied = (x: number, y: number) => x >= 0 && x < ROOM_SIZE_TILES
+		&& y >= 0 && y < ROOM_SIZE_TILES
+		&& (hasTerrainType(rows, terrainType, x, y) || additionalTileKeys.has(tileKey(x, y)));
 	const visited = new Set<number>();
 	const islands: TerrainIsland[] = [];
 	for (let y = 0; y < ROOM_SIZE_TILES; y++) {
 		for (let x = 0; x < ROOM_SIZE_TILES; x++) {
-			if (!hasTerrainType(rows, terrainType, x, y) || visited.has(tileKey(x, y))) continue;
+			if (!isOccupied(x, y) || visited.has(tileKey(x, y))) continue;
 			const tiles: TerrainPoint[] = [];
 			const pending: TerrainPoint[] = [{ x, y }];
 			visited.add(tileKey(x, y));
@@ -154,7 +164,7 @@ export function buildTerrainIslands(rows: string[], terrainType: string): Terrai
 					const nextX = tile.x + neighbour.dx;
 					const nextY = tile.y + neighbour.dy;
 					const nextKey = tileKey(nextX, nextY);
-					if (!hasTerrainType(rows, terrainType, nextX, nextY) || visited.has(nextKey)) continue;
+					if (!isOccupied(nextX, nextY) || visited.has(nextKey)) continue;
 					visited.add(nextKey);
 					pending.push({ x: nextX, y: nextY });
 				}
