@@ -3,6 +3,7 @@ import { usePrefs, setPrefs } from '../../state/prefs';
 import { api } from '../../api/client';
 import { BotProfiles } from './BotProfiles';
 import { ServerProfiles } from './ServerProfiles';
+import { HostAgentAction } from './HostAgentAction';
 import type { EnvPatch } from './profileEnv';
 import styles from './Settings.module.css';
 
@@ -90,7 +91,12 @@ export function Settings({ onClose }: { onClose: () => void }) {
         {/* Only a MOUNT change needs the container recreated, and the server
             tells us when that happened — re-pointing the default is free, and
             warning about it every time would train people to ignore this. */}
-        {restartNote && <div className={styles.warnBox}>A bot profile's host path changed. Run <code>npm run ui</code> (or <code>docker compose up -d ui</code>) on the host to mount it.</div>}
+        {restartNote && (
+          <div className={styles.warnBox}>
+            A bot profile's host path changed — it is not mounted until the container is re-created.
+            <HostAgentAction action="recreate" label="Apply now" fallback="npm run ui" />
+          </div>
+        )}
       </div>
     </div>
   );

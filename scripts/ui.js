@@ -18,6 +18,10 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
+// `npm run ui -- --agent`: stay in the foreground afterwards as the host agent
+// (scripts/hostAgent.js), so the GUI can ask for the host-side commands it
+// cannot run itself.
+const WITH_AGENT = process.argv.slice(2).includes('--agent');
 const PORT = Number(process.env.DOJO_UI_PORT) || 8787;
 const URL = 'http://localhost:' + PORT + '/';
 
@@ -80,7 +84,15 @@ const timer = setInterval(function () {
 			openBrowser(URL);
 			// the GUI shows its own update banner, but this process keeps the
 			// terminal, so say it here too
-			require('../src/updateCheck').printNotice();
+			require('../src/updateCheck').printNotice().then(function () {
+				// --agent keeps this terminal alive as the host agent, so the GUI
+				// can ask for a recreate/restart/update instead of printing a
+				// command for you to run. Without it, nothing changes: the GUI
+				// shows the command, exactly as before.
+				if (WITH_AGENT) require('./hostAgent').run();
+				else console.log('[dojo-ui] tip: `npm run ui -- --agent` (or `npm run host-agent`) lets the GUI\n'
+					+ '[dojo-ui]      apply bot-path changes and updates without you typing a command.');
+			});
 		}
 	});
 	req.on('error', function () { /* unreachable yet */ });

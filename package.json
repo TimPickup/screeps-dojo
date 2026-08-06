@@ -26,7 +26,8 @@
 		"build:ui": "cd ui && npm install && npm run build",
 		"ui": "node scripts/ui.js",
 		"ui:stop": "docker compose stop ui",
-		"ui:down": "docker compose down"
+		"ui:down": "docker compose down",
+		"host-agent": "node scripts/hostAgent.js"
 	},
 	"dependencies": {
 		"@napi-rs/canvas": "1.0.3",

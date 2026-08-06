@@ -58,6 +58,7 @@ function createServer(opts) {
 	require('./routes/files')(router, ctx);
 	require('./routes/import')(router, ctx);
 	require('./routes/env')(router, ctx);
+	require('./routes/hostAgent')(router, ctx);
 	require('./routes/bootstrap')(router, ctx);
 
 	const server = http.createServer(function (req, res) {

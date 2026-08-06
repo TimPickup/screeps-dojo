@@ -23,3 +23,7 @@ docs/superpowers/
 # Scoped to the .local. file by convention, so a shared .claude/settings.json
 # could still be committed deliberately if the project ever wants one.
 .claude/settings.local.json
+
+# Host-agent channel: request/status/log between the container and the host
+# agent (scripts/hostAgent.js). Runtime state, never committed.
+.dojo-host/

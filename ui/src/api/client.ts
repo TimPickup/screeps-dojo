@@ -1,6 +1,6 @@
 import type {
   Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
-  BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse
+  BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus
 } from './types';
 
 async function jget<T>(path: string): Promise<T> {
@@ -86,6 +86,11 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     return res.json() as Promise<{ ok: boolean; restartRequired: boolean }>;
   },
+  hostAgent: () => jget<HostAgentStatus>('/api/host-agent'),
+  // The action is a name from a closed server-side list; nothing else is sent,
+  // and nothing sent ever reaches a command line on the host.
+  hostAgentRequest: (action: string) =>
+    jpost<{ ok: boolean; id: string; action: string }>('/api/host-agent/request', { action }),
   bots: () => jget<BotProfilesResponse>('/api/bots'),
   servers: () => jget<ScreepsProfilesResponse>('/api/servers'),
   scenarioSettings: (scenario: string) =>

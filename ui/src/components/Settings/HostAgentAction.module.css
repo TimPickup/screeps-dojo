@@ -1,0 +1,10 @@
+/* Its own module so the component can sit in the Settings panel and on the
+   welcome screen without either page owning its look. */
+.row { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.btn { background: transparent; border: 1px solid var(--accent); border-radius: var(--radius); color: var(--accent); padding: 3px 10px; font-size: 12px; }
+.btn:hover:enabled { background: var(--accent); color: #10130f; }
+.btn:disabled { border-color: var(--line2); color: var(--muted); }
+.hint { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.hint code { color: var(--accent); }
+.ok { color: var(--accent); font-size: 11px; }
+.err { color: var(--hostile); font-size: 11px; }

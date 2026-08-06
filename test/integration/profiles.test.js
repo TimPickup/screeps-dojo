@@ -18,9 +18,24 @@ const path = require('path');
 const { createServer } = require('../../src/server');
 const { runScenario } = require('../../src/scenarioRunner');
 const botModules = require('../../src/botModules');
+const hostChannel = require('../../src/hostChannel');
 
 const FIXTURE_BOTS = path.join(__dirname, '..', 'fixtures', 'bots');
 const FIXTURE_SCENARIO = path.join(__dirname, '..', 'fixtures', 'profile-scenario');
+
+function post(port, p, obj) {
+	return new Promise(function (resolve, reject) {
+		const data = JSON.stringify(obj || {});
+		const req = http.request({ host: '127.0.0.1', port: port, path: p, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, function (res) {
+			let body = '';
+			res.on('data', function (c) { body += c; });
+			res.on('end', function () { resolve({ status: res.statusCode, body: body }); });
+		});
+		req.on('error', reject);
+		req.write(data);
+		req.end();
+	});
+}
 
 function get(port, p) {
 	return new Promise(function (resolve, reject) {
@@ -228,6 +243,44 @@ describe('profile routes', function () {
 		const body = JSON.parse((await get(port, '/api/verify/bot?profile=nope')).body);
 		assert.strictEqual(body.ok, false);
 		assert.match(body.error, /unknown bot profile "nope"/);
+	});
+
+	it('refuses to queue a request when no host agent is listening', async function () {
+		hostChannel.clearStatus();
+		const res = await post(port, '/api/host-agent/request', { action: 'recreate' });
+		assert.strictEqual(res.status, 409);
+		assert.match(JSON.parse(res.body).error, /npm run host-agent/);
+		assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false, 'nothing should be left for a future agent');
+	});
+
+	it('refuses an action outside the allow-list even with an agent listening', async function () {
+		hostChannel.writeStatus({ heartbeatAt: new Date().toISOString(), actions: hostChannel.ACTIONS });
+		try {
+			const res = await post(port, '/api/host-agent/request', { action: 'exec' });
+			assert.strictEqual(res.status, 400);
+			assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false);
+		} finally { hostChannel.clearStatus(); }
+	});
+
+	it('queues an allowed action, carrying nothing but its name', async function () {
+		hostChannel.writeStatus({ heartbeatAt: new Date().toISOString(), actions: hostChannel.ACTIONS });
+		try {
+			const res = await post(port, '/api/host-agent/request', { action: 'recreate', command: 'shutdown /s' });
+			assert.strictEqual(res.status, 200);
+			const written = hostChannel.readRequest();
+			assert.deepStrictEqual(Object.keys(written).sort(), ['action', 'id', 'requestedAt']);
+			assert.strictEqual(written.action, 'recreate');
+		} finally {
+			hostChannel.clearStatus();
+			hostChannel.clearRequest();
+		}
+	});
+
+	it('GET /api/host-agent reports no agent as no offered actions', async function () {
+		hostChannel.clearStatus();
+		const body = JSON.parse((await get(port, '/api/host-agent')).body);
+		assert.strictEqual(body.running, false);
+		assert.deepStrictEqual(body.actions, [], 'the UI must not offer buttons nothing will answer');
 	});
 
 	it('listing scenarios still costs no extra reads for settings.json', async function () {

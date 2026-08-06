@@ -126,6 +126,36 @@ rows are live and which are still waiting.
 
 The older `DOJO_BOT_PATH` still works and means the profile named `default`.
 
+### Applying a mount change without leaving the browser
+
+The GUI runs inside the container, so it cannot recreate its own container or
+rebuild its own image — those are host commands. Start the **host agent** and it
+can ask you to:
+
+    npm run host-agent          # watch until you stop it (Ctrl-C)
+    npm run ui -- --agent       # open the GUI, then keep watching in this terminal
+
+With it running, Settings grows an **Apply mount changes** button and the update
+banner grows an **Update now** button. Without it, both show the command to type
+instead — nothing breaks, and nothing is installed or left running behind you.
+
+How it stays safe:
+
+- The container writes `.dojo-host/request.json` naming **an action from a fixed
+  list** — `restart`, `recreate`, `update` — and nothing else. No path, no
+  argument, no flag. There is deliberately no "run this command" action.
+- Each action maps to a constant command chosen in `scripts/hostAgent.js`.
+  Nothing from the request file ever reaches a command line.
+- This grants nothing new. Anything that can write `request.json` can already
+  write `scripts/ui.js` — they are the same bind-mounted checkout. The
+  alternative, mounting the Docker socket into the container, would hand the
+  process running your bot code full control of the host daemon.
+- Requests are consumed before they run (a crash cannot replay one), handled at
+  most once per id, dropped if they were made while no agent was listening, and
+  rate-limited so a wedged server cannot spin your machine.
+- Every decision, including every refusal, is appended to `.dojo-host/agent.log`
+  and printed in the agent's terminal.
+
 ### Per-scenario overrides
 
 Any scenario may carry an optional `settings.json`:

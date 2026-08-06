@@ -7,6 +7,7 @@ import {
   usesLegacyBotKeys
 } from './profileEnv';
 import type { EnvPatch } from './profileEnv';
+import { HostAgentAction } from './HostAgentAction';
 import styles from './Settings.module.css';
 
 interface Props {
@@ -147,7 +148,8 @@ export function BotProfiles({ values, onPatch, refreshKey }: Props) {
         <button onClick={add}>+ Add profile</button>
       </div>
       {addError && <div className={styles.err}>{addError}</div>}
-      <div className={styles.hint}>A new or changed host path becomes a mount only when the container is recreated: save, then run <code>npm run ui</code> once. Choosing a different default takes effect immediately.</div>
+      <div className={styles.hint}>A new or changed host path becomes a mount only when the container is recreated: save, then apply it below. Choosing a different default takes effect immediately.</div>
+      <HostAgentAction action="recreate" label="Apply mount changes" fallback="npm run ui" />
     </div>
   );
 }

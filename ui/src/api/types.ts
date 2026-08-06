@@ -42,6 +42,19 @@ export interface ScreepsProfilesResponse {
   usesLegacyKeys: boolean;
 }
 
+// The host agent performs what the container cannot do for itself (recreate
+// itself, rebuild the image). `running` is false unless a heartbeat is fresh,
+// and `actions` is then empty — the UI must show the command to type rather
+// than a button nothing will answer.
+export interface HostAgentStatus {
+  running: boolean;
+  actions: string[];
+  summaries: Record<string, string>;
+  busy: boolean;
+  lastResult: { id: string; action: string; ok: boolean; message: string | null; finishedAt: string } | null;
+  pending: { id: string; action: string; requestedAt: string } | null;
+}
+
 // The parsed contents of a scenario's settings.json. `bots` maps a side
 // ('main' is the scenario's own bot) to a bot profile name.
 export interface ScenarioSettings {

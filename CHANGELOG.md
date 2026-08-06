@@ -34,6 +34,21 @@ bot path.
   how many `.js` modules it holds, or that it is still waiting on `npm run ui`.
 - `npm run bots:sync` regenerates `docker-compose.override.yml` from `.env`.
   `npm run ui` and `npm test` do it for you.
+- **A host agent** (`npm run host-agent`, or `npm run ui -- --agent`) that
+  performs the handful of things the container cannot do for itself: recreate
+  itself so a new bot mount takes effect, restart, or take an update. Settings
+  and the update banner turn into buttons while it is running, and back into a
+  command to type when it is not.
+
+  The container asks through a file — `.dojo-host/request.json` — naming an
+  action from a fixed list (`restart`, `recreate`, `update`) and nothing else;
+  each maps to a constant command chosen host-side, so nothing from the request
+  ever reaches a command line, and there is no "run this command" action. It
+  grants no new privilege: anything that can write that file can already write
+  `scripts/ui.js`. Requests are consumed before they run, handled once per id,
+  dropped when stale, rate-limited, and logged to `.dojo-host/agent.log`. The
+  rejected alternative was mounting the Docker socket into the container, which
+  would give the process running your bot code control of the host daemon.
 
 ### Changed
 
