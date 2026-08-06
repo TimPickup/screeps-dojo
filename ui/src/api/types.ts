@@ -60,6 +60,7 @@ export interface FrameObject {
   level?: number;
   progress?: number;
   isPublic?: boolean;
+  depositType?: string;
   [k: string]: unknown;
 }
 

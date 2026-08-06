@@ -31,7 +31,7 @@ describe('energy fills', () => {
   it('drawSourceCore hides when depleted', () => {
     const { ctx, log } = mockCtx();
     drawSourceCore(ctx, { energy: 0, energyCapacity: 3000 } as unknown as FrameObject, 1.5, 1.5);
-    expect(log.some((c) => c.op === 'arc')).toBe(false);
+    expect(log.some((c) => c.op === 'fill')).toBe(false);
   });
 });
 

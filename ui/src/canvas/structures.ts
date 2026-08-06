@@ -1,6 +1,6 @@
 import type { FrameObject } from '../api/types.ts';
 import { arc, circle, poly, rect, line } from './primitives.ts';
-import { RENDER_COLORS } from './renderConstants.ts';
+import { POWER_BANK_RENDER_STYLE, RENDER_COLORS } from './renderConstants.ts';
 
 type CanvasContext = CanvasRenderingContext2D;
 
@@ -44,6 +44,26 @@ export function drawStructureShell(ctx: CanvasContext, object: FrameObject): voi
 			circle(ctx, cx, cy, { radius: 0.65, fill: RENDER_COLORS.structure.dark, stroke: RENDER_COLORS.resources.power, strokeWidth: 0.1 });
 			circle(ctx, cx, cy, { radius: 0.4, fill: RENDER_COLORS.resources.energy });
 			break;
+		case 'powerBank': {
+			const halfSize = POWER_BANK_RENDER_STYLE.halfSize;
+			const cornerClip = POWER_BANK_RENDER_STYLE.cornerClip;
+			poly(ctx, translatePoints(cx, cy, [
+				[-halfSize + cornerClip, -halfSize],
+				[halfSize - cornerClip, -halfSize],
+				[halfSize, -halfSize + cornerClip],
+				[halfSize, halfSize - cornerClip],
+				[halfSize - cornerClip, halfSize],
+				[-halfSize + cornerClip, halfSize],
+				[-halfSize, halfSize - cornerClip],
+				[-halfSize, -halfSize + cornerClip],
+			]), {
+				fill: RENDER_COLORS.powerBank.inner,
+				stroke: RENDER_COLORS.powerBank.outline,
+				strokeWidth: POWER_BANK_RENDER_STYLE.outlineWidth,
+			});
+			circle(ctx, cx, cy, { radius: POWER_BANK_RENDER_STYLE.coreRadius, fill: RENDER_COLORS.resources.power });
+			break;
+		}
 		case 'tower':
 			circle(ctx, cx, cy, { radius: 0.6, fill: RENDER_COLORS.structure.dark, stroke: my ? RENDER_COLORS.ownership.ownStructure : RENDER_COLORS.ownership.otherStructure, strokeWidth: 0.05 });
 			break;

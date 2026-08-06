@@ -18,7 +18,8 @@ export function epochKey(frame: Frame): string {
 	const parts: string[] = [];
 	for (const object of frame.objects) {
 		if (!STATIC_LAYER_OBJECT_TYPES.has(object.type)) continue;
-		parts.push(object.type + ',' + object.room + ',' + object.x + ',' + object.y + ',' + (object.level ?? '') + ',' + (object.user ?? ''));
+		parts.push(object.type + ',' + object.room + ',' + object.x + ',' + object.y + ','
+			+ (object.level ?? '') + ',' + (object.user ?? '') + ',' + (object.depositType ?? ''));
 	}
 	for (const flag of frame.flags || []) parts.push('flag,' + JSON.stringify(flag));
 	parts.sort();

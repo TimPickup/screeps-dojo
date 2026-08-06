@@ -77,6 +77,17 @@ export function rect(ctx: CanvasContext, x: number, y: number, width: number, he
 	ctx.restore();
 }
 
+// Rounded rectangle centred on (x, y), sized by its half-extent.
+export function roundedSquare(ctx: CanvasContext, x: number, y: number, halfSize: number, radius: number, style: ShapeStyle = {}): void {
+	ctx.save();
+	applyShapeStyle(ctx, style);
+	roundedRectPath(ctx, x - halfSize, y - halfSize, halfSize * 2, halfSize * 2, radius);
+	const fill = paintColor(style.fill), stroke = paintColor(style.stroke);
+	if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+	if (stroke) { ctx.lineWidth = style.strokeWidth ?? 0.05; ctx.strokeStyle = stroke; ctx.stroke(); }
+	ctx.restore();
+}
+
 export function roundedRectPath(ctx: CanvasContext, x: number, y: number, width: number, height: number, radius: number): void {
 	const clampedRadius = Math.max(0, Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2));
 	ctx.beginPath();

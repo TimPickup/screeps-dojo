@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { drawStructureShell, connectRoads } from '../structures';
-import { RENDER_COLORS } from '../renderConstants';
+import { POWER_BANK_RENDER_STYLE, RENDER_COLORS } from '../renderConstants';
 import { mockCtx } from './mockCtx';
 import type { FrameObject } from '../../api/types';
 
@@ -39,6 +39,24 @@ describe('drawStructureShell — shells only, no fills', () => {
     drawStructureShell(ctx, structure('extension', 10, 20));
     const arc = log.find((c) => c.op === 'arc') as { args: number[] };
     expect(arc.args.slice(0, 2)).toEqual([10.5, 20.5]);
+  });
+
+  it('draws a power bank as a clipped oversized square with a power core', () => {
+    const { ctx, log } = mockCtx();
+    drawStructureShell(ctx, structure('powerBank', 10, 20));
+
+    const firstMove = log.find((call) => call.op === 'moveTo');
+    expect(firstMove?.args).toEqual([
+      10.5 - POWER_BANK_RENDER_STYLE.halfSize + POWER_BANK_RENDER_STYLE.cornerClip,
+      20.5 - POWER_BANK_RENDER_STYLE.halfSize,
+    ]);
+    expect(log.filter((call) => call.op === 'lineTo')).toHaveLength(7);
+    expect(log.filter((call) => call.op === 'arc').map((call) => call.args[2]))
+      .toEqual([POWER_BANK_RENDER_STYLE.coreRadius]);
+    expect(log.filter((call) => call.op === 'set:fillStyle').map((call) => call.args[0]))
+      .toEqual([RENDER_COLORS.powerBank.inner, RENDER_COLORS.resources.power]);
+    expect(log.some((call) => call.op === 'set:strokeStyle'
+      && call.args[0] === RENDER_COLORS.powerBank.outline)).toBe(true);
   });
 });
 

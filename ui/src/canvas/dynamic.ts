@@ -1,6 +1,6 @@
 import type { FrameObject } from '../api/types.ts';
-import { arc, circle, poly, rect, roundedRectPath } from './primitives.ts';
-import { CONTROLLER_LEVEL_PROGRESS, RENDER_COLORS } from './renderConstants.ts';
+import { arc, circle, poly, rect, roundedRectPath, roundedSquare } from './primitives.ts';
+import { CONTROLLER_LEVEL_PROGRESS, RENDER_COLORS, SOURCE_RENDER_STYLE } from './renderConstants.ts';
 
 type CanvasContext = CanvasRenderingContext2D;
 const TOWER_IDLE_ROTATION = Math.PI / 4;
@@ -164,7 +164,12 @@ export function drawContainerFill(ctx: CanvasContext, object: FrameObject, cx: n
 export function drawSourceCore(ctx: CanvasContext, object: FrameObject, cx: number, cy: number): void {
 	const capacity = (object.energyCapacity as number | undefined) || 0;
 	const fillFraction = capacity > 0 ? clampFraction(((object.energy as number | undefined) || 0) / capacity) : 0;
-	if (fillFraction > 0) circle(ctx, cx, cy, { radius: 0.32 * fillFraction, fill: RENDER_COLORS.resources.energy, opacity: 0.95 });
+	if (fillFraction <= 0) return;
+	// Shrinks towards the middle so the base's black outline always stays clear.
+	roundedSquare(ctx, cx, cy, SOURCE_RENDER_STYLE.coreHalfSize * fillFraction, SOURCE_RENDER_STYLE.coreCornerRadius * fillFraction, {
+		fill: RENDER_COLORS.resources.energy,
+		opacity: SOURCE_RENDER_STYLE.coreOpacity,
+	});
 }
 
 export function drawControllerProgress(ctx: CanvasContext, object: FrameObject, cx: number, cy: number): void {
@@ -191,12 +196,13 @@ export function drawSpawnProgress(ctx: CanvasContext, object: FrameObject, cx: n
 		{ stroke: RENDER_COLORS.defaultStroke, strokeWidth: 0.12, opacity: 0.85 });
 }
 
-// Tombstone: rounded headstone + dark cross.
+// Tombstone: translucent rounded headstone outline + a dark X.
 export function drawTombstone(ctx: CanvasContext, cx: number, cy: number): void {
 	ctx.save();
 	ctx.fillStyle = RENDER_COLORS.tombstone.body;
 	ctx.strokeStyle = RENDER_COLORS.tombstone.outline;
-	ctx.lineWidth = 0.04;
+	ctx.globalAlpha = 0.5;
+	ctx.lineWidth = 0.05;
 	ctx.beginPath();
 	ctx.moveTo(cx - 0.25, cy + 0.25);
 	ctx.lineTo(cx - 0.25, cy - 0.1);
@@ -207,8 +213,8 @@ export function drawTombstone(ctx: CanvasContext, cx: number, cy: number): void 
 	ctx.strokeStyle = RENDER_COLORS.tombstone.mark;
 	ctx.lineWidth = 0.05;
 	ctx.beginPath();
-	ctx.moveTo(cx, cy - 0.22); ctx.lineTo(cx, cy + 0.1);
-	ctx.moveTo(cx - 0.1, cy - 0.12); ctx.lineTo(cx + 0.1, cy - 0.12);
+	ctx.moveTo(cx - 0.1, cy - 0.1); ctx.lineTo(cx + 0.1, cy + 0.1);
+	ctx.moveTo(cx - 0.1, cy + 0.1); ctx.lineTo(cx + 0.1, cy - 0.1);
 	ctx.stroke();
 	ctx.restore();
 }

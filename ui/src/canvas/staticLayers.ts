@@ -1,17 +1,19 @@
 import type { Recording, StageLayout, Frame } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
 import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
-import { circle, poly, text } from './primitives.ts';
+import { circle, poly, roundedSquare, text } from './primitives.ts';
 import { drawWallIslands } from './terrainWalls.ts';
 import { drawSwampIslands } from './terrainSwamps.ts';
 import { drawRamparts } from './ramparts.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
+import { drawDeposit } from './deposits.ts';
 import type { TerrainTextures } from './terrainTextures.ts';
 import {
 	DEFAULT_MINERAL_COLOR,
 	MINERAL_COLORS,
 	RENDER_COLORS,
 	ROOM_SIZE_TILES,
+	SOURCE_RENDER_STYLE,
 	STATIC_LAYER_RESOLUTION,
 	STRUCTURE_SHELL_TYPES,
 } from './renderConstants.ts';
@@ -148,7 +150,11 @@ export function drawStaticStructures(
 				if (object.type === 'road') roads.push([object.x, object.y]);
 			} else if (object.type === 'source') {
 				// The energy core is dynamic, so only its dark base is cached.
-				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.35, fill: RENDER_COLORS.structure.sourceBase, stroke: RENDER_COLORS.structure.sourceOutline, strokeWidth: 0.04 });
+				roundedSquare(ctx, object.x + 0.5, object.y + 0.5, SOURCE_RENDER_STYLE.halfSize, SOURCE_RENDER_STYLE.cornerRadius, {
+					fill: RENDER_COLORS.structure.sourceBase,
+					stroke: RENDER_COLORS.structure.sourceOutline,
+					strokeWidth: SOURCE_RENDER_STYLE.outlineWidth,
+				});
 			} else if (object.type === 'mineral') {
 				// Label the mineral with its resource type.
 				const mineralType = typeof object.mineralType === 'string' ? object.mineralType : '?';
@@ -157,6 +163,8 @@ export function drawStaticStructures(
 				const mineralDarkColor = darkenMineralColor(mineralColor);
 				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
 				text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
+			} else if (object.type === 'deposit') {
+				drawDeposit(ctx, object);
 			} else if (object.type === 'controller') {
 				// Draw the octagonal base and one triangular segment per level.
 				const octagon = [[0.292893, 0], [0.707107, 0], [1, 0.292893], [1, 0.707107], [0.707107, 1], [0.292893, 1], [0, 0.707107], [0, 0.292893],];

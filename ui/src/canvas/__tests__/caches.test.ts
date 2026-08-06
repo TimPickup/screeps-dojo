@@ -40,6 +40,31 @@ describe('static layer epochs', () => {
     } as unknown as Frame));
   });
 
+  it('tracks deposit appearance and type but ignores cooldown and power-bank hits', () => {
+    const depositFrame = frameWithStaticObject({
+      _id: 'deposit', type: 'deposit', room: 'W1N1', x: 10, y: 10,
+      depositType: 'biomass', cooldown: 5,
+    });
+    const changedCooldown = frameWithStaticObject({
+      _id: 'deposit', type: 'deposit', room: 'W1N1', x: 10, y: 10,
+      depositType: 'biomass', cooldown: 20,
+    });
+    const changedType = frameWithStaticObject({
+      _id: 'deposit', type: 'deposit', room: 'W1N1', x: 10, y: 10,
+      depositType: 'mist', cooldown: 20,
+    });
+    const fullPowerBank = frameWithStaticObject({
+      _id: 'bank', type: 'powerBank', room: 'W1N1', x: 20, y: 20, hits: 2000000,
+    });
+    const damagedPowerBank = frameWithStaticObject({
+      _id: 'bank', type: 'powerBank', room: 'W1N1', x: 20, y: 20, hits: 1000,
+    });
+
+    expect(epochKey(depositFrame)).toBe(epochKey(changedCooldown));
+    expect(epochKey(depositFrame)).not.toBe(epochKey(changedType));
+    expect(epochKey(fullPowerBank)).toBe(epochKey(damagedPowerBank));
+  });
+
   it('invalidates the rampart overlay for layout, ownership, and public-state changes only', () => {
     const mine = frameWithRampart(10, 100);
     mine.objects[0].my = true;
@@ -112,4 +137,8 @@ function terrainWithWall(x: number, y: number): string[] {
   const rows = plainTerrain();
   rows[y] = `${rows[y].slice(0, x)}#${rows[y].slice(x + 1)}`;
   return rows;
+}
+
+function frameWithStaticObject(object: Frame['objects'][number]): Frame {
+  return { gameTime: 1, flags: [], objects: [object] };
 }

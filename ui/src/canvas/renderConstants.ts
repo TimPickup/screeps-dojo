@@ -69,7 +69,7 @@ export const RENDER_COLORS = {
 		road: '#666666',
 		spawnOutline: '#cccccc',
 		sourceBase: '#0a0a0a',
-		sourceOutline: '#333333',
+		sourceOutline: BLACK,
 		factoryShell: '#232323',
 		factoryOutline: '#140a0a',
 		factoryInner: '#302a2a',
@@ -80,6 +80,16 @@ export const RENDER_COLORS = {
 	rampart: {
 		own: '#519752',
 		other: '#95484a',
+	},
+	deposit: {
+		biomass: '#87ae29',
+		metal: '#7e5b4d',
+		mist: '#d771f1',
+		silicon: '#4aabe3',
+	},
+	powerBank: {
+		inner: '#351419',
+		outline: LIGHT_GREY,
 	},
 	controller: {
 		base: '#0a0a0a',
@@ -93,9 +103,9 @@ export const RENDER_COLORS = {
 		foreground: WHITE,
 	},
 	tombstone: {
-		body: '#9a9a9a',
-		outline: '#555555',
-		mark: '#444444',
+		body: 'transparent',
+		outline: WHITE,
+		mark: BLACK,
 	},
 	speechBackground: 'rgba(0,0,0,0.7)',
 } as const;
@@ -156,6 +166,30 @@ export const RAMPART_RENDER_STYLE = {
 	publicMarkerLength: 0.5,
 } as const;
 
+export const DEPOSIT_RENDER_STYLE = {
+	size: 1.5,
+	outlineWidth: 0.1,
+	detailWidth: 0.05,
+	fillOpacity: 0.4,
+} as const;
+
+export const SOURCE_RENDER_STYLE = {
+	halfSize: 0.35,
+	cornerRadius: 0.2,
+	// The black outline is always left visible: the energy core stops short of it.
+	outlineWidth: 0.04,
+	coreHalfSize: 0.3,
+	coreCornerRadius: 0.2,
+	coreOpacity: 0.95,
+} as const;
+
+export const POWER_BANK_RENDER_STYLE = {
+	halfSize: 0.78,
+	cornerClip: 0.25,
+	outlineWidth: 0.1,
+	coreRadius: 0.3,
+} as const;
+
 export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'spawn',
 	'extension',
@@ -170,6 +204,7 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'powerSpawn',
 	'container',
 	'road',
+	'powerBank',
 	'invaderCore',
 	'keeperLair',
 	'extractor',
@@ -181,6 +216,7 @@ export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([
 	'controller',
 	'source',
 	'mineral',
+	'deposit',
 	'constructionSite',
 ]);
 

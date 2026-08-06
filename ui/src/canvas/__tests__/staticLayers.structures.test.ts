@@ -39,6 +39,15 @@ describe('drawStaticStructures', () => {
       && call.args[0] === 11.3 && call.args[1] === 10 + 1 / 3)).toBe(true);
   });
 
+  it('draws a biomass deposit in the cached structure layer', () => {
+    const { ctx, log } = mockCtx();
+    drawStaticStructures(ctx, frameWith([
+      { _id: 'deposit', type: 'deposit', depositType: 'biomass', room: 'W1N1', x: 15, y: 20 },
+    ]), layout);
+    expect(log.filter((call) => call.op === 'bezierCurveTo').length).toBeGreaterThan(0);
+    expect(log.filter((call) => call.op === 'stroke')).toHaveLength(3);
+  });
+
   it('renders an unclaimed controller even when it is positioned at (0,0)', () => {
     const { ctx, log } = mockCtx();
     drawStaticStructures(ctx, frameWith([
