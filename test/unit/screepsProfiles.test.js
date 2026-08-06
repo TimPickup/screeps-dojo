@@ -48,23 +48,33 @@ describe('screepsProfiles', function () {
 			DOJO_SCREEPS_PROFILE_LOCAL_TOKEN: 'other'
 		};
 
-		it('overlays a profile on the default, so it only states what differs', function () {
+		// Profiles used to overlay "default". That produced rows showing a
+		// hostname nobody typed and, worse, a profile quietly carrying another
+		// server's token. Each one stands alone now.
+		it("takes only the profile's own keys", function () {
 			const config = screepsProfiles.resolve('season', env);
 			assert.strictEqual(config.DOJO_SCREEPS_SHARD, 'season');
-			assert.strictEqual(config.DOJO_SCREEPS_HOSTNAME, 'screeps.com');
-			assert.strictEqual(config.DOJO_SCREEPS_TOKEN, 'tok');
+			assert.strictEqual(config.DOJO_SCREEPS_HOSTNAME, undefined, 'must not borrow the default hostname');
+			assert.strictEqual(config.DOJO_SCREEPS_TOKEN, undefined, "must NEVER borrow another profile's token");
 		});
 
 		it('returns the flat shape createClient() already reads', function () {
 			const config = screepsProfiles.resolve('local', env);
 			assert.strictEqual(config.DOJO_SCREEPS_HOSTNAME, 'localhost');
 			assert.strictEqual(config.DOJO_SCREEPS_TOKEN, 'other');
-			assert.strictEqual(config.DOJO_SCREEPS_SHARD, 'shard0');   // inherited
+			assert.strictEqual(config.DOJO_SCREEPS_SHARD, undefined);   // createClient defaults it
 		});
 
-		it('drops a default key the chosen profile does not inherit a value for', function () {
+		it('drops a key the chosen profile does not set', function () {
 			const config = screepsProfiles.resolve('bare', { DOJO_SCREEPS_PROFILE_BARE_HOSTNAME: 'h' });
 			assert.strictEqual(config.DOJO_SCREEPS_TOKEN, undefined);
+		});
+
+		it('treats an empty value as unset rather than as an override', function () {
+			const config = screepsProfiles.resolve('blank', {
+				DOJO_SCREEPS_PROFILE_BLANK_HOSTNAME: 'h', DOJO_SCREEPS_PROFILE_BLANK_SHARD: ''
+			});
+			assert.strictEqual(config.DOJO_SCREEPS_SHARD, undefined);
 		});
 
 		it('uses DOJO_DEFAULT_SCREEPS_PROFILE when nothing names a profile', function () {
@@ -95,9 +105,9 @@ describe('screepsProfiles', function () {
 		const byName = {};
 		for (const p of listed) byName[p.name] = p;
 		assert.strictEqual(byName.default.hasToken, true);
-		assert.strictEqual(byName.season.hasToken, true);          // inherited from default
-		assert.deepStrictEqual(byName.season.ownKeys, ['SHARD']);  // but owns only its shard
-		assert.strictEqual(byName.season.hostname, 'screeps.com'); // default fallback
+		assert.strictEqual(byName.season.hasToken, false, "a profile never shows another profile's token");
+		assert.deepStrictEqual(byName.season.ownKeys, ['SHARD']);
+		assert.strictEqual(byName.season.hostname, 'screeps.com'); // the BUILT-IN default, not another profile
 	});
 
 	it('listProfiles puts the default first', function () {

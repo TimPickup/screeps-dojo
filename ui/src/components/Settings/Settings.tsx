@@ -34,6 +34,13 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
 
   // The profile editors are pure renderers: they hand back an env patch and this
   // is the only place that decides what the panel is holding.
+  // After the server itself changes .env (a rename), the panel has to re-read
+  // rather than keep its own copy, which no longer matches the file.
+  const reload = () => {
+    api.getEnv().then((r) => { setEnv(r.values); setOrig(r.values); setRemoved([]); }).catch(() => {});
+    setRefreshKey((k) => k + 1);
+  };
+
   const applyPatch = (patch: EnvPatch) => {
     setEnv((e) => {
       const next = { ...e, ...patch.values };
@@ -103,8 +110,12 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
           </label>
         </div>
 
-        <div ref={botsRef}><BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} /></div>
-        <div ref={serversRef}><ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} /></div>
+        <div ref={botsRef}>
+          <BotProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} onExternalChange={reload} />
+        </div>
+        <div ref={serversRef}>
+          <ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} onExternalChange={reload} />
+        </div>
 
         {saved && <div className={styles.note}>Saved. Default and server changes apply immediately.</div>}
         {/* Only a MOUNT change needs the container recreated, and the server

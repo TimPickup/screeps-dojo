@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import type { ScreepsProfile, ScreepsProfilesResponse } from '../../api/types';
 import { api } from '../../api/client';
 import {
-  SCREEPS_KEYS, listScreepsProfiles, defaultScreepsProfileName, screepsOwnValue, isSecretKey,
-  setScreepsProfile, renameScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile,
+  listScreepsProfiles, defaultScreepsProfileName, screepsOwnValue,
+  setScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile,
   validateProfileName, normalizeProfileName
 } from './profileEnv';
 import type { EnvPatch, ScreepsKey } from './profileEnv';
@@ -13,54 +13,74 @@ interface Props {
   values: Record<string, string>;
   onPatch: (patch: EnvPatch) => void;
   refreshKey: number;
+  // Renaming edits the saved file directly, so it cannot run over the top of
+  // unsaved edits; the panel tells us whether there are any.
+  dirty: boolean;
+  onExternalChange: () => void;
 }
 
-// Screeps connection settings for the room importer. Every profile OVERLAYS the
-// one named "default", so a profile that only changes the shard owns exactly one
-// key — the expanded row shows an inherited value as a placeholder so it is
-// obvious which keys the profile is actually claiming.
-export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
+// Where the server is. These apply whichever way you authenticate. Labelled in
+// words rather than as env keys: the field IS the setting, and mixing
+// SHOUTED_KEYS with "Token" read like two different forms.
+const CONNECTION_KEYS: ScreepsKey[] = ['HOSTNAME', 'PORT', 'PROTOCOL', 'PATH', 'SHARD'];
+
+const FIELD_LABEL: Partial<Record<ScreepsKey, string>> = {
+  HOSTNAME: 'Hostname', PORT: 'Port', PROTOCOL: 'Protocol', PATH: 'Path',
+  SHARD: 'Shard', USERNAME: 'Username', EMAIL: 'Email', TOKEN: 'Token', PASSWORD: 'Password'
+};
+
+// A new profile is pointed at the public server, because a profile with no keys
+// at all does not exist as far as the runner is concerned — you would add one,
+// press Verify, and be told it was not registered.
+const NEW_PROFILE_DEFAULTS: Partial<Record<ScreepsKey, string>> = {
+  HOSTNAME: 'screeps.com', PORT: '443', PROTOCOL: 'https', PATH: '/', SHARD: 'shard0'
+};
+
+// Screeps connection settings for the room importer. Every profile STANDS
+// ALONE — nothing is inherited from another profile, so what a row shows is
+// what it will connect with.
+export function ServerProfiles({ values, onPatch, refreshKey, dirty, onExternalChange }: Props) {
   const [remote, setRemote] = useState<ScreepsProfilesResponse | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [verified, setVerified] = useState<Record<string, string>>({});
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({});
   const [addName, setAddName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
-  const [reentry, setReentry] = useState<string[]>([]);
 
   useEffect(() => { api.servers().then(setRemote).catch(() => setRemote(null)); }, [refreshKey]);
 
   const rows = listScreepsProfiles(values);
   const chosenDefault = defaultScreepsProfileName(values);
-  const mergedFor = (name: string) => remote?.profiles.find((p) => p.name === name);
+  const savedFor = (name: string) => remote?.profiles.find((p) => p.name === name);
   const names = rows.map((r) => r.name);
 
   const add = () => {
     const name = normalizeProfileName(addName);
     const error = validateProfileName(name, names);
     if (error) { setAddError(error); return; }
-    // A profile has to own at least one key to exist at all; SHARD is the key
-    // most overlays are created for, and an empty one still declares the row.
-    onPatch(setScreepsProfile(values, name, { SHARD: '' }));
+    onPatch(setScreepsProfile(values, name, NEW_PROFILE_DEFAULTS));
     setAddName(''); setAddError(null); setOpen(name);
   };
 
-  const rename = (from: string) => {
+  const rename = async (from: string) => {
+    if (dirty) {
+      window.alert('Save your changes first — renaming edits the saved file directly, so it cannot run over the top of unsaved edits.');
+      return;
+    }
     const typed = window.prompt('Rename server profile "' + from + '" to:', from);
     if (typed === null) return;
     const to = normalizeProfileName(typed);
     if (to === from) return;
     const error = validateProfileName(to, names);
     if (error) { window.alert(error); return; }
-    const patch = renameScreepsProfile(values, from, to);
-    // The browser only ever held a mask of these, so the rename cannot carry
-    // them — say so before it happens rather than after.
-    if (patch.needsReentry.length && !window.confirm(
-      'Renaming loses ' + patch.needsReentry.map(shortKey).join(', ') + ' — the browser never sees the real value. Re-enter it afterwards?'
-    )) return;
-    onPatch(patch);
-    setReentry(patch.needsReentry);
-    if (open === from) setOpen(to);
+    try {
+      // Server-side, so the token comes with it.
+      await api.renameProfile('screeps', from, to);
+      if (open === from) setOpen(to);
+      onExternalChange();
+    } catch (e) {
+      window.alert('Rename failed: ' + (e as Error).message);
+    }
   };
 
   const remove = (name: string) => {
@@ -70,6 +90,7 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
   };
 
   const verify = async (name: string) => {
+    if (dirty) { setVerified((v) => ({ ...v, [name]: '⚠ save first — this checks the saved settings' })); return; }
     setVerified((v) => ({ ...v, [name]: '…' }));
     const r = await api.verifyServer(name);
     setVerified((v) => ({
@@ -90,17 +111,50 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
     editKey(name, key, draft);
   };
 
+  const secretField = (name: string, key: ScreepsKey, label: string) => {
+    const draftKey = name + '.' + key;
+    const isSet = Boolean(screepsOwnValue(values, name, key));
+    return (
+      <label className={styles.field} key={key}>
+        <span>{label}</span>
+        {/* The mask is never shown as if it were the value: blank means
+            unchanged, Clear means wipe. */}
+        <input
+          type="password"
+          value={secretDraft[draftKey] ?? ''}
+          placeholder={isSet ? 'set — leave blank to keep' : 'not set'}
+          onChange={(e) => setSecretDraft((d) => ({ ...d, [draftKey]: e.target.value }))}
+          onBlur={() => commitSecret(name, key)}
+        />
+        {isSet && <button className={styles.clear} onClick={() => editKey(name, key, '')}>Clear</button>}
+      </label>
+    );
+  };
+
+  const plainField = (name: string, key: ScreepsKey) => (
+    <label className={styles.field} key={key}>
+      <span>{FIELD_LABEL[key] || key}</span>
+      <input value={screepsOwnValue(values, name, key) ?? ''} onChange={(e) => editKey(name, key, e.target.value)} />
+    </label>
+  );
+
   return (
     <div className={styles.section}>
       <div className={styles.label}>Screeps server profiles</div>
 
-      {reentry.length > 0 && (
-        <div className={styles.err}>
-          {reentry.map(shortKey).join(' and ')} could not be carried across — the browser only ever receives a masked copy. Re-enter {reentry.length > 1 ? 'them' : 'it'} below.
-        </div>
-      )}
-
       <table className={styles.table}>
+        {/* Fixed widths: without them the expanded panel's inputs widen their
+            column and shove the row buttons off to the right as it opens. */}
+        {/* The actions column is sized in px because its contents are four
+            fixed-width buttons; hostname takes whatever is left. */}
+        <colgroup>
+          <col style={{ width: '52px' }} />
+          <col style={{ width: '110px' }} />
+          <col />
+          <col style={{ width: '90px' }} />
+          <col style={{ width: '76px' }} />
+          <col style={{ width: '272px' }} />
+        </colgroup>
         <thead>
           <tr>
             <th className={styles.colDefault} title="Which profile is used when a scenario does not name one">Default</th>
@@ -113,8 +167,8 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
         </thead>
         <tbody>
           {rows.map((row) => {
-            const merged = mergedFor(row.name);
             const expanded = open === row.name;
+            const toggle = () => setOpen(expanded ? null : row.name);
             return [
               <tr key={row.name}>
                 <td className={styles.colDefault}>
@@ -126,16 +180,17 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
                   />
                 </td>
                 <td className={styles.pname}>
-                  <button className={styles.expand} onClick={() => setOpen(expanded ? null : row.name)}>{expanded ? '▾' : '▸'}</button>
+                  <button className={styles.expand} onClick={toggle}>{expanded ? '▾' : '▸'}</button>
                   {row.name}
                   {row.legacy && <span className={styles.tag} title="declared with the legacy DOJO_SCREEPS_* keys">legacy</span>}
                 </td>
-                {/* Merged values, so a one-key overlay still shows where it
-                    would actually connect; italics mark what it inherits. */}
-                <td className={row.own.HOSTNAME ? undefined : styles.inherited}>{merged?.hostname || '—'}</td>
-                <td className={row.own.SHARD ? undefined : styles.inherited}>{merged?.shard || '—'}</td>
-                <td>{authLabel(merged)}</td>
+                <td>{row.own.HOSTNAME || 'screeps.com'}</td>
+                <td>{row.own.SHARD || 'shard0'}</td>
+                <td>{authLabel(row.own)}</td>
                 <td className={styles.rowActions}>
+                  {/* The arrow alone was not an obvious way in, so the same
+                      action gets a word as well. */}
+                  <button onClick={toggle}>{expanded ? 'Close' : 'Edit'}</button>
                   <button onClick={() => verify(row.name)}>Verify</button>
                   <button onClick={() => rename(row.name)}>Rename</button>
                   <button className={styles.danger} onClick={() => remove(row.name)}>Remove</button>
@@ -147,41 +202,28 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
               expanded ? (
                 <tr key={row.name + ':keys'}>
                   <td />
-                  <td colSpan={5} className={styles.keyGrid}>
-                    {SCREEPS_KEYS.map((key) => {
-                      const own = screepsOwnValue(values, row.name, key);
-                      const inherited = row.name === 'default' ? '' : inheritedHint(key, mergedFor('default'));
-                      if (isSecretKey(key)) {
-                        const draftKey = row.name + '.' + key;
-                        const isSet = Boolean(own);
-                        return (
-                          <label className={styles.field} key={key}>
-                            <span>{key}</span>
-                            {/* The mask is never shown as if it were the value:
-                                blank means unchanged, Clear means wipe. */}
-                            <input
-                              type="password"
-                              value={secretDraft[draftKey] ?? ''}
-                              placeholder={isSet ? 'set — leave blank to keep' : (inherited ? 'inherited' : 'not set')}
-                              onChange={(e) => setSecretDraft((d) => ({ ...d, [draftKey]: e.target.value }))}
-                              onBlur={() => commitSecret(row.name, key)}
-                            />
-                            {isSet && <button className={styles.clear} onClick={() => editKey(row.name, key, '')}>Clear</button>}
-                          </label>
-                        );
-                      }
-                      return (
-                        <label className={styles.field} key={key}>
-                          <span>{key}</span>
-                          <input
-                            value={own ?? ''}
-                            placeholder={inherited ? 'inherited: ' + inherited : ''}
-                            onChange={(e) => editKey(row.name, key, e.target.value)}
-                          />
-                        </label>
-                      );
-                    })}
-                    <div className={styles.hint}>Leave a field empty to inherit it from the <code>default</code> profile. Server settings apply immediately — no restart.</div>
+                  <td colSpan={5} className={styles.expandCell}>
+                    <div className={styles.subLabel}>Where the server is</div>
+                    <div className={styles.keyGrid}>{CONNECTION_KEYS.map((key) => plainField(row.name, key))}</div>
+                    <div className={styles.hint}>
+                      Defaults are <code>screeps.com</code> / <code>443</code> / <code>https</code> / <code>/</code>.
+                      A private server is usually <code>localhost</code> / <code>21025</code> / <code>http</code>.
+                      Nothing is inherited from another profile.
+                    </div>
+
+                    <div className={styles.subLabel}>How to sign in — one or the other</div>
+                    <div className={styles.keyGrid}>
+                      {secretField(row.name, 'TOKEN', FIELD_LABEL.TOKEN as string)}
+                      <div />
+                      {plainField(row.name, 'USERNAME')}
+                      {secretField(row.name, 'PASSWORD', FIELD_LABEL.PASSWORD as string)}
+                    </div>
+                    <div className={styles.hint}>
+                      Use a <b>token</b> for screeps.com. Use <b>username + password</b> only for a private
+                      server whose token is accepted over REST but rejected by the WebSocket (e.g.
+                      screepsmod-auth). Setting both just wastes one. Either way the address fields above
+                      still apply. Server settings take effect immediately — no restart.
+                    </div>
                   </td>
                 </tr>
               ) : null
@@ -198,33 +240,20 @@ export function ServerProfiles({ values, onPatch, refreshKey }: Props) {
         <button onClick={add}>+ Add profile</button>
       </div>
       {addError && <div className={styles.err}>{addError}</div>}
+      <div className={styles.hint}>A new profile starts pointed at screeps.com — give it a token, then Save and Verify.</div>
     </div>
   );
 }
 
-function shortKey(envKey: string): string {
-  const tail = envKey.split('_').pop() || envKey;
-  return tail;
-}
-
-// Only ever "is one set" — /api/servers never carries the secret itself.
-function authLabel(merged: ScreepsProfile | undefined): string {
-  if (!merged) return '—';
-  if (merged.hasToken) return '✓ token';
-  if (merged.hasPassword) return '✓ password';
+// Only ever "is one set" — the browser is never sent the secret itself.
+function authLabel(own: Partial<Record<ScreepsKey, string>>): string {
+  const token = Boolean(own.TOKEN);
+  const password = Boolean(own.PASSWORD);
+  if (token && password) return '⚠ both';
+  if (token) return '✓ token';
+  if (password) return '✓ password';
   return '⚠ none';
 }
 
-// What the profile would fall back to for this key, shown as a placeholder so an
-// overlay reads as "inherits screeps.com" rather than as an empty field.
-function inheritedHint(key: ScreepsKey, fallback: ScreepsProfile | undefined): string {
-  if (!fallback) return '';
-  if (key === 'HOSTNAME') return fallback.hostname;
-  if (key === 'SHARD') return fallback.shard;
-  if (key === 'PORT') return fallback.port;
-  if (key === 'PROTOCOL') return fallback.protocol;
-  if (key === 'PATH') return fallback.path;
-  if (key === 'TOKEN') return fallback.hasToken ? 'set' : '';
-  if (key === 'PASSWORD') return fallback.hasPassword ? 'set' : '';
-  return '';
-}
+// Kept as a named export so the type stays exercised where profiles are listed.
+export type { ScreepsProfile };

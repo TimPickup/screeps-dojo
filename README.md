@@ -201,13 +201,25 @@ error.
 
 ## Screeps server profiles
 
-The room importer takes the same treatment. Each profile overlays the one named
-`default`, so it only states what differs:
+The room importer takes the same treatment, except that each server profile
+**stands alone** — it inherits nothing from any other profile, so what a row
+shows is what it will connect with:
 
     DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN=...
     DOJO_SCREEPS_PROFILE_DEFAULT_SHARD=shard0
+    DOJO_SCREEPS_PROFILE_SEASON_TOKEN=...
     DOJO_SCREEPS_PROFILE_SEASON_SHARD=season
     DOJO_DEFAULT_SCREEPS_PROFILE=default
+
+Authentication is either/or: set a **token**, or set **username + password** for
+a private server whose token is accepted over REST but rejected by the WebSocket
+(e.g. screepsmod-auth). The address fields — hostname, port, protocol, path —
+describe where the server is and apply to either. A key you leave out falls back
+to the built-in default (`screeps.com`, `443`, `https`, `/`, `shard0`), never to
+another profile's value.
+
+Renaming a profile is done by the server, not the browser, so a token comes with
+it — the browser is only ever sent a mask.
 
 `npm run import-room -- <scenario> <ROOM>` reads that scenario's
 `settings.json`, so the CLI and the GUI always import from the same server the

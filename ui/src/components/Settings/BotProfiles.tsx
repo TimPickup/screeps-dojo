@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { BotProfilesResponse } from '../../api/types';
 import { api } from '../../api/client';
 import {
-  listBotProfiles, defaultBotProfileName, botStatusLabel, setBotProfile, renameBotProfile,
+  listBotProfiles, defaultBotProfileName, botStatusLabel, setBotProfile,
   deleteBotProfile, setDefaultBotProfile, validateProfileName, normalizeProfileName
 } from './profileEnv';
 import type { EnvPatch } from './profileEnv';
@@ -15,13 +15,17 @@ interface Props {
   // Bumped by Settings after a save, so mount status is re-probed exactly when
   // it can have changed rather than on every keystroke.
   refreshKey: number;
+  // Renaming edits the saved file directly, so it cannot run over the top of
+  // unsaved edits; the panel tells us whether there are any.
+  dirty: boolean;
+  onExternalChange: () => void;
 }
 
 // Registered bot codebases. Each is bind-mounted read-only at /bots/<name>, and
 // because a bind mount is fixed when the container is created, only a PATH
 // change needs `npm run ui` — picking a different default is free. That
 // distinction is why status lives per row instead of in one blanket warning.
-export function BotProfiles({ values, onPatch, refreshKey }: Props) {
+export function BotProfiles({ values, onPatch, refreshKey, dirty, onExternalChange }: Props) {
   const [remote, setRemote] = useState<BotProfilesResponse | null>(null);
   const [verified, setVerified] = useState<Record<string, string>>({});
   const [addName, setAddName] = useState('');
@@ -42,15 +46,38 @@ export function BotProfiles({ values, onPatch, refreshKey }: Props) {
     setAddName(''); setAddPath(''); setAddError(null);
   };
 
-  const rename = (from: string) => {
+  // Server-side, matching the server profiles: one rename path, and the only
+  // one that can move a value the browser is not allowed to see.
+  const rename = async (from: string) => {
+    if (dirty) {
+      window.alert('Save your changes first — renaming edits the saved file directly, so it cannot run over the top of unsaved edits.');
+      return;
+    }
     const typed = window.prompt('Rename bot profile "' + from + '" to:', from);
     if (typed === null) return;
     const to = normalizeProfileName(typed);
     if (to === from) return;
     const error = validateProfileName(to, rows.map((r) => r.name));
     if (error) { window.alert(error); return; }
-    onPatch(renameBotProfile(values, from, to));
+    try {
+      await api.renameProfile('bot', from, to);
+      onExternalChange();
+    } catch (e) {
+      window.alert('Rename failed: ' + (e as Error).message);
+    }
   };
+
+  // What still needs a recreate, in words, or null when nothing does. Drives
+  // the Apply button so it is never live for no reason.
+  const pendingMount = (() => {
+    if (dirty) return 'Save first, then apply.';
+    const waiting = rows.filter((row) => {
+      const status = statusFor(row.name);
+      return !status || !status.mounted || status.hostPath !== row.hostPath;
+    });
+    if (!waiting.length) return null;
+    return waiting.map((r) => r.name).join(', ') + (waiting.length > 1 ? ' are' : ' is') + ' not mounted yet.';
+  })();
 
   const remove = (name: string) => {
     // Scenarios pin a bot by name, so a delete can break a scenario elsewhere.
@@ -73,6 +100,13 @@ export function BotProfiles({ values, onPatch, refreshKey }: Props) {
       <div className={styles.label}>Bot profiles</div>
 
       <table className={styles.table}>
+        <colgroup>
+          <col style={{ width: '52px' }} />
+          <col style={{ width: '110px' }} />
+          <col />
+          <col style={{ width: '210px' }} />
+          <col style={{ width: '208px' }} />
+        </colgroup>
         <thead>
           <tr>
             <th className={styles.colDefault} title="Which profile runs when a scenario does not name one">Default</th>
@@ -135,7 +169,16 @@ export function BotProfiles({ values, onPatch, refreshKey }: Props) {
       </div>
       {addError && <div className={styles.err}>{addError}</div>}
       <div className={styles.hint}>A new or changed host path becomes a mount only when the container is recreated: save, then apply it below. Choosing a different default takes effect immediately.</div>
-      <HostAgentAction action="recreate" label="Apply mount changes" fallback="npm run ui" />
+      {/* Always present, so it is not a control that materialises out of
+          nowhere — but only live when a mount is genuinely waiting. */}
+      <HostAgentAction
+        action="recreate"
+        label="Apply mount changes"
+        fallback="npm run ui"
+        enabled={pendingMount !== null}
+        disabledReason={pendingMount === null ? 'Every registered path is already mounted.' : undefined}
+        note={pendingMount || undefined}
+      />
     </div>
   );
 }

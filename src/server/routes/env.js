@@ -108,6 +108,62 @@ module.exports = function registerEnvRoutes(router, ctx) {
 		return false;
 	}
 
+	// Rename a profile, server-side, because only here are the real values.
+	// Doing this in the browser meant a token could not come with it.
+	router.post('/api/env/rename-profile', function (req, res) {
+		const body = req.body || {};
+		const kind = String(body.kind || '');
+		const from = String(body.from || '').trim().toLowerCase();
+		const to = String(body.to || '').trim().toLowerCase();
+		const family = kind === 'bot' ? botProfiles : kind === 'screeps' ? screepsProfiles : null;
+
+		if (!family) { ctx.sendJson(res, 400, { error: 'kind must be "bot" or "screeps"' }); return; }
+		if (!family.NAME_RE.test(to)) { ctx.sendJson(res, 400, { error: 'invalid profile name "' + to + '"' }); return; }
+		if (from === to) { ctx.sendJson(res, 200, { ok: true, renamed: 0 }); return; }
+
+		const text = readEnvText();
+		const values = parse(text);
+		if (family.known(to, values)) { ctx.sendJson(res, 409, { error: 'a profile named "' + to + '" already exists' }); return; }
+
+		// Every key this profile owns moves across under the new name, values
+		// intact — including the secrets the browser never sees.
+		const patch = {};
+		const drop = [];
+		for (const key of Object.keys(values)) {
+			const parsed = family.parseKey(key);
+			if (!parsed || parsed.name !== from) continue;
+			patch[kind === 'bot' ? family.envKeyFor(to) : family.envKeyFor(to, parsed.key)] = values[key];
+			drop.push(key);
+		}
+		// The legacy unsuffixed form is the "default" profile under another name.
+		if (from === family.DEFAULT_PROFILE) {
+			if (kind === 'bot' && values[botProfiles.LEGACY_PATH_KEY] !== undefined) {
+				patch[botProfiles.envKeyFor(to)] = values[botProfiles.LEGACY_PATH_KEY];
+				drop.push(botProfiles.LEGACY_PATH_KEY);
+			} else if (kind === 'screeps') {
+				for (const key of screepsProfiles.KEYS) {
+					const legacy = screepsProfiles.legacyKeyFor(key);
+					if (values[legacy] === undefined) continue;
+					patch[screepsProfiles.envKeyFor(to, key)] = values[legacy];
+					drop.push(legacy);
+				}
+			}
+		}
+		if (!drop.length) { ctx.sendJson(res, 404, { error: 'no profile named "' + from + '"' }); return; }
+
+		// A pointer at the old name would select a profile that no longer exists,
+		// which resolveDir turns into a hard failure at run time. The IMPLICIT
+		// default counts too: with no pointer set, the profile literally named
+		// "default" is the one in use, so renaming that has to leave a pointer
+		// behind or nothing is the default any more.
+		const pointerKey = kind === 'bot' ? 'DOJO_DEFAULT_BOT_PROFILE' : 'DOJO_DEFAULT_SCREEPS_PROFILE';
+		if (family.defaultProfileName(values) === from) patch[pointerKey] = to;
+
+		fs.writeFileSync(envPath(), merge(remove(text, drop), patch), 'utf8');
+		invalidateBotStatuses();
+		ctx.sendJson(res, 200, { ok: true, renamed: drop.length });
+	});
+
 	// Registered bot profiles with real mount status, so the UI can say which
 	// rows are live and which are still waiting on `npm run ui` — rather than
 	// warning about every save.

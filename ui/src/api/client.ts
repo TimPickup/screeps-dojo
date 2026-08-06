@@ -92,6 +92,10 @@ export const api = {
   // and nothing sent ever reaches a command line on the host.
   hostAgentRequest: (action: string) =>
     jpost<{ ok: boolean; id: string; action: string }>('/api/host-agent/request', { action }),
+  // Renaming happens on the server: it is the only side that can see a token,
+  // so a browser-side rename could not carry one across.
+  renameProfile: (kind: 'bot' | 'screeps', from: string, to: string) =>
+    jpost<{ ok: boolean; renamed: number }>('/api/env/rename-profile', { kind, from, to }),
   bots: () => jget<BotProfilesResponse>('/api/bots'),
   servers: () => jget<ScreepsProfilesResponse>('/api/servers'),
   scenarioSettings: (scenario: string) =>

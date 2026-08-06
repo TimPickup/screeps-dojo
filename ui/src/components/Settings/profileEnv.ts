@@ -169,19 +169,6 @@ export function setBotProfile(values: Record<string, string>, name: string, host
   return patch;
 }
 
-export function renameBotProfile(values: Record<string, string>, from: string, to: string): EnvPatch {
-  const patch = emptyPatch();
-  const fromName = normalizeProfileName(from);
-  const toName = normalizeProfileName(to);
-  if (fromName === toName) return patch;
-  const row = listBotProfiles(values).find((p) => p.name === fromName);
-  if (!row) return patch;
-  patch.values[botProfileKey(toName)] = row.hostPath;
-  patch.remove.push(row.legacy ? BOT_LEGACY_PATH_KEY : botProfileKey(fromName));
-  if (defaultBotProfileName(values) === fromName) repointDefaultBot(values, toName, patch);
-  return patch;
-}
-
 export function deleteBotProfile(values: Record<string, string>, name: string): EnvPatch {
   const patch = emptyPatch();
   const wanted = normalizeProfileName(name);
@@ -229,26 +216,6 @@ export function setScreepsProfile(
     patch.values[screepsProfileKey(wanted, key)] = value;
     if (wanted === DEFAULT_PROFILE && screepsLegacyKey(key) in values) patch.remove.push(screepsLegacyKey(key));
   }
-  return patch;
-}
-
-export function renameScreepsProfile(values: Record<string, string>, from: string, to: string): EnvPatch {
-  const patch = emptyPatch();
-  const fromName = normalizeProfileName(from);
-  const toName = normalizeProfileName(to);
-  if (fromName === toName) return patch;
-  const row = listScreepsProfiles(values).find((p) => p.name === fromName);
-  if (!row) return patch;
-  for (const key of Object.keys(row.own) as ScreepsKey[]) {
-    const value = row.own[key] as string;
-    // A masked secret cannot travel with the profile, and leaving its old key
-    // behind would resurrect the old profile — so it is dropped and reported.
-    if (isMasked(value)) patch.needsReentry.push(screepsProfileKey(toName, key));
-    else patch.values[screepsProfileKey(toName, key)] = value;
-    if (screepsProfileKey(fromName, key) in values) patch.remove.push(screepsProfileKey(fromName, key));
-    if (fromName === DEFAULT_PROFILE && screepsLegacyKey(key) in values) patch.remove.push(screepsLegacyKey(key));
-  }
-  if (defaultScreepsProfileName(values) === fromName) repointDefaultScreeps(values, toName, patch);
   return patch;
 }
 

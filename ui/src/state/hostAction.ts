@@ -53,8 +53,15 @@ export interface PhaseInput {
   // failure — it only becomes one once the deadline passes.
   unreachable: boolean;
   busy?: boolean;
+  // Whether OUR request is still sitting in the channel waiting to be picked up.
+  pending?: boolean;
   lastResult?: { id: string; ok: boolean; message: string | null } | null;
 }
+
+// How long to allow between a request being written and the agent taking it.
+// The agent polls once a second, so this is generous; it exists only so a
+// momentarily slow read is not mistaken for a lost request.
+export const PICKUP_GRACE_MS = 10000;
 
 export type Phase =
   | { phase: 'working' }
@@ -77,6 +84,17 @@ export function decidePhase(input: PhaseInput): Phase {
   const last = input.lastResult;
   if (last && last.id === input.id) {
     return last.ok ? { phase: 'done' } : { phase: 'failed', detail: last.message || 'The action failed.' };
+  }
+  // Neither queued nor running, and no result of ours: the request was dropped.
+  // That happens when the agent looked alive (its heartbeat had not yet aged
+  // out) but had actually gone, so it never saw the request and a later one
+  // discarded it as stale. Waiting out the full deadline for that is just a
+  // long way round to the same answer.
+  if (!input.pending && !input.busy && input.elapsedMs > PICKUP_GRACE_MS) {
+    return {
+      phase: 'failed',
+      detail: 'The host agent did not pick this up — it had most likely stopped. Start it again and retry.'
+    };
   }
   if (overdue) {
     return {

@@ -31,6 +31,7 @@ export function HostActionOverlay() {
       const verdict = decidePhase({
         action, id, elapsedMs: Date.now() - startedAt, unreachable,
         busy: status ? status.busy : false,
+        pending: status ? Boolean(status.pending && status.pending.id === id) : false,
         lastResult: status ? status.lastResult : null
       });
       if (verdict.phase === 'done') clearHostAction();

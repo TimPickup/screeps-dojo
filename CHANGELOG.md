@@ -25,10 +25,17 @@ bot path.
   and `botDir('enemy')` gives another side its own — you can now pit two
   versions of your bot against each other. It opens in its own form editor (or
   raw JSON) from the ⚙ beside the Edit tab.
-- **Screeps server profiles.** `DOJO_SCREEPS_PROFILE_<NAME>_<KEY>`, each
-  overlaying the profile named `default` so it only states what differs.
-  `npm run import-room` reads the scenario's own `settings.json`, so the CLI and
-  the GUI always import from the server that scenario is about.
+- **Screeps server profiles.** `DOJO_SCREEPS_PROFILE_<NAME>_<KEY>`. Each one
+  **stands alone** — nothing is inherited from another profile, so a row shows
+  what it will actually connect with. (They briefly overlaid the profile named
+  `default`, which meant a row could display a hostname nobody typed and, worse,
+  quietly carry another server's token.) `npm run import-room` reads the
+  scenario's own `settings.json`, so the CLI and the GUI always import from the
+  server that scenario is about.
+- **Renaming a profile happens on the server**, which is the only side that can
+  see a token — the browser receives a mask, so a browser-side rename had to
+  leave secrets behind and ask for them to be retyped. The default pointer moves
+  with the profile, including when the implicit default is the one renamed.
 - **Per-profile status in Settings**, replacing the blanket "changing the bot
   path needs a container restart" warning: each row says whether it is mounted,
   how many `.js` modules it holds, or that it is still waiting to be mounted.

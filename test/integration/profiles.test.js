@@ -20,6 +20,7 @@ const { runScenario } = require('../../src/scenarioRunner');
 const botModules = require('../../src/botModules');
 const hostChannel = require('../../src/hostChannel');
 
+const NL = String.fromCharCode(10);
 const FIXTURE_BOTS = path.join(__dirname, '..', 'fixtures', 'bots');
 const FIXTURE_SCENARIO = path.join(__dirname, '..', 'fixtures', 'profile-scenario');
 
@@ -239,8 +240,12 @@ describe('profile routes', function () {
 		const body = JSON.parse(res.body);
 		const season = body.profiles.find(function (p) { return p.name === 'season'; });
 		assert.ok(season, 'season missing from ' + res.body);
-		assert.strictEqual(season.hasToken, true);
 		assert.strictEqual(season.shard, 'season');
+		// Profiles stand alone: "season" owns only its shard, so it must NOT
+		// report the default profile's token as its own.
+		assert.strictEqual(season.hasToken, false);
+		const fallback = body.profiles.find(function (p) { return p.name === 'default'; });
+		assert.strictEqual(fallback.hasToken, true);
 	});
 
 	it('GET /api/scenarios/:name/settings reports what will actually be used', async function () {
@@ -278,6 +283,72 @@ describe('profile routes', function () {
 		const body = JSON.parse((await get(port, '/api/verify/bot?profile=nope')).body);
 		assert.strictEqual(body.ok, false);
 		assert.match(body.error, /unknown bot profile "nope"/);
+	});
+
+	// The browser only ever receives a masked token, so a browser-side rename had
+	// to leave it behind and ask for it to be retyped. Doing it here is the whole
+	// point: the value moves because this side can see it.
+	describe('rename-profile', function () {
+		let envFile;
+
+		beforeEach(function () {
+			envFile = path.join(os.tmpdir(), 'dojo-rename-' + process.pid + '.env');
+			fs.writeFileSync(envFile, [
+				'DOJO_BOT_PROFILE_OLD_PATH=/host/old',
+				'DOJO_DEFAULT_BOT_PROFILE=old',
+				'DOJO_SCREEPS_PROFILE_LIVE_TOKEN=super-secret-token',
+				'DOJO_SCREEPS_PROFILE_LIVE_SHARD=shard0',
+				''
+			].join(NL), 'utf8');
+			process.env.DOJO_ENV_FILE = envFile;
+		});
+
+		afterEach(function () {
+			process.env.DOJO_ENV_FILE = emptyEnvFile;
+			fs.rmSync(envFile, { force: true });
+		});
+
+		it('carries a secret across, which the browser could never do', async function () {
+			const res = await post(port, '/api/env/rename-profile', { kind: 'screeps', from: 'live', to: 'main' });
+			assert.strictEqual(res.status, 200);
+			const after = fs.readFileSync(envFile, 'utf8');
+			assert.ok(after.includes('DOJO_SCREEPS_PROFILE_MAIN_TOKEN=super-secret-token'), after);
+			assert.ok(after.includes('DOJO_SCREEPS_PROFILE_MAIN_SHARD=shard0'));
+			assert.strictEqual(/DOJO_SCREEPS_PROFILE_LIVE_/.test(after), false, 'the old keys must be gone');
+		});
+
+		it('carries the default pointer with the profile it names', async function () {
+			// Leaving it behind would point at a profile that no longer exists,
+			// which the runner turns into a hard failure on the next run.
+			await post(port, '/api/env/rename-profile', { kind: 'bot', from: 'old', to: 'new' });
+			const after = fs.readFileSync(envFile, 'utf8');
+			assert.ok(after.includes('DOJO_BOT_PROFILE_NEW_PATH=/host/old'));
+			assert.ok(after.includes('DOJO_DEFAULT_BOT_PROFILE=new'));
+		});
+
+		it('leaves a pointer when the IMPLICIT default is renamed', async function () {
+			// With no pointer set, the profile named "default" IS the default.
+			// Renaming it without writing one would leave nothing as the default.
+			fs.writeFileSync(envFile, ['DOJO_SCREEPS_PROFILE_DEFAULT_SHARD=shard0', ''].join(NL), 'utf8');
+			await post(port, '/api/env/rename-profile', { kind: 'screeps', from: 'default', to: 'live' });
+			const after = fs.readFileSync(envFile, 'utf8');
+			assert.ok(after.includes('DOJO_SCREEPS_PROFILE_LIVE_SHARD=shard0'), after);
+			assert.ok(after.includes('DOJO_DEFAULT_SCREEPS_PROFILE=live'), after);
+		});
+
+		it('refuses a name that is already taken, and changes nothing', async function () {
+			fs.appendFileSync(envFile, 'DOJO_BOT_PROFILE_TAKEN_PATH=/host/taken' + NL, 'utf8');
+			const before = fs.readFileSync(envFile, 'utf8');
+			const res = await post(port, '/api/env/rename-profile', { kind: 'bot', from: 'old', to: 'taken' });
+			assert.strictEqual(res.status, 409);
+			assert.strictEqual(fs.readFileSync(envFile, 'utf8'), before);
+		});
+
+		it('refuses an unknown profile and an invalid name', async function () {
+			assert.strictEqual((await post(port, '/api/env/rename-profile', { kind: 'bot', from: 'ghost', to: 'x' })).status, 404);
+			assert.strictEqual((await post(port, '/api/env/rename-profile', { kind: 'bot', from: 'old', to: '../etc' })).status, 400);
+			assert.strictEqual((await post(port, '/api/env/rename-profile', { kind: 'nope', from: 'old', to: 'x' })).status, 400);
+		});
 	});
 
 	it('refuses to queue a request when no host agent is listening', async function () {

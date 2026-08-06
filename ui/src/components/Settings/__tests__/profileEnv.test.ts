@@ -3,8 +3,8 @@ import type { BotProfile } from '../../../api/types';
 import {
   botProfileKey, screepsProfileKey, screepsLegacyKey, parseBotKey, parseScreepsKey,
   listBotProfiles, listScreepsProfiles, screepsOwnValue,
-  setBotProfile, renameBotProfile, deleteBotProfile, setDefaultBotProfile, defaultBotProfileName,
-  setScreepsProfile, renameScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile, defaultScreepsProfileName,
+  setBotProfile, deleteBotProfile, setDefaultBotProfile, defaultBotProfileName,
+  setScreepsProfile, deleteScreepsProfile, setDefaultScreepsProfile, defaultScreepsProfileName,
   validateProfileName, isMasked, botStatusLabel
 } from '../profileEnv';
 
@@ -96,32 +96,11 @@ describe('bot profile edits', () => {
     expect(apply(values, patch)).toEqual({ DOJO_BOT_PROFILE_DEFAULT_PATH: 'C:/new' });
   });
 
-  it('renames a profile, carrying the path across', () => {
-    const values = { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/bots/main' };
-    expect(apply(values, renameBotProfile(values, 'main', 'primary')))
-      .toEqual({ DOJO_BOT_PROFILE_PRIMARY_PATH: 'C:/bots/main' });
-  });
 
   // Renaming the profile that was the implicit default has to leave a pointer
   // behind, or the rename would quietly switch which codebase runs.
-  it('renames a legacy profile off the legacy key', () => {
-    const values = { DOJO_BOT_PATH: 'C:/legacy' };
-    expect(apply(values, renameBotProfile(values, 'default', 'main')))
-      .toEqual({ DOJO_BOT_PROFILE_MAIN_PATH: 'C:/legacy', DOJO_DEFAULT_BOT_PROFILE: 'main' });
-  });
 
-  it('follows the rename with the default pointer', () => {
-    const values = { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/main', DOJO_DEFAULT_BOT_PROFILE: 'main' };
-    const after = apply(values, renameBotProfile(values, 'main', 'primary'));
-    expect(after.DOJO_DEFAULT_BOT_PROFILE).toBe('primary');
-    expect(defaultBotProfileName(after)).toBe('primary');
-  });
 
-  it('does nothing when the name is unchanged or unknown', () => {
-    const values = { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/main' };
-    expect(renameBotProfile(values, 'main', 'main')).toEqual({ values: {}, remove: [], needsReentry: [] });
-    expect(renameBotProfile(values, 'ghost', 'other')).toEqual({ values: {}, remove: [], needsReentry: [] });
-  });
 
   it('deletes a profile', () => {
     const values = { DOJO_BOT_PROFILE_MAIN_PATH: 'C:/main', DOJO_BOT_PROFILE_ALT_PATH: 'C:/alt' };
@@ -240,32 +219,10 @@ describe('screeps profile edits', () => {
       .toEqual({ DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard3' });
   });
 
-  it('renames a profile with every key it owns', () => {
-    const values = {
-      DOJO_SCREEPS_PROFILE_SEASON_SHARD: 'season',
-      DOJO_SCREEPS_PROFILE_SEASON_HOSTNAME: 'screeps.com',
-      DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0'
-    };
-    expect(apply(values, renameScreepsProfile(values, 'season', 'seasonal'))).toEqual({
-      DOJO_SCREEPS_PROFILE_SEASONAL_SHARD: 'season',
-      DOJO_SCREEPS_PROFILE_SEASONAL_HOSTNAME: 'screeps.com',
-      DOJO_SCREEPS_PROFILE_DEFAULT_SHARD: 'shard0'
-    });
-  });
 
   // Leaving the old key behind would resurrect the old profile, so the masked
   // secret is dropped — and the caller is told exactly what to retype.
-  it('reports a secret it cannot carry through a rename', () => {
-    const values = { DOJO_SCREEPS_PROFILE_LIVE_TOKEN: '••••abcd', DOJO_SCREEPS_PROFILE_LIVE_SHARD: 'shard0' };
-    const patch = renameScreepsProfile(values, 'live', 'main');
-    expect(patch.needsReentry).toEqual(['DOJO_SCREEPS_PROFILE_MAIN_TOKEN']);
-    expect(apply(values, patch)).toEqual({ DOJO_SCREEPS_PROFILE_MAIN_SHARD: 'shard0' });
-  });
 
-  it('follows the rename with the default pointer', () => {
-    const values = { DOJO_SCREEPS_PROFILE_SEASON_SHARD: 'season', DOJO_DEFAULT_SCREEPS_PROFILE: 'season' };
-    expect(defaultScreepsProfileName(apply(values, renameScreepsProfile(values, 'season', 'seasonal')))).toBe('seasonal');
-  });
 
   it('deletes every key a profile owns', () => {
     const values = {

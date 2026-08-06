@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { decidePhase, DEADLINE_MS, ACTION_FALLBACK, ACTION_TITLE } from '../hostAction';
+import { decidePhase, DEADLINE_MS, PICKUP_GRACE_MS, ACTION_FALLBACK, ACTION_TITLE } from '../hostAction';
 
 // This decides when to stop telling someone their update is still coming and
 // start telling them it died. Getting it wrong in either direction is bad: cry
 // failure during a normal restart, or spin forever on one that will never end.
 
-const base = { action: 'recreate', id: 'req-1', elapsedMs: 1000, unreachable: false };
+// pending by default: the usual case is a request the agent has taken but
+// not yet finished, and the dropped-request rule must not fire on it.
+const base = { action: 'recreate', id: 'req-1', elapsedMs: 1000, unreachable: false, pending: true };
 
 describe('decidePhase', () => {
   it('waits while the action has not reported back', () => {
@@ -42,11 +44,29 @@ describe('decidePhase', () => {
       .toEqual({ phase: 'working' });
   });
 
-  it('distinguishes a slow action from one that was never picked up', () => {
+  it('keeps waiting on an action that is genuinely running', () => {
     const overdue = { ...base, elapsedMs: DEADLINE_MS.recreate + 1, lastResult: null };
-    expect(decidePhase({ ...overdue, busy: true }).phase).toBe('failed');
-    expect(decidePhase({ ...overdue, busy: true })).toEqual({ phase: 'failed', detail: 'Still running after a long time.' });
-    expect(decidePhase({ ...overdue, busy: false })).toEqual({ phase: 'failed', detail: 'The host agent never picked this up.' });
+    expect(decidePhase({ ...overdue, busy: true }))
+      .toEqual({ phase: 'failed', detail: 'Still running after a long time.' });
+  });
+
+  it('still waits while the request sits in the queue, up to the deadline', () => {
+    expect(decidePhase({ ...base, elapsedMs: PICKUP_GRACE_MS + 1, pending: true, busy: false }))
+      .toEqual({ phase: 'working' });
+    expect(decidePhase({ ...base, elapsedMs: DEADLINE_MS.recreate + 1, pending: true, busy: false }))
+      .toEqual({ phase: 'failed', detail: 'The host agent never picked this up.' });
+  });
+
+  // What actually happened: the agent's heartbeat had not yet aged out, so the
+  // server accepted the request for an agent that had already gone. Nothing
+  // picked it up, and the overlay sat on "please wait" for the full two minutes.
+  it('fails fast when the request is neither queued nor running', () => {
+    expect(decidePhase({ ...base, elapsedMs: PICKUP_GRACE_MS - 1, pending: false, busy: false }))
+      .toEqual({ phase: 'working' });
+    const verdict = decidePhase({ ...base, elapsedMs: PICKUP_GRACE_MS + 1, pending: false, busy: false });
+    expect(verdict.phase).toBe('failed');
+    expect(verdict).toMatchObject({ detail: expect.stringContaining('did not pick this up') });
+    expect(PICKUP_GRACE_MS).toBeLessThan(DEADLINE_MS.restart);
   });
 
   // An update rebuilds the image; holding it to a restart's deadline would

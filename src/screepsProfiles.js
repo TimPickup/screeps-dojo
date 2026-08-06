@@ -6,8 +6,13 @@
 //   DOJO_DEFAULT_SCREEPS_PROFILE        which profile to use when none is named
 //   DOJO_SCREEPS_<KEY>                  legacy; maps to the profile named "default"
 //
-// A profile OVERLAYS the default profile, so one that only changes the shard
-// needs a single key. resolve() returns the flat DOJO_SCREEPS_* shape that
+// Every profile STANDS ALONE. An earlier version had them overlay the profile
+// named "default", which read well on paper and badly in practice: a profile
+// showing "screeps.com" you never typed, connecting with a token belonging to a
+// different server, and no way to tell by looking which values were really its
+// own. Unset keys fall back to the built-in defaults below and nowhere else.
+//
+// resolve() returns the flat DOJO_SCREEPS_* shape that
 // src/import/screepsClient.js createClient() already consumes, so nothing
 // downstream has to learn about profiles.
 const PREFIX = 'DOJO_SCREEPS_PROFILE_';
@@ -77,27 +82,24 @@ function listProfiles(env) {
 		return a < b ? -1 : 1;
 	});
 	return names.map(function (name) {
-		const merged = mergeWithDefault(byName, name);
+		const own = ownKeysOf(byName, name);
 		return {
 			name: name,
-			hostname: merged.HOSTNAME || 'screeps.com',
-			shard: merged.SHARD || 'shard0',
-			port: merged.PORT || '443',
-			protocol: merged.PROTOCOL || 'https',
-			path: merged.PATH || '/',
-			hasToken: Boolean(merged.TOKEN),
-			hasPassword: Boolean(merged.PASSWORD),
-			// a profile that only exists as an overlay of the default still lists,
-			// but the UI should show which keys it actually owns
-			ownKeys: Object.keys(byName[name]).sort()
+			hostname: own.HOSTNAME || 'screeps.com',
+			shard: own.SHARD || 'shard0',
+			port: own.PORT || '443',
+			protocol: own.PROTOCOL || 'https',
+			path: own.PATH || '/',
+			hasToken: Boolean(own.TOKEN),
+			hasPassword: Boolean(own.PASSWORD),
+			ownKeys: Object.keys(own).sort()
 		};
 	});
 }
 
-function mergeWithDefault(byName, name) {
-	const base = byName[DEFAULT_PROFILE] || {};
-	if (name === DEFAULT_PROFILE) return Object.assign({}, base);
-	return Object.assign({}, base, byName[name] || {});
+// A profile's own keys, and only those.
+function ownKeysOf(byName, name) {
+	return Object.assign({}, byName[name] || {});
 }
 
 function known(name, env) {
@@ -120,11 +122,11 @@ function resolve(name, env, sourceLabel) {
 		throw new Error(where + 'unknown screeps profile "' + wanted + '"'
 			+ (registered.length ? ' (registered: ' + registered.join(', ') + ')' : ' (none registered)'));
 	}
-	const merged = mergeWithDefault(byName, wanted);
+	const own = ownKeysOf(byName, wanted);
 	const out = Object.assign({}, env);
 	for (const key of KEYS) {
-		if (merged[key] !== undefined) out[legacyKeyFor(key)] = merged[key];
-		else delete out[legacyKeyFor(key)];
+		if (own[key] !== undefined && own[key] !== '') out[legacyKeyFor(key)] = own[key];
+		else delete out[legacyKeyFor(key)];   // createClient supplies the built-in default
 	}
 	return out;
 }

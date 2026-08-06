@@ -10,6 +10,12 @@ interface Props {
   // Shown when no agent is listening — the command that does the same thing.
   // Omit it where the page already shows that command, so it is not said twice.
   fallback?: string;
+  // Whether there is anything to do. The button stays visible either way: a
+  // control that appears and disappears is harder to find than one that is
+  // simply greyed out, and its state doubles as the answer to "do I need to?".
+  enabled?: boolean;
+  disabledReason?: string;
+  note?: string;
 }
 
 const POLL_MS = 5000;
@@ -23,7 +29,7 @@ const POLL_MS = 5000;
 // they belong to HostActionOverlay, which covers the whole app — a panel that
 // is about to stop being able to talk to anything is the wrong place to watch
 // from.
-export function HostAgentAction({ action, label, fallback }: Props) {
+export function HostAgentAction({ action, label, fallback, enabled = true, disabledReason, note }: Props) {
   const [status, setStatus] = useState<HostAgentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -69,9 +75,11 @@ export function HostAgentAction({ action, label, fallback }: Props) {
 
   return (
     <div className={styles.row}>
-      <button className={styles.btn} disabled={busy} onClick={run}>
+      <button className={styles.btn} disabled={busy || !enabled} onClick={run}>
         {busy ? 'working…' : label}
       </button>
+      {!busy && note && <span className={styles.hint}>{note}</span>}
+      {!busy && !enabled && disabledReason && <span className={styles.hint}>{disabledReason}</span>}
       {error && <span className={styles.err}>{error}</span>}
     </div>
   );
