@@ -14,11 +14,18 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const DIR = path.join(ROOT, '.dojo-host');
-const REQUEST_PATH = path.join(DIR, 'request.json');
-const STATUS_PATH = path.join(DIR, 'status.json');
-const LOG_PATH = path.join(DIR, 'agent.log');
-const LOCK_PATH = path.join(DIR, 'agent.lock');
+
+// DOJO_HOST_DIR exists so tests get their OWN channel. They must never share
+// this directory with a running agent: the suite writes real requests here —
+// some with a faked clock, dated 1970 — and a live agent polling once a second
+// will happily pick one up, run it, or drop it as stale and log a failure the
+// user never asked for. Resolved per call, not at load, so a test can set it
+// after this module is required.
+function dir() { return process.env.DOJO_HOST_DIR || path.join(ROOT, '.dojo-host'); }
+function requestPath() { return path.join(dir(), 'request.json'); }
+function statusPath() { return path.join(dir(), 'status.json'); }
+function logPath() { return path.join(dir(), 'agent.log'); }
+function lockPath() { return path.join(dir(), 'agent.lock'); }
 
 // The agent heartbeats every 5s; three missed beats means it is gone. Long
 // enough that a busy host does not flicker the GUI, short enough that stopping
@@ -52,7 +59,7 @@ function readJson(file) {
 // The suffix is the writer's pid: the agent and the server both write in here,
 // and two writers sharing one temp name would corrupt each other's file.
 function writeJson(file, value) {
-	fs.mkdirSync(DIR, { recursive: true });
+	fs.mkdirSync(dir(), { recursive: true });
 	const temp = file + '.' + process.pid + '.tmp';
 	fs.writeFileSync(temp, JSON.stringify(value, null, '\t') + '\n', 'utf8');
 	try {
@@ -64,13 +71,13 @@ function writeJson(file, value) {
 	}
 }
 
-function writeStatus(status) { writeJson(STATUS_PATH, status); }
-function readStatus() { return readJson(STATUS_PATH); }
-function clearStatus() { try { fs.unlinkSync(STATUS_PATH); } catch (e) { /* never written */ } }
+function writeStatus(status) { writeJson(statusPath(), status); }
+function readStatus() { return readJson(statusPath()); }
+function clearStatus() { try { fs.unlinkSync(statusPath()); } catch (e) { /* never written */ } }
 
-function readRequest() { return readJson(REQUEST_PATH); }
-function writeRequest(request) { writeJson(REQUEST_PATH, request); }
-function clearRequest() { try { fs.unlinkSync(REQUEST_PATH); } catch (e) { /* nothing pending */ } }
+function readRequest() { return readJson(requestPath()); }
+function writeRequest(request) { writeJson(requestPath(), request); }
+function clearRequest() { try { fs.unlinkSync(requestPath()); } catch (e) { /* nothing pending */ } }
 
 // Is an agent listening right now? Pure, so the server can test its own
 // staleness rule without waiting on a clock.
@@ -85,11 +92,11 @@ function isLive(status, nowMs) {
 }
 
 module.exports = {
-	DIR: DIR,
-	REQUEST_PATH: REQUEST_PATH,
-	STATUS_PATH: STATUS_PATH,
-	LOG_PATH: LOG_PATH,
-	LOCK_PATH: LOCK_PATH,
+	dir: dir,
+	requestPath: requestPath,
+	statusPath: statusPath,
+	logPath: logPath,
+	lockPath: lockPath,
 	STALE_STATUS_MS: STALE_STATUS_MS,
 	ACTIONS: ACTIONS,
 	ACTION_SUMMARY: ACTION_SUMMARY,

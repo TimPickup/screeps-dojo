@@ -99,15 +99,15 @@ function log(message) {
 	const line = new Date().toISOString() + '  ' + message;
 	console.log('[dojo-agent] ' + message);
 	try {
-		fs.mkdirSync(hostChannel.DIR, { recursive: true });
-		fs.appendFileSync(hostChannel.LOG_PATH, line + '\n', 'utf8');
+		fs.mkdirSync(hostChannel.dir(), { recursive: true });
+		fs.appendFileSync(hostChannel.logPath(), line + '\n', 'utf8');
 	} catch (e) { /* the console line is the important one */ }
 }
 
 function readRequest() {
 	let text;
 	try {
-		text = fs.readFileSync(hostChannel.REQUEST_PATH, 'utf8');
+		text = fs.readFileSync(hostChannel.requestPath(), 'utf8');
 	} catch (e) {
 		return null;   // no request is the normal state
 	}
@@ -115,7 +115,7 @@ function readRequest() {
 		return JSON.parse(text);
 	} catch (e) {
 		// Consume it: leaving unparseable bytes there would re-warn every second.
-		try { fs.unlinkSync(hostChannel.REQUEST_PATH); } catch (unlinkError) { /* gone already */ }
+		try { fs.unlinkSync(hostChannel.requestPath()); } catch (unlinkError) { /* gone already */ }
 		log('refused: request.json is not valid JSON');
 		return null;
 	}
@@ -132,7 +132,7 @@ function readRequest() {
 function runSteps(action) {
 	return new Promise(function (resolve) {
 		const steps = ACTIONS[action].steps.slice();
-		const sink = fs.createWriteStream(hostChannel.LOG_PATH, { flags: 'a' });
+		const sink = fs.createWriteStream(hostChannel.logPath(), { flags: 'a' });
 		function emit(chunk) {
 			sink.write(chunk);
 			if (process.stdout.isTTY) process.stdout.write(chunk);
@@ -193,7 +193,7 @@ function createAgent(options) {
 
 		// Rule 2: consume before acting. Everything below reasons about a request
 		// that no longer exists on disk.
-		try { fs.unlinkSync(hostChannel.REQUEST_PATH); } catch (e) { /* already gone */ }
+		try { fs.unlinkSync(hostChannel.requestPath()); } catch (e) { /* already gone */ }
 
 		const id = typeof request.id === 'string' ? request.id : null;
 		const action = typeof request.action === 'string' ? request.action : null;
@@ -255,10 +255,10 @@ function pidAlive(pid) {
 // force-killed agent is detected by its pid being dead and taken over — the one
 // case where deleting someone else's lock is correct.
 function acquireLock() {
-	fs.mkdirSync(hostChannel.DIR, { recursive: true });
+	fs.mkdirSync(hostChannel.dir(), { recursive: true });
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
-			const fd = fs.openSync(hostChannel.LOCK_PATH, 'wx');
+			const fd = fs.openSync(hostChannel.lockPath(), 'wx');
 			fs.writeSync(fd, String(process.pid));
 			fs.closeSync(fd);
 			return true;
@@ -267,21 +267,21 @@ function acquireLock() {
 			const owner = Number(String(readLockOwner()));
 			if (owner === process.pid) return true;
 			if (pidAlive(owner)) return false;
-			try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (unlinkError) { /* another starter won the takeover */ }
+			try { fs.unlinkSync(hostChannel.lockPath()); } catch (unlinkError) { /* another starter won the takeover */ }
 		}
 	}
 	return false;
 }
 
 function readLockOwner() {
-	try { return fs.readFileSync(hostChannel.LOCK_PATH, 'utf8').trim(); } catch (e) { return ''; }
+	try { return fs.readFileSync(hostChannel.lockPath(), 'utf8').trim(); } catch (e) { return ''; }
 }
 
 // Only ever release a lock we still own: a takeover means someone else's pid is
 // in there now, and removing it would let a third agent in.
 function releaseLock() {
 	if (Number(readLockOwner()) !== process.pid) return;
-	try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* already gone */ }
+	try { fs.unlinkSync(hostChannel.lockPath()); } catch (e) { /* already gone */ }
 }
 
 function liveAgent() {
@@ -300,7 +300,7 @@ function stopRunning() {
 	hostChannel.clearStatus();
 	// A killed agent never runs its own handler, so its lock has to go too or the
 	// next start would have to wait for the stale-pid takeover.
-	try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* never locked */ }
+	try { fs.unlinkSync(hostChannel.lockPath()); } catch (e) { /* never locked */ }
 	console.log('[dojo-agent] stopped (pid ' + status.pid + ')');
 	return true;
 }
@@ -339,11 +339,11 @@ function run() {
 	}
 	// A request left over from a previous session must not fire the moment the
 	// agent starts — rule 4, applied at the one moment age alone cannot cover.
-	try { fs.unlinkSync(hostChannel.REQUEST_PATH); } catch (e) { /* nothing stale */ }
+	try { fs.unlinkSync(hostChannel.requestPath()); } catch (e) { /* nothing stale */ }
 
 	const agent = createAgent({});
 	agent.writeStatus();
-	log('watching ' + hostChannel.REQUEST_PATH);
+	log('watching ' + hostChannel.requestPath());
 	log('allowed actions: ' + agent.actions.join(', ') + '  (Ctrl-C to stop)');
 
 	// tick() returns a promise; its own `busy` flag is what prevents overlap, and

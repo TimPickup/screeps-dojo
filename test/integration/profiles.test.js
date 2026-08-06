@@ -21,6 +21,11 @@ const botModules = require('../../src/botModules');
 const hostChannel = require('../../src/hostChannel');
 
 const NL = String.fromCharCode(10);
+// Its own host-agent channel: this suite posts real requests through the server,
+// and a live agent watching the repo's channel would run them. Assigned in the
+// suite's before(), not here — mocha loads every file first, so a load-time
+// assignment just loses to whichever file is loaded last.
+const TEST_HOST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-host-api-'));
 const FIXTURE_BOTS = path.join(__dirname, '..', 'fixtures', 'bots');
 const FIXTURE_SCENARIO = path.join(__dirname, '..', 'fixtures', 'profile-scenario');
 
@@ -205,6 +210,8 @@ describe('profile routes', function () {
 		fs.writeFileSync(emptyEnvFile, '', 'utf8');
 		process.env.DOJO_ENV_FILE = emptyEnvFile;
 		process.env.DOJO_BOTS_DIR = FIXTURE_BOTS;
+		saved.DOJO_HOST_DIR = process.env.DOJO_HOST_DIR;
+		process.env.DOJO_HOST_DIR = TEST_HOST_DIR;
 		process.env.DOJO_BOT_PROFILE_ALPHA_PATH = '/host/alpha';
 		process.env.DOJO_SCREEPS_PROFILE_SEASON_SHARD = 'season';
 		process.env.DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN = 'super-secret-token';
@@ -356,7 +363,7 @@ describe('profile routes', function () {
 		const res = await post(port, '/api/host-agent/request', { action: 'recreate' });
 		assert.strictEqual(res.status, 409);
 		assert.match(JSON.parse(res.body).error, /npm run host-agent/);
-		assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false, 'nothing should be left for a future agent');
+		assert.strictEqual(fs.existsSync(hostChannel.requestPath()), false, 'nothing should be left for a future agent');
 	});
 
 	it('refuses an action outside the allow-list even with an agent listening', async function () {
@@ -364,7 +371,7 @@ describe('profile routes', function () {
 		try {
 			const res = await post(port, '/api/host-agent/request', { action: 'exec' });
 			assert.strictEqual(res.status, 400);
-			assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false);
+			assert.strictEqual(fs.existsSync(hostChannel.requestPath()), false);
 		} finally { hostChannel.clearStatus(); }
 	});
 

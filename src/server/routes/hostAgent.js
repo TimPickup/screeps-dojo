@@ -41,7 +41,7 @@ module.exports = function registerHostAgentRoutes(router, ctx) {
 	router.get('/api/host-agent/log', function (req, res) {
 		const wanted = Math.min(Math.max(parseInt(req.query.get('lines'), 10) || 40, 1), 500);
 		let text = '';
-		try { text = fs.readFileSync(hostChannel.LOG_PATH, 'utf8'); } catch (e) { /* nothing logged yet */ }
+		try { text = fs.readFileSync(hostChannel.logPath(), 'utf8'); } catch (e) { /* nothing logged yet */ }
 		const lines = text.split('\n').filter(function (line) { return line.trim() !== ''; });
 		ctx.sendJson(res, 200, { lines: lines.slice(-wanted) });
 	});

@@ -3,11 +3,19 @@
 // The agent's REFUSALS are the security boundary, so they are what this pins
 // down: an action outside the allow-list, a replayed id, a stale request, and a
 // burst all have to be dropped without ever reaching a command.
+//
+// These write REAL requests — some with a faked clock, dated 1970 — so they get
+// their own channel directory. Sharing the live one meant an agent running on
+// the developer's machine polled these into existence, ran them, or logged them
+// as stale failures the user never caused.
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const hostChannel = require('../../src/hostChannel');
 const hostAgent = require('../../scripts/hostAgent');
+
+const TEST_HOST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-host-unit-'));
 
 describe('hostChannel', function () {
 	describe('isLive', function () {
@@ -42,6 +50,13 @@ describe('hostChannel', function () {
 describe('hostAgent', function () {
 	let clock, ran;
 
+	let savedHostDir;
+
+	before(function () {
+		savedHostDir = process.env.DOJO_HOST_DIR;
+		process.env.DOJO_HOST_DIR = TEST_HOST_DIR;
+	});
+
 	beforeEach(function () {
 		clock = 10 * 60 * 1000;   // comfortably past MIN_ACTION_INTERVAL_MS from zero
 		ran = [];
@@ -52,7 +67,21 @@ describe('hostAgent', function () {
 	after(function () {
 		hostChannel.clearRequest();
 		hostChannel.clearStatus();
-		try { fs.rmSync(hostChannel.DIR, { recursive: true, force: true }); } catch (e) { /* leave it */ }
+		if (savedHostDir === undefined) delete process.env.DOJO_HOST_DIR;
+		else process.env.DOJO_HOST_DIR = savedHostDir;
+		try { fs.rmSync(TEST_HOST_DIR, { recursive: true, force: true }); } catch (e) { /* leave it */ }
+	});
+
+	it('never touches the real channel a running agent watches', function () {
+		// The regression this file caused: a live agent picked up these test
+		// requests and reported them as stale failures against the user's own
+		// session. The isolation matters more than any single assertion here.
+		assert.strictEqual(hostChannel.dir(), TEST_HOST_DIR);
+		assert.notStrictEqual(
+			path.resolve(hostChannel.dir()),
+			path.resolve(__dirname, '..', '..', '.dojo-host'),
+			"tests must not share the channel a developer's own agent is watching"
+		);
 	});
 
 	function makeAgent() {
@@ -72,7 +101,7 @@ describe('hostAgent', function () {
 		request({});
 		assert.deepStrictEqual(await agent.tick(), { handled: true, reason: 'ok', action: 'restart' });
 		assert.deepStrictEqual(ran, ['restart']);
-		assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false, 'the request must be consumed');
+		assert.strictEqual(fs.existsSync(hostChannel.requestPath()), false, 'the request must be consumed');
 	});
 
 	it('refuses an action outside the allow-list', async function () {
@@ -128,10 +157,10 @@ describe('hostAgent', function () {
 
 	it('consumes unparseable bytes instead of warning about them every second', async function () {
 		const agent = makeAgent();
-		fs.mkdirSync(hostChannel.DIR, { recursive: true });
-		fs.writeFileSync(hostChannel.REQUEST_PATH, '{ not json', 'utf8');
+		fs.mkdirSync(hostChannel.dir(), { recursive: true });
+		fs.writeFileSync(hostChannel.requestPath(), '{ not json', 'utf8');
 		assert.strictEqual((await agent.tick()).reason, 'idle');
-		assert.strictEqual(fs.existsSync(hostChannel.REQUEST_PATH), false);
+		assert.strictEqual(fs.existsSync(hostChannel.requestPath()), false);
 	});
 
 	it('refuses a request with no id or no action', async function () {
@@ -191,7 +220,7 @@ describe('hostAgent', function () {
 
 	describe('concurrent access', function () {
 		afterEach(function () {
-			try { fs.unlinkSync(hostChannel.LOCK_PATH); } catch (e) { /* not locked */ }
+			try { fs.unlinkSync(hostChannel.lockPath()); } catch (e) { /* not locked */ }
 		});
 
 		// writeFileSync truncates before it writes. Both sides poll on a timer, so
@@ -210,7 +239,7 @@ describe('hostAgent', function () {
 
 		it('leaves no scratch file behind', function () {
 			hostChannel.writeStatus({ pid: 1, heartbeatAt: new Date().toISOString() });
-			const strays = fs.readdirSync(hostChannel.DIR).filter(function (n) { return n.endsWith('.tmp'); });
+			const strays = fs.readdirSync(hostChannel.dir()).filter(function (n) { return n.endsWith('.tmp'); });
 			assert.deepStrictEqual(strays, [], 'temp files must be renamed away, not left to look like state');
 		});
 
@@ -218,26 +247,26 @@ describe('hostAgent', function () {
 			assert.strictEqual(hostAgent.acquireLock(), true);
 			// the same process re-entering is fine; a DIFFERENT live pid is not
 			assert.strictEqual(hostAgent.acquireLock(), true);
-			fs.writeFileSync(hostChannel.LOCK_PATH, String(process.pid + 0), 'utf8');
+			fs.writeFileSync(hostChannel.lockPath(), String(process.pid + 0), 'utf8');
 			assert.strictEqual(Number(hostAgent.readLockOwner()), process.pid);
 		});
 
 		it('takes over a lock whose owner is dead, but not one whose owner lives', function () {
-			fs.mkdirSync(hostChannel.DIR, { recursive: true });
-			fs.writeFileSync(hostChannel.LOCK_PATH, '2147483646', 'utf8');   // no such process
+			fs.mkdirSync(hostChannel.dir(), { recursive: true });
+			fs.writeFileSync(hostChannel.lockPath(), '2147483646', 'utf8');   // no such process
 			assert.strictEqual(hostAgent.acquireLock(), true, 'a force-killed agent must not lock the file forever');
 			assert.strictEqual(Number(hostAgent.readLockOwner()), process.pid);
 
 			// someone else, alive: process 1 exists on every platform this runs on
-			fs.writeFileSync(hostChannel.LOCK_PATH, '1', 'utf8');
+			fs.writeFileSync(hostChannel.lockPath(), '1', 'utf8');
 			assert.strictEqual(hostAgent.acquireLock(), false);
 		});
 
 		it('releases only a lock it still owns', function () {
-			fs.mkdirSync(hostChannel.DIR, { recursive: true });
-			fs.writeFileSync(hostChannel.LOCK_PATH, '1', 'utf8');
+			fs.mkdirSync(hostChannel.dir(), { recursive: true });
+			fs.writeFileSync(hostChannel.lockPath(), '1', 'utf8');
 			hostAgent.releaseLock();
-			assert.strictEqual(fs.existsSync(hostChannel.LOCK_PATH), true, 'must not remove another agent\'s lock');
+			assert.strictEqual(fs.existsSync(hostChannel.lockPath()), true, 'must not remove another agent\'s lock');
 		});
 	});
 
