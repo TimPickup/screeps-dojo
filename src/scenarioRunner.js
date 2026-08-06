@@ -26,6 +26,7 @@ const harnessWarnings = require('./harnessWarnings');
 const botModules = require('./botModules');
 const botProfiles = require('./botProfiles');
 const scenarioSettings = require('./scenarioSettings');
+const { loadEnvConfig } = require('./envConfig');
 const { createRecorder } = require('./recording');
 const { getMockEngineFeatures } = require('./serverBoot');
 
@@ -39,9 +40,13 @@ function installSideContext(scenarioDir, emitWarning) {
 	const loaded = scenarioSettings.load(scenarioDir);
 	for (const warning of loaded.warnings) emitWarning(warning);
 	const label = path.basename(scenarioDir) + '/' + scenarioSettings.FILE_NAME;
+	// .env, not process.env: docker compose reads .env on the HOST to build the
+	// compose file and does NOT pass those variables into the container, so the
+	// profiles exist in here only as that file.
+	const env = loadEnvConfig();
 	const sides = {};
 	for (const side of Object.keys(loaded.settings.bots)) {
-		sides[side] = botProfiles.resolveDir(loaded.settings.bots[side], process.env, label);
+		sides[side] = botProfiles.resolveDir(loaded.settings.bots[side], env, label);
 	}
 	if (sides.main === undefined) {
 		// A scenario that names no bot still gets the default — but a BROKEN
@@ -49,7 +54,7 @@ function installSideContext(scenarioDir, emitWarning) {
 		// fixtures and anything with inline modules). Leave it unresolved and let
 		// botDir() raise the same error on first use, where it is actually about
 		// something the scenario asked for.
-		try { sides.main = botProfiles.implicitDir(process.env); } catch (e) { /* reported on first use */ }
+		try { sides.main = botProfiles.implicitDir(env); } catch (e) { /* reported on first use */ }
 	}
 	botModules.setSides(sides);
 	return { sides: sides, settings: loaded.settings };

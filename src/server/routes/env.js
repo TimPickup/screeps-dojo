@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('fs');
-const { ENV_PATH } = require('../envConfig');
+const { loadEnvConfig, envPath } = require('../../envConfig');
 const { parse, merge, remove } = require('../envFile');
 const botProfiles = require('../../botProfiles');
 const screepsProfiles = require('../../screepsProfiles');
@@ -40,14 +40,12 @@ function maskValue(v) {
 }
 
 function readEnvText() {
-	return fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
+	return fs.existsSync(envPath()) ? fs.readFileSync(envPath(), 'utf8') : '';
 }
 
 // Env as the runner sees it: process.env with .env layered on top, matching
 // loadEnvConfig(). Profile listings must agree with what a run would resolve.
-function effectiveEnv() {
-	return Object.assign({}, process.env, parse(readEnvText()));
-}
+function effectiveEnv() { return loadEnvConfig(); }
 
 function botStatuses(env) {
 	const now = Date.now();
@@ -88,7 +86,7 @@ module.exports = function registerEnvRoutes(router, ctx) {
 		}
 		const before = parse(readEnvText());
 		const merged = merge(remove(readEnvText(), removing), patch);
-		fs.writeFileSync(ENV_PATH, merged, 'utf8');
+		fs.writeFileSync(envPath(), merged, 'utf8');
 		invalidateBotStatuses();
 
 		// A recreate is only needed when a MOUNT changed. Re-pointing the default
@@ -183,7 +181,6 @@ module.exports = function registerEnvRoutes(router, ctx) {
 		const wanted = (req.query.get('profile') || '').trim().toLowerCase();
 		try {
 			const { createClient } = require('../../import/screepsClient');
-			const { loadEnvConfig } = require('../envConfig');
 			const config = screepsProfiles.resolve(wanted || undefined, loadEnvConfig());
 			const client = createClient(config);
 			const status = await client.checkToken();

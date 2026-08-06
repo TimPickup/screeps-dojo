@@ -3,7 +3,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { pathSafe } = require('../pathSafe');
-const { loadEnvConfig } = require('../envConfig');
+const { loadEnvConfig } = require('../../envConfig');
 const { openSse } = require('../sse');
 const screepsProfiles = require('../../screepsProfiles');
 const scenarioSettings = require('../../scenarioSettings');

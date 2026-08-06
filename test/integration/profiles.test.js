@@ -54,15 +54,21 @@ describe('bot profiles end to end', function () {
 	// is relative, so copying it to a temp directory would break the very import
 	// under test. Only settings.json is written, and it is removed afterwards.
 	const scenarioDir = FIXTURE_SCENARIO;
-	let saved;
+	let saved, emptyEnvFile;
 
 	before(function () {
 		saved = {
 			DOJO_BOTS_DIR: process.env.DOJO_BOTS_DIR,
 			DOJO_BOT_DIR: process.env.DOJO_BOT_DIR,
+			DOJO_ENV_FILE: process.env.DOJO_ENV_FILE,
 			DOJO_BOT_PROFILE_ALPHA_PATH: process.env.DOJO_BOT_PROFILE_ALPHA_PATH,
 			DOJO_BOT_PROFILE_BETA_PATH: process.env.DOJO_BOT_PROFILE_BETA_PATH
 		};
+		// Resolution merges .env now, so point at an empty one: otherwise this
+		// suite would assert on whatever profiles the developer happens to have.
+		emptyEnvFile = path.join(os.tmpdir(), 'dojo-empty-' + process.pid + '.env');
+		fs.writeFileSync(emptyEnvFile, '', 'utf8');
+		process.env.DOJO_ENV_FILE = emptyEnvFile;
 		process.env.DOJO_BOTS_DIR = FIXTURE_BOTS;
 		delete process.env.DOJO_BOT_DIR;
 		process.env.DOJO_BOT_PROFILE_ALPHA_PATH = '/host/alpha';
@@ -75,6 +81,7 @@ describe('bot profiles end to end', function () {
 			else process.env[key] = saved[key];
 		}
 		fs.rmSync(path.join(scenarioDir, 'settings.json'), { force: true });
+		fs.rmSync(emptyEnvFile, { force: true });
 	});
 
 	function writeSettings(obj) {
@@ -84,6 +91,29 @@ describe('bot profiles end to end', function () {
 	function consoleSaid(result, name) {
 		return result.console.some(function (line) { return String(line).indexOf('bot:' + name) !== -1; });
 	}
+
+	// THE regression that shipped: profiles live in .env, and docker compose reads
+	// that file on the HOST to build the compose file — it does not pass those
+	// variables into the container. A runner reading process.env therefore saw
+	// "none registered" for a profile the Settings screen was happily listing.
+	it('resolves a profile that exists only in .env, not in process.env', async function () {
+		const envFile = path.join(os.tmpdir(), 'dojo-envfile-' + process.pid + '.env');
+		fs.writeFileSync(envFile, ['DOJO_BOT_PROFILE_BETA_PATH=/host/beta', ''].join('\n'), 'utf8');
+		const savedProfile = process.env.DOJO_BOT_PROFILE_BETA_PATH;
+		delete process.env.DOJO_BOT_PROFILE_BETA_PATH;
+		process.env.DOJO_ENV_FILE = envFile;
+		try {
+			writeSettings({ bot: 'beta' });
+			const result = await runScenario(scenarioDir, { runExpect: true });
+			assert.ok(consoleSaid(result, 'beta'), 'console: ' + JSON.stringify(result.console));
+		} finally {
+			// back to the suite's empty file, NOT deleted — dropping it would let
+			// every later test read whatever .env this machine happens to have
+			process.env.DOJO_ENV_FILE = emptyEnvFile;
+			if (savedProfile !== undefined) process.env.DOJO_BOT_PROFILE_BETA_PATH = savedProfile;
+			fs.rmSync(envFile, { force: true });
+		}
+	});
 
 	it('runs the codebase settings.json names', async function () {
 		writeSettings({ bot: 'alpha' });
@@ -155,7 +185,7 @@ describe('bot profiles end to end', function () {
 });
 
 describe('profile routes', function () {
-	let server, port, scenariosRoot, saved;
+	let server, port, scenariosRoot, saved, emptyEnvFile;
 
 	before(function (done) {
 		scenariosRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-profile-api-'));
@@ -165,10 +195,14 @@ describe('profile routes', function () {
 		fs.writeFileSync(path.join(dir, 'settings.json'), '{"bot":"alpha","server":"season"}\n');
 		saved = {
 			DOJO_BOTS_DIR: process.env.DOJO_BOTS_DIR,
+			DOJO_ENV_FILE: process.env.DOJO_ENV_FILE,
 			DOJO_BOT_PROFILE_ALPHA_PATH: process.env.DOJO_BOT_PROFILE_ALPHA_PATH,
 			DOJO_SCREEPS_PROFILE_SEASON_SHARD: process.env.DOJO_SCREEPS_PROFILE_SEASON_SHARD,
 			DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN: process.env.DOJO_SCREEPS_PROFILE_DEFAULT_TOKEN
 		};
+		emptyEnvFile = path.join(os.tmpdir(), 'dojo-empty-api-' + process.pid + '.env');
+		fs.writeFileSync(emptyEnvFile, '', 'utf8');
+		process.env.DOJO_ENV_FILE = emptyEnvFile;
 		process.env.DOJO_BOTS_DIR = FIXTURE_BOTS;
 		process.env.DOJO_BOT_PROFILE_ALPHA_PATH = '/host/alpha';
 		process.env.DOJO_SCREEPS_PROFILE_SEASON_SHARD = 'season';
@@ -183,6 +217,7 @@ describe('profile routes', function () {
 			else process.env[key] = saved[key];
 		}
 		fs.rmSync(scenariosRoot, { recursive: true, force: true });
+		fs.rmSync(emptyEnvFile, { force: true });
 		server.close(function () { done(); });
 	});
 

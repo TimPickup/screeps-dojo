@@ -57,6 +57,12 @@ bot path.
 
 ### Changed
 
+- **Profile resolution reads `.env`, not just `process.env`.** Docker Compose
+  reads that file on the *host* to build the compose file; it does not pass the
+  variables into the container. So a run resolved "unknown bot profile (none
+  registered)" for a profile the Settings screen was listing quite happily.
+  `src/envConfig.js` moved out of `src/server/` because the runner needs the
+  same merged view the routes use.
 - The `/bot` mount is gone; the default profile lives at `/bots/default`. A
   checkout with no `.env` still runs the bundled examples unchanged.
 - Recordings and the run's `start` event now carry which codebase produced them.

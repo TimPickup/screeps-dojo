@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const botProfiles = require('./botProfiles');
+const { loadEnvConfig } = require('./envConfig');
 
 // side -> container dir, e.g. { main: '/bots/speedrun', enemy: '/bots/default' }
 let sides = null;
@@ -24,7 +25,8 @@ function clearSides() { sides = null; }
 function botDir(side) {
 	const name = String(side || 'main').toLowerCase();
 	if (sides && Object.prototype.hasOwnProperty.call(sides, name)) return sides[name];
-	if (name === 'main') return botProfiles.implicitDir(process.env);
+	// .env merged over process.env — see src/envConfig.js for why that matters
+	if (name === 'main') return botProfiles.implicitDir(loadEnvConfig());
 	throw new Error('no bot configured for side "' + name + '" — add it to the scenario\'s '
 		+ 'settings.json, e.g. { "bots": { "' + name + '": "default" } }');
 }
