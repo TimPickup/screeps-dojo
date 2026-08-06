@@ -2,7 +2,8 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
 
 const FONT_REGULAR = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
 const FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf';
@@ -40,7 +41,7 @@ function makeRecording() {
 }
 
 describe('shared Canvas2D renderer', function () {
-	let drawFrame, StaticLayers, CreepRenderer, computeStageLayout, creepFacing, renderFont;
+	let drawFrame, StaticLayers, CreepRenderer, computeStageLayout, creepFacing, renderFont, terrainTexture;
 
 	before(async function () {
 		const modules = await Promise.all([
@@ -56,6 +57,7 @@ describe('shared Canvas2D renderer', function () {
 		computeStageLayout = modules[3].computeStageLayout;
 		creepFacing = modules[3].creepFacing;
 		renderFont = modules[4];
+		terrainTexture = await loadImage(path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png'));
 		if (!GlobalFonts.families.some(function (entry) { return entry.family === renderFont.RENDER_FONT_FAMILY; })) {
 			assert.ok(GlobalFonts.registerFromPath(FONT_REGULAR, renderFont.RENDER_FONT_FAMILY));
 			assert.ok(GlobalFonts.registerFromPath(FONT_BOLD, renderFont.RENDER_FONT_FAMILY));
@@ -77,7 +79,7 @@ describe('shared Canvas2D renderer', function () {
 		const canvas = createCanvas(layout.width, layout.height);
 		const ctx = canvas.getContext('2d');
 		const scale = layout.pixelsPerRoom / 50;
-		const layers = new StaticLayers(recording, layout, scale, createCanvas);
+		const layers = new StaticLayers(recording, layout, scale, createCanvas, terrainTexture);
 		const sprites = new CreepRenderer();
 
 		function render(sub) {

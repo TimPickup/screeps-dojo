@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { once } = require('events');
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
 const ffmpegPath = require('ffmpeg-static');
 
 const FONT_FILES = [
@@ -16,7 +16,16 @@ const FONT_FILES = [
 	'/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf'
 ];
 let sharedRendererPromise = null;
+let terrainTexturePromise = null;
 let fontsRegistered = false;
+
+function loadTerrainTexture() {
+	if (!terrainTexturePromise) {
+		const texturePath = path.resolve(__dirname, '../../ui/src/assets/textures/terrain-noise.png');
+		terrainTexturePromise = loadImage(texturePath);
+	}
+	return terrainTexturePromise;
+}
 
 function loadSharedRenderer() {
 	if (!sharedRendererPromise) {
@@ -120,7 +129,7 @@ async function renderRecording(recording, outFile, options) {
 		options);
 	validateSettings(recording, settings);
 	throwIfCancelled(settings.signal);
-	const shared = await loadSharedRenderer();
+	const [shared, terrainTexture] = await Promise.all([loadSharedRenderer(), loadTerrainTexture()]);
 	registerFonts(shared.renderFontFamily);
 	const availableRooms = Object.keys(recording.terrain || {});
 	const rooms = Array.isArray(settings.rooms) && settings.rooms.length
@@ -138,7 +147,7 @@ async function renderRecording(recording, outFile, options) {
 	const canvas = createCanvas(width, height);
 	const ctx = canvas.getContext('2d');
 	const layerResolution = settings.pixelsPerRoom / 50;
-	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas);
+	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas, terrainTexture);
 	const sprites = new shared.CreepRenderer();
 	const expectedBytes = width * height * 4;
 	const lastIndex = recording.frames.length - 1;

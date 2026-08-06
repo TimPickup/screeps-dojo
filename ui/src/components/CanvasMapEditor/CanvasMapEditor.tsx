@@ -9,6 +9,7 @@ import {
 } from './mapModel';
 import styles from './CanvasMapEditor.module.css';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
+import { useTerrainTexture } from '../../hooks/useTerrainTexture';
 
 type Tool = { kind: 'select' } | { kind: 'terrain'; value: string } | { kind: 'object'; value: string };
 type Selection = { kind: 'structure' | 'flag'; index: number } | null;
@@ -70,6 +71,7 @@ function isClaimed(owner: unknown): boolean {
 
 export function CanvasMapEditor({ value, onChange }: Props) {
   const fontsReady = useRenderFonts();
+  const terrainTexture = useTerrainTexture();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const modelRef = useRef<EditableMap | null>(null);
@@ -134,7 +136,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !model || !fontsReady) return;
+    if (!canvas || !model || !fontsReady || !terrainTexture) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.max(1, Math.floor(canvasSize * dpr));
     canvas.height = Math.max(1, Math.floor(canvasSize * dpr));
@@ -146,7 +148,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
     const scale = canvasSize * dpr / 50;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     const layout = computeStageLayout([model.room]);
-    drawStaticScene(ctx, { terrain: { [model.room]: model.terrain }, frame: frameFor(model), layout }, { initialSourceEnergy: true });
+    drawStaticScene(ctx, { terrain: { [model.room]: model.terrain }, frame: frameFor(model), layout }, { initialSourceEnergy: true, terrainTexture });
     if (hovered) {
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(hovered.x, hovered.y, 1, 1);
@@ -161,7 +163,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
         ctx.stroke();
       }
     }
-  }, [model, selection, hovered, canvasSize, fontsReady]);
+  }, [model, selection, hovered, canvasSize, fontsReady, terrainTexture]);
 
   const tileFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();

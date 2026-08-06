@@ -27,12 +27,18 @@ export class StaticLayers {
 	private canvasFactory?: CanvasFactory;
 	private botUserId?: string;
 
-	constructor(recording: Recording, layout: StageLayout, resolution = STATIC_LAYER_RESOLUTION, canvasFactory?: CanvasFactory) {
+	constructor(
+		recording: Recording,
+		layout: StageLayout,
+		resolution = STATIC_LAYER_RESOLUTION,
+		canvasFactory?: CanvasFactory,
+		terrainTexture?: CanvasImageSource,
+	) {
 		this.layout = layout;
 		this.resolution = resolution;
 		this.canvasFactory = canvasFactory;
 		this.botUserId = recording.meta.botUserId;
-		this.terrain = buildTerrainCanvas(recording, layout, resolution, canvasFactory);
+		this.terrain = buildTerrainCanvas(recording, layout, resolution, canvasFactory, terrainTexture);
 		const firstFrame = recording.frames[0];
 		this.prepare(firstFrame);
 		this.key = epochKey(firstFrame);

@@ -24,7 +24,7 @@ export const RENDER_COLORS = {
 		attack: ATTACK,
 		rangedMassAttack: RANGED_ATTACK,
 		build: WHITE,
-		repair: HEALTH,
+		repair: ENERGY,
 		dismantle: '#d18b2a',
 	},
 	ownership: {
@@ -50,7 +50,11 @@ export const RENDER_COLORS = {
 	terrain: {
 		plain: '#2b2b2b',
 		swamp: '#29301d',
-		wall: '#141414',
+		wall: '#101010',
+		wallOuterShadow: '#00000020',
+		wallInnerGlow: '#FFFFFF05',
+		wallInnerHighlight: '#99999930',
+		wallOutline: BLACK,
 		grid: WHITE,
 		exit: '#ffffff60',
 	},
@@ -108,6 +112,15 @@ export const MINERAL_COLORS: Readonly<Record<string, string>> = {
 export const DEFAULT_MINERAL_COLOR = MINERAL_COLORS.H;
 export const ROOM_SIZE_TILES = 50;
 export const STATIC_LAYER_RESOLUTION = 24;
+
+export const WALL_RENDER_STYLE = {
+	cornerRadius: 0.22,
+	textureOpacity: 0.025,
+	outerShadowWidth: 0.5,
+	innerGlowWidth: 0.7,
+	innerHighlightWidth: 0.2,
+	outlineWidth: 0.045,
+} as const;
 
 export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'spawn',

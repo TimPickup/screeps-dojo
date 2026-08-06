@@ -2,6 +2,7 @@ import type { Recording, StageLayout, Frame } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
 import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, text } from './primitives.ts';
+import { drawWallIslands } from './terrainWalls.ts';
 import {
 	DEFAULT_MINERAL_COLOR,
 	MINERAL_COLORS,
@@ -15,7 +16,11 @@ import {
 export { STATIC_LAYER_RESOLUTION as STATIC_RES } from './renderConstants.ts';
 
 // One room's terrain at room-local integer tile coordinates.
-export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void {
+export function drawTerrain(
+	ctx: CanvasRenderingContext2D,
+	rows: string[],
+	terrainTexture?: CanvasImageSource,
+): void {
 	ctx.save();
 	ctx.fillStyle = RENDER_COLORS.terrain.plain;
 	ctx.fillRect(0, 0, ROOM_SIZE_TILES, ROOM_SIZE_TILES);
@@ -23,7 +28,7 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
 		const row = rows[y] || '';
 		for (let x = 0; x < ROOM_SIZE_TILES; x++) {
 			const terrainType = row[x];
-			if (terrainType === '.' || terrainType === undefined) continue;
+			if (terrainType !== '~') continue;
 			ctx.fillStyle = TERRAIN_COLORS[terrainType] || RENDER_COLORS.terrain.plain;
 			ctx.fillRect(x, y, 1, 1);
 		}
@@ -39,6 +44,7 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
 	}
 	ctx.stroke();
 	ctx.globalAlpha = 1;
+	drawWallIslands(ctx, rows, terrainTexture);
 	// exit chevrons on walkable border tiles
 	ctx.strokeStyle = RENDER_COLORS.terrain.exit;
 	ctx.lineWidth = 0.08;
@@ -66,13 +72,18 @@ export function drawTerrain(ctx: CanvasRenderingContext2D, rows: string[]): void
 	ctx.restore();
 }
 
-export function drawTerrainScene(ctx: CanvasRenderingContext2D, terrain: Record<string, string[]>, layout: StageLayout): void {
+export function drawTerrainScene(
+	ctx: CanvasRenderingContext2D,
+	terrain: Record<string, string[]>,
+	layout: StageLayout,
+	terrainTexture?: CanvasImageSource,
+): void {
 	for (const room of Object.keys(terrain)) {
 		const roomOffset = layout.offsets[room];
 		if (!roomOffset) continue;
 		ctx.save();
 		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
-		drawTerrain(ctx, terrain[room]);
+		drawTerrain(ctx, terrain[room], terrainTexture);
 		ctx.restore();
 	}
 }
@@ -116,9 +127,10 @@ export function buildTerrainCanvas(
 	layout: StageLayout,
 	resolution = STATIC_LAYER_RESOLUTION,
 	canvasFactory: CanvasFactory = browserCanvas,
+	terrainTexture?: CanvasImageSource,
 ): HTMLCanvasElement {
 	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
-		drawTerrainScene(ctx, recording.terrain, layout);
+		drawTerrainScene(ctx, recording.terrain, layout, terrainTexture);
 	});
 }
 
@@ -208,9 +220,9 @@ export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], la
 export function drawStaticScene(
 	ctx: CanvasRenderingContext2D,
 	scene: { terrain: Record<string, string[]>; frame: Frame; layout: StageLayout },
-	options: { initialSourceEnergy?: boolean } = {},
+	options: { initialSourceEnergy?: boolean; terrainTexture?: CanvasImageSource } = {},
 ): void {
-	drawTerrainScene(ctx, scene.terrain, scene.layout);
+	drawTerrainScene(ctx, scene.terrain, scene.layout, options.terrainTexture);
 	drawStaticStructures(ctx, scene.frame, scene.layout);
 	for (const object of scene.frame.objects) {
 		const roomOffset = scene.layout.offsets[object.room];

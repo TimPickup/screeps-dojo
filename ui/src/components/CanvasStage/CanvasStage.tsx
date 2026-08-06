@@ -4,6 +4,8 @@ import { StaticLayers } from '../../canvas/caches';
 import { CreepRenderer } from '../../canvas/creeps';
 import { drawFrame } from '../../canvas/drawFrame';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
+import { useTerrainTexture } from '../../hooks/useTerrainTexture';
+import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
 import styles from './CanvasStage.module.css';
 
 // Friendly names for the multi-object picker (when several objects share one tile).
@@ -45,6 +47,7 @@ interface Props {
 // native Canvas2D creeps, interpolation, effects and RoomVisual playback.
 export function CanvasStage({ recording, layout, relPath, playing, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
   const fontsReady = useRenderFonts();
+  const terrainTexture = useTerrainTexture();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
@@ -68,15 +71,15 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    if (!fontsReady) return () => { cancelled = true; };
+    if (!fontsReady || !terrainTexture) return () => { cancelled = true; };
     const initial = recordingRef.current;
     const sprites = new CreepRenderer();
-    const layers = new StaticLayers(initial, layout); // synchronous — no server call
+    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, terrainTexture);
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
     if (!cancelled) setReady(true);
     return () => { cancelled = true; };
-  }, [layout, relPath, recording.meta.botUserId, fontsReady]);
+  }, [layout, relPath, recording.meta.botUserId, fontsReady, terrainTexture]);
 
   // keep playhead synced to a scrubbed tick when paused
   useEffect(() => { if (!playing) playhead.current = tick; }, [tick, playing]);
