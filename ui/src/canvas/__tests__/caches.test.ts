@@ -65,6 +65,27 @@ describe('static layer epochs', () => {
     expect(epochKey(fullPowerBank)).toBe(epochKey(damagedPowerBank));
   });
 
+  it('ignores construction sites entirely — they are drawn per frame, not baked', () => {
+    const bare = frameWithStaticObject({
+      _id: 'spawn', type: 'spawn', room: 'W1N1', x: 25, y: 25,
+    });
+    const withSite: Frame = {
+      ...bare,
+      objects: [...bare.objects, {
+        _id: 'site', type: 'constructionSite', room: 'W1N1', x: 10, y: 10,
+        structureType: 'extension', progress: 0, progressTotal: 3000, user: 'me',
+      }],
+    } as unknown as Frame;
+    const advancedSite: Frame = {
+      ...withSite,
+      objects: [withSite.objects[0], { ...withSite.objects[1], progress: 2000 }],
+    } as unknown as Frame;
+
+    // Placing one must not throw away the background it never appears on.
+    expect(epochKey(withSite)).toBe(epochKey(bare));
+    expect(epochKey(advancedSite)).toBe(epochKey(bare));
+  });
+
   it('invalidates the rampart overlay for layout, ownership, and public-state changes only', () => {
     const mine = frameWithRampart(10, 100);
     mine.objects[0].my = true;

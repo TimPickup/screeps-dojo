@@ -1,6 +1,11 @@
 import type { FrameObject } from '../api/types.ts';
 import { arc, circle, poly, rect, roundedRectPath, roundedSquare } from './primitives.ts';
-import { CONTROLLER_LEVEL_PROGRESS, RENDER_COLORS, SOURCE_RENDER_STYLE } from './renderConstants.ts';
+import {
+	CONSTRUCTION_SITE_RENDER_STYLE,
+	CONTROLLER_LEVEL_PROGRESS,
+	RENDER_COLORS,
+	SOURCE_RENDER_STYLE,
+} from './renderConstants.ts';
 
 type CanvasContext = CanvasRenderingContext2D;
 const TOWER_IDLE_ROTATION = Math.PI / 4;
@@ -178,6 +183,44 @@ export function drawControllerProgress(ctx: CanvasContext, object: FrameObject, 
 	if (progressFraction <= 0) return;
 	arc(ctx, cx, cy, 0.20, -Math.PI / 2, -Math.PI / 2 + progressFraction * Math.PI * 2,
 		{ stroke: RENDER_COLORS.controller.progress, strokeWidth: 0.40 });
+}
+
+// One full pulse per tick. Driven by replay time rather than the wall clock so
+// a scrubbed frame and an exported video frame render identically; a paused
+// replay passes a whole tick and so sits at the peak, its static look.
+export function constructionSitePulseOpacity(replayTime: number): number {
+	const { pulsePeakOpacity, pulseTroughOpacity } = CONSTRUCTION_SITE_RENDER_STYLE;
+	const phase = Number.isFinite(replayTime) ? replayTime : 0;
+	const wave = 0.5 + 0.5 * Math.cos(phase * Math.PI * 2);
+	return pulseTroughOpacity + (pulsePeakOpacity - pulseTroughOpacity) * wave;
+}
+
+// An ownership-coloured ring filled by a progress wedge, pulsing so a site
+// reads as pending rather than built. Never baked into the cached background:
+// progress changes every tick and the epoch key is deliberately progress-blind.
+export function drawConstructionSite(
+	ctx: CanvasContext,
+	object: FrameObject,
+	cx: number,
+	cy: number,
+	replayTime: number,
+): void {
+	const { radius, outlineWidth } = CONSTRUCTION_SITE_RENDER_STYLE;
+	const color = object.my ? RENDER_COLORS.ownership.ownStructure : RENDER_COLORS.ownership.otherStructure;
+	const opacity = constructionSitePulseOpacity(replayTime);
+	circle(ctx, cx, cy, { radius, stroke: color, strokeWidth: outlineWidth, opacity });
+	const progressTotal = (object.progressTotal as number | undefined) || 0;
+	const progressFraction = progressTotal > 0
+		? clampFraction(((object.progress as number | undefined) || 0) / progressTotal)
+		: 0;
+	if (progressFraction <= 0) return;
+	// A stroke as wide as the span it covers paints a filled wedge, so centring
+	// it half-way out fills from the middle to the ring's inner edge. Stopping
+	// short of the ring keeps two translucent strokes of the same colour from
+	// overlapping and compositing into a brighter band.
+	const wedgeRadius = radius - outlineWidth / 2;
+	arc(ctx, cx, cy, wedgeRadius / 2, -Math.PI / 2, -Math.PI / 2 + progressFraction * Math.PI * 2,
+		{ stroke: color, strokeWidth: wedgeRadius, opacity });
 }
 
 export function drawSpawnFill(ctx: CanvasContext, object: FrameObject, cx: number, cy: number): void {
