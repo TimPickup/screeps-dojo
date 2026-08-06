@@ -123,6 +123,23 @@ describe('envSeed', function () {
 			assert.strictEqual(profiles.shard2, undefined, 'a deleted profile must stay deleted');
 		});
 
+		// The fresh-install path: no .env exists at all, so seeding has to create
+		// one. It must not invent a bot path — docker-compose.yml still defaults
+		// DOJO_BOT_PATH to the project dir, which is what lets the bundled
+		// examples run with no configuration.
+		it('creates the file when there is none, without inventing a bot path', function () {
+			const fresh = path.join(dir, 'brand-new.env');
+			const result = envSeed.seed({ file: fresh });
+
+			assert.strictEqual(result.seeded, true);
+			assert.strictEqual(fs.existsSync(fresh), true);
+			const values = parse(fs.readFileSync(fresh, 'utf8'));
+			assert.deepStrictEqual(Object.keys(screepsProfiles.parseProfiles(values)).sort(),
+				['season', 'shard0', 'shard1', 'shard2', 'shard3', 'shardx']);
+			assert.strictEqual(values.DOJO_DEFAULT_SCREEPS_PROFILE, 'shard0');
+			assert.deepStrictEqual(Object.keys(values).filter(function (k) { return k.indexOf('DOJO_BOT') === 0; }), []);
+		});
+
 		it('keeps comments and unrelated keys', function () {
 			fs.writeFileSync(file, '# mine\nDOJO_UI_PORT=9999\n', 'utf8');
 			envSeed.seed({ file: file });
