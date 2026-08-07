@@ -5,6 +5,41 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.9.0] — 2026-08-07
+
+Updates used to take about seven minutes and look broken for five of them.
+Almost all of that was spent reinstalling 682 identical packages because the
+version number in `package.json` had changed — a string the container image
+never reads. A version-only release now takes about fifteen seconds.
+
+### Changed
+
+- **The image is rebuilt only when something in it actually changed.** Both
+  launchers compare a fingerprint of what the image is made of — the Dockerfile,
+  the dependency graph, the lockfile's resolved packages, the install-time
+  scripts, and the mock-engine patches — against what was fingerprinted when it
+  was last built. Version numbers are deliberately excluded. Anything unreadable
+  or unrecorded counts as "rebuild": a needless build costs minutes, a stale
+  image costs a confusing afternoon. Force one with `npm run ui -- --build`.
+
+  This replaces a modification-time check that could not tell a version bump
+  from a dependency change.
+
+- **npm's warnings no longer fill the update output.** None of them are
+  actionable, and being the last thing on screen for five minutes made them look
+  like the problem. Script output still streams.
+
+- **The update screen says what it is doing.** It shows the current phase —
+  "rebuilding the container image — the slow part" — with the raw build output
+  behind a *Show details* toggle, and the host agent logs a heartbeat when
+  nothing has printed for 25 seconds.
+
+### Fixed
+
+- **The progress line no longer reports the previous action.** The agent log is
+  append-only and shared, so a restart could display the closing line of the
+  update before it. It now reads only what the running action has logged.
+
 ## [0.8.1] — 2026-08-07
 
 Updating from the browser, fixed. The button worked only intermittently, opened
