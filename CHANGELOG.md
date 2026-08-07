@@ -5,6 +5,46 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.8.1] — 2026-08-07
+
+Updating from the browser, fixed. The button worked only intermittently, opened
+a blank console window over whatever you were doing, said nothing about how long
+it would take, and left the page still claiming an update was due once it had
+finished.
+
+### Fixed
+
+- **Update and restart requests were dropped at random.** A request is stamped
+  in the container and judged on the host, and those are not the same clock —
+  Docker Desktop's VM measured ~700ms ahead here. The staleness check required a
+  non-negative age, so a perfectly fresh request arrived dated in the future and
+  was thrown away as stale. Whether it survived was a race between the skew and
+  the write-to-read latency, which is why pressing the button again worked. A
+  request stamped slightly ahead is now accepted; only a genuine age, or an
+  absurd future date, is refused.
+- **A blank console window no longer opens over the screen.** Every step ran
+  through `cmd.exe` without `windowsHide`, so the detached agent popped up a
+  console — blank, because its output is piped back to the GUI, which read as a
+  hung program rather than as progress.
+- **The page refreshes when an action finishes.** It used to just hide the
+  overlay, leaving the browser running the code it had before: the header still
+  showed the old version and the update notice was still on screen, having just
+  updated. It reloads now, which is also what clears every other stale read —
+  env values, profiles, mount status.
+- **Settings comes back after applying a mount change**, instead of dropping you
+  on the welcome screen with no idea whether it worked.
+
+### Changed
+
+- **The update notice was rebuilt.** It was a red panel with a green button
+  inside it, that button left-aligned against centred neighbours, and it offered
+  the terminal command *above* the one-click path. The alert is now just the
+  alert; what you can do about it sits below it — heading, button, what it
+  costs, then the manual command demoted under a rule as the alternative.
+- **How long it takes is stated up front**, in the notice and again directly
+  under the wait screen's title. An image rebuild is minutes of apparently
+  nothing, and without a number slow is indistinguishable from broken.
+
 ## [0.8.0] — 2026-08-06
 
 Construction sites show up in replays. They were listed as part of the cached
