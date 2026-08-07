@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import { useHostAction, clearHostAction, decidePhase, ACTION_TITLE, ACTION_FALLBACK } from '../../state/hostAction';
+import { useHostAction, clearHostAction, decidePhase, ACTION_TITLE, ACTION_FALLBACK, ACTION_DURATION } from '../../state/hostAction';
+import { rememberSettingsForReload } from '../../state/settingsOverlay';
 import styles from './HostActionOverlay.module.css';
 
 const POLL_MS = 1000;
@@ -9,9 +10,15 @@ const POLL_MS = 1000;
 // because the server is about to disappear and no screen underneath is usable
 // until it returns. The connection dropping is the EXPECTED middle of this, not
 // an error — only the deadline or an explicit failure ends it badly.
+//
+// Success ends in a full page RELOAD rather than just hiding this. The code the
+// browser is running has been replaced underneath it: without a reload the
+// version in the header, the update banner and everything Settings had already
+// read all still describe the build that was there before.
 export function HostActionOverlay() {
   const { action, id, startedAt } = useHostAction();
   const [failure, setFailure] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
   useEffect(() => {
@@ -34,8 +41,15 @@ export function HostActionOverlay() {
         pending: status ? Boolean(status.pending && status.pending.id === id) : false,
         lastResult: status ? status.lastResult : null
       });
-      if (verdict.phase === 'done') clearHostAction();
-      else if (verdict.phase === 'failed') setFailure(verdict.detail);
+      if (verdict.phase === 'done') {
+        live = false;
+        setReloading(true);
+        rememberSettingsForReload();
+        // A beat so "done" is seen rather than flashing past on the way out.
+        window.setTimeout(() => window.location.reload(), 900);
+      } else if (verdict.phase === 'failed') {
+        setFailure(verdict.detail);
+      }
     };
 
     poll();
@@ -47,19 +61,32 @@ export function HostActionOverlay() {
 
   const title = ACTION_TITLE[action] || 'Working';
   const fallback = ACTION_FALLBACK[action] || 'npm run ui';
+  const duration = ACTION_DURATION[action];
 
   return (
     <div className={styles.overlay}>
       <div className={styles.card}>
-        {failure === null ? (
+        {reloading ? (
+          <>
+            <h2 className={`${styles.title} ${styles.titleOk}`}>Done — reloading…</h2>
+            <p className={styles.sub}>Picking up the new version.</p>
+          </>
+        ) : failure === null ? (
           <>
             <h2 className={styles.title}>{title}… Please wait!</h2>
+            {/* The first thing to read, because the honest answer to "is this
+                broken?" is nearly always "no, it is just slow". */}
+            {duration && (
+              <p className={styles.duration}>
+                This can take <b>{duration}</b>, depending on the update and your machine.
+              </p>
+            )}
             <div className={styles.dots} aria-label="working">
               <span /><span /><span /><span />
             </div>
             <p className={styles.sub}>
-              The dojo server is being replaced, so this page will lose its connection for a
-              moment and reconnect on its own.
+              Please don&rsquo;t navigate away or close this tab. The server restarts partway
+              through, so the page loses its connection for a moment and comes back on its own.
             </p>
           </>
         ) : (
@@ -78,7 +105,7 @@ export function HostActionOverlay() {
           </>
         )}
 
-        {log.length > 0 && <pre className={styles.log}>{log.join('\n')}</pre>}
+        {log.length > 0 && !reloading && <pre className={styles.log}>{log.join('\n')}</pre>}
       </div>
     </div>
   );

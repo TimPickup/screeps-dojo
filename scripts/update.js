@@ -19,11 +19,14 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
 
+// windowsHide: shell:true means cmd.exe, and when the host agent runs this
+// detached each step would otherwise flash up its own console window.
 function run(cmd, args, opts) {
-	return spawnSync(cmd, args, Object.assign({ stdio: 'inherit', shell: isWin, cwd: ROOT }, opts || {}));
+	return spawnSync(cmd, args, Object.assign(
+		{ stdio: 'inherit', shell: isWin, windowsHide: true, cwd: ROOT }, opts || {}));
 }
 function out(cmd, args) {
-	const r = spawnSync(cmd, args, { encoding: 'utf8', shell: isWin, cwd: ROOT });
+	const r = spawnSync(cmd, args, { encoding: 'utf8', shell: isWin, windowsHide: true, cwd: ROOT });
 	return ((r.stdout || '') + (r.stderr || '')).trim();
 }
 function say(msg) { console.log('[dojo-update] ' + msg); }

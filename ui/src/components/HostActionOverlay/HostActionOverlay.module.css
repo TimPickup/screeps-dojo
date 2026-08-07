@@ -12,6 +12,12 @@
 
 .title { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); }
 .titleBad { color: var(--hostile); }
+.titleOk { color: var(--accent); }
+
+/* Directly under the title and deliberately not dim: it is the answer to the
+   question the spinner provokes. */
+.duration { margin: 12px 0 0; color: var(--warn); font-size: 14px; }
+.duration b { color: var(--text); }
 
 .sub { margin: 14px 0 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
 .subBad { margin: 12px 0 0; color: var(--warn); font-size: 13px; line-height: 1.6; }

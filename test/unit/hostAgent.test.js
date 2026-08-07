@@ -136,6 +136,25 @@ describe('hostAgent', function () {
 		assert.deepStrictEqual(ran, []);
 	});
 
+	// The bug this exists for: the request is stamped in the CONTAINER and judged
+	// on the HOST. Docker Desktop's VM clock was measured ~700ms ahead here, so a
+	// perfectly fresh request arrived dated in the future and was dropped —
+	// intermittently, since it raced the write-to-read latency. Pressing the
+	// button again "fixed" it, which is exactly how it was reported.
+	it('accepts a request stamped slightly in the future — the clocks differ', async function () {
+		const agent = makeAgent();
+		request({ requestedAt: new Date(clock + 5000).toISOString() });
+		assert.strictEqual((await agent.tick()).reason, 'ok');
+		assert.deepStrictEqual(ran, ['restart']);
+	});
+
+	it('still refuses one dated absurdly far ahead', async function () {
+		const agent = makeAgent();
+		request({ requestedAt: new Date(clock + hostAgent.MAX_CLOCK_SKEW_MS + 1000).toISOString() });
+		assert.strictEqual((await agent.tick()).reason, 'stale');
+		assert.deepStrictEqual(ran, []);
+	});
+
 	it('drops a request with an unusable timestamp', async function () {
 		const agent = makeAgent();
 		request({ requestedAt: 'whenever' });

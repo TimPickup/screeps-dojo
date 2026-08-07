@@ -105,6 +105,15 @@ export function decidePhase(input: PhaseInput): Phase {
   return { phase: 'working' };
 }
 
+// Said before the wait starts and again while it runs. An update rebuilds the
+// container image, which is minutes of apparently nothing — without a number up
+// front, slow is indistinguishable from broken.
+export const ACTION_DURATION: Record<string, string> = {
+  restart: 'up to a minute',
+  recreate: 'a minute or two',
+  update: '10-15 minutes'
+};
+
 export const ACTION_FALLBACK: Record<string, string> = {
   restart: 'docker compose restart ui',
   recreate: 'npm run ui',
