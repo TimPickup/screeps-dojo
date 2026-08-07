@@ -122,7 +122,43 @@ describe('describeProgress', () => {
   // progress bar on, so without the agent's heartbeat there is nothing at all.
   it('falls back to the agent heartbeat when only that is moving', () => {
     expect(describeProgress(['  …still working (3 min so far)'], 'Working…'))
-      .toBe('Working… still working (3 min so far)');
+      .toBe('Working… — still working (3 min so far)');
+    expect(describeProgress([
+      '2026-08-07T13:25:00.000Z  running: restart the GUI container',
+      '  …still working (3 min so far)'
+    ], 'Working…')).toBe('Restart the GUI container — still working (3 min so far)');
+  });
+
+  // agent.log is append-only and shared by every action, so its tail still holds
+  // the last one's output. This showed up live: a fresh restart displayed
+  // "what changed: …/releases" left over from the previous update.
+  it('ignores output from a previous action', () => {
+    const lines = [
+      '2026-08-07T13:00:40.419Z  running: pull, rebuild and restart (npm run update)',
+      '[dojo-update] step 1 of 3: rebuilding the web UI…',
+      '[dojo-update] what changed: https://github.com/TimPickup/screeps-dojo/releases',
+      '2026-08-07T13:20:00.000Z  done: update',
+      '2026-08-07T13:25:00.000Z  running: re-create the GUI container so it picks up new bot mounts'
+    ];
+    expect(describeProgress(lines, 'Working…')).toBe(
+      'Re-create the GUI container so it picks up new bot mounts');
+  });
+
+  // restart and recreate print no phases of their own, so the agent's summary
+  // of what it is doing beats a generic "Working…".
+  it('uses the agent summary when the action prints no phases', () => {
+    const lines = ['2026-08-07T13:25:00.000Z  running: restart the GUI container'];
+    expect(describeProgress(lines, 'Working…')).toBe('Restart the GUI container');
+  });
+
+  it('reads only the phases logged since the action started', () => {
+    const lines = [
+      '2026-08-07T13:00:00.000Z  running: pull, rebuild and restart (npm run update)',
+      '[dojo-update] what changed: https://example.invalid/releases',
+      '2026-08-07T13:25:00.000Z  running: pull, rebuild and restart (npm run update)',
+      '[dojo-update] rebuilding the web UI…'
+    ];
+    expect(describeProgress(lines, 'Working…')).toBe('rebuilding the web UI…');
   });
 
   it('falls back to the caller default when the log says nothing useful', () => {
