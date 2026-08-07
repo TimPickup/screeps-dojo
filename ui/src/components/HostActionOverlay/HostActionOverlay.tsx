@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import { useHostAction, clearHostAction, decidePhase, ACTION_TITLE, ACTION_FALLBACK, ACTION_DURATION } from '../../state/hostAction';
+import {
+  useHostAction, clearHostAction, decidePhase, describeProgress,
+  ACTION_TITLE, ACTION_FALLBACK, ACTION_DURATION
+} from '../../state/hostAction';
 import { rememberSettingsForReload } from '../../state/settingsOverlay';
 import styles from './HostActionOverlay.module.css';
 
@@ -20,6 +23,8 @@ export function HostActionOverlay() {
   const [failure, setFailure] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  // Raw output is reassurance, not reading material — available, not in the way.
+  const [showLog, setShowLog] = useState(false);
 
   useEffect(() => {
     if (!action) { setFailure(null); setLog([]); return; }
@@ -84,6 +89,7 @@ export function HostActionOverlay() {
             <div className={styles.dots} aria-label="working">
               <span /><span /><span /><span />
             </div>
+            <p className={styles.phase}>{describeProgress(log, 'Working…')}</p>
             <p className={styles.sub}>
               Please don&rsquo;t navigate away or close this tab. The server restarts partway
               through, so the page loses its connection for a moment and comes back on its own.
@@ -105,7 +111,14 @@ export function HostActionOverlay() {
           </>
         )}
 
-        {log.length > 0 && !reloading && <pre className={styles.log}>{log.join('\n')}</pre>}
+        {log.length > 0 && !reloading && (
+          <div className={styles.details}>
+            <button className={styles.toggle} onClick={() => setShowLog((v) => !v)}>
+              {showLog ? 'Hide details' : 'Show details'}
+            </button>
+            {showLog && <pre className={styles.log}>{log.join(String.fromCharCode(10))}</pre>}
+          </div>
+        )}
       </div>
     </div>
   );

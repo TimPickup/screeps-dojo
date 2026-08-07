@@ -114,6 +114,26 @@ export const ACTION_DURATION: Record<string, string> = {
   update: '10-15 minutes'
 };
 
+// What to put in front of someone instead of raw build output. The scripts
+// already announce their phases ("[dojo-update] step 2 of 3: …"); this picks the
+// most recent one out of the log rather than inventing a second source of truth.
+//
+// Falls back to the agent's own heartbeat line, so a long silence still reads as
+// progress rather than as nothing happening.
+export function describeProgress(lines: string[], fallback: string): string {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const marker = line.indexOf('[dojo-update] ');
+    if (marker !== -1) {
+      const text = line.slice(marker + '[dojo-update] '.length).trim();
+      // Indented continuations are asides, not the phase itself.
+      if (text && !line.slice(marker).startsWith('[dojo-update]   ')) return text;
+    }
+    if (line.includes('…still working')) return fallback + ' ' + line.trim().replace(/^…?\s*/, '');
+  }
+  return fallback;
+}
+
 export const ACTION_FALLBACK: Record<string, string> = {
   restart: 'docker compose restart ui',
   recreate: 'npm run ui',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decidePhase, DEADLINE_MS, PICKUP_GRACE_MS, ACTION_FALLBACK, ACTION_TITLE } from '../hostAction';
+import { decidePhase, describeProgress, DEADLINE_MS, PICKUP_GRACE_MS, ACTION_FALLBACK, ACTION_TITLE } from '../hostAction';
 
 // This decides when to stop telling someone their update is still coming and
 // start telling them it died. Getting it wrong in either direction is bad: cry
@@ -93,5 +93,40 @@ describe('failure guidance', () => {
     }
     expect(ACTION_FALLBACK.update).toBe('npm run update');
     expect(ACTION_FALLBACK.recreate).toBe('npm run ui');
+  });
+});
+
+describe('describeProgress', () => {
+  // The scripts already announce their phases; this reads the latest one rather
+  // than inventing a second source of truth for what is happening.
+  it('takes the most recent phase the update script announced', () => {
+    const lines = [
+      '[dojo-update] step 1 of 3: rebuilding the web UI…',
+      '#12 7.6 npm warn deprecated jquery@2.2.4: This version is deprecated.',
+      '[dojo-update] step 2 of 3: rebuilding the container image — the slow part, usually 5-10 minutes.'
+    ];
+    expect(describeProgress(lines, 'Working…')).toBe(
+      'step 2 of 3: rebuilding the container image — the slow part, usually 5-10 minutes.');
+  });
+
+  it('ignores the indented asides under a phase', () => {
+    const lines = [
+      '[dojo-update] step 2 of 3: rebuilding the container image — the slow part.',
+      '[dojo-update]   npm goes quiet while it downloads and compiles; that is normal, not a stall.'
+    ];
+    expect(describeProgress(lines, 'Working…')).toBe(
+      'step 2 of 3: rebuilding the container image — the slow part.');
+  });
+
+  // The 293-second silence this exists for: npm has no terminal to draw a
+  // progress bar on, so without the agent's heartbeat there is nothing at all.
+  it('falls back to the agent heartbeat when only that is moving', () => {
+    expect(describeProgress(['  …still working (3 min so far)'], 'Working…'))
+      .toBe('Working… still working (3 min so far)');
+  });
+
+  it('falls back to the caller default when the log says nothing useful', () => {
+    expect(describeProgress([], 'Working…')).toBe('Working…');
+    expect(describeProgress(['#12 DONE 440.4s', 'random build noise'], 'Working…')).toBe('Working…');
   });
 });

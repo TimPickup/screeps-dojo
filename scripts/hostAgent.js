@@ -69,6 +69,11 @@ const MAX_REQUEST_AGE_MS = 2 * 60 * 1000;
 // request would go through on a retry moments later.
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MIN_ACTION_INTERVAL_MS = 10 * 1000;
+// How quiet the output has to go before we say something ourselves, and how
+// often we check. Long enough that a chatty build is never interrupted.
+const QUIET_BEFORE_HEARTBEAT_MS = 25 * 1000;
+const HEARTBEAT_TICK_MS = 10 * 1000;
+const NEWLINE = String.fromCharCode(10);
 
 // The whole allow-list. Each action is a fixed argv: no part of it is ever
 // derived from the request file, so a malformed or hostile request can only be
@@ -136,24 +141,48 @@ function readRequest() {
 //
 // Output is piped rather than inherited, and written to agent.log as it
 // arrives, so the GUI can tail a rebuild instead of watching a spinner.
+// null while output is still flowing; a line to print once it has gone quiet.
+// Pure so the thing the user actually reads is covered by a test.
+function heartbeatLine(quietMs, elapsedMs) {
+	if (quietMs < QUIET_BEFORE_HEARTBEAT_MS) return null;
+	const mins = Math.round(elapsedMs / 60000);
+	return '  …still working (' + (mins < 1 ? 'under a minute' : mins + ' min') + ' so far)' + NEWLINE;
+}
+
 function runSteps(action) {
 	return new Promise(function (resolve) {
 		const steps = ACTIONS[action].steps.slice();
 		const sink = fs.createWriteStream(hostChannel.logPath(), { flags: 'a' });
+		const startedAt = Date.now();
+		let lastOutputAt = Date.now();
+
 		function emit(chunk) {
+			lastOutputAt = Date.now();
 			sink.write(chunk);
 			if (process.stdout.isTTY) process.stdout.write(chunk);
 		}
-		function finish(outcome) { sink.end(); resolve(outcome); }
+
+		// npm prints NOTHING for minutes while it fetches and compiles — there is
+		// no terminal for it to draw a progress bar on. Measured here: 293 seconds
+		// of silence, right after its last deprecation warning, which made a
+		// healthy build look like it had died on that warning. So say something
+		// ourselves whenever the output goes quiet, and say how long it has been.
+		const heartbeat = setInterval(function () {
+			const line = heartbeatLine(Date.now() - lastOutputAt, Date.now() - startedAt);
+			if (line) emit(line);
+		}, HEARTBEAT_TICK_MS);
+
+		function finish(outcome) {
+			clearInterval(heartbeat);
+			sink.end();
+			resolve(outcome);
+		}
 		function next() {
 			const step = steps.shift();
 			if (!step) { finish({ ok: true, message: null }); return; }
 			const what = step[0] + ' ' + step[1].join(' ');
 			let child;
 			try {
-				// shell is needed on Windows to resolve docker through PATHEXT. It is
-				// safe here and only here BECAUSE every argument is a constant from
-				// ACTIONS — see rule 1. Never interpolate a request value into this.
 				// windowsHide matters here: shell:true goes through cmd.exe, and from a
 				// DETACHED agent that opens a console window over whatever the user is
 				// doing — blank, because the output is piped to us, so it reads as a
@@ -406,5 +435,7 @@ module.exports = {
 	pidAlive: pidAlive,
 	MAX_REQUEST_AGE_MS: MAX_REQUEST_AGE_MS,
 	MAX_CLOCK_SKEW_MS: MAX_CLOCK_SKEW_MS,
+	QUIET_BEFORE_HEARTBEAT_MS: QUIET_BEFORE_HEARTBEAT_MS,
+	heartbeatLine: heartbeatLine,
 	MIN_ACTION_INTERVAL_MS: MIN_ACTION_INTERVAL_MS
 };

@@ -66,14 +66,18 @@ if (out('git', ['rev-parse', 'HEAD']) === before) {
 	process.exit(0);
 }
 
-say('rebuilding the web UI…');
+say('step 1 of 3: rebuilding the web UI…');
 if (run('npm', ['run', 'build:ui']).status !== 0) fail('UI build failed.');
 
-say('rebuilding the container image (cached unless dependencies changed)…');
+// The long one, and the one that looks stuck: npm prints nothing at all while
+// it fetches ~680 packages, because there is no terminal to draw a progress bar
+// on. Say so before the silence rather than leaving it to be interpreted.
+say('step 2 of 3: rebuilding the container image — the slow part, usually 5-10 minutes.');
+say('  npm goes quiet while it downloads and compiles; that is normal, not a stall.');
 if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
 
 if (wasRunning) {
-	say('restarting the GUI so it runs the new code…');
+	say('step 3 of 3: restarting the GUI so it runs the new code…');
 	if (run('docker', ['compose', 'up', '-d', '--force-recreate', 'ui']).status !== 0) {
 		fail('could not restart the GUI container — start it with: npm run ui');
 	}

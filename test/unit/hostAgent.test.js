@@ -237,6 +237,29 @@ describe('hostAgent', function () {
 		assert.match(hostChannel.readStatus().lastResult.message, /docker exited 1/);
 	});
 
+	// npm prints nothing for minutes while it fetches and compiles — no terminal,
+	// no progress bar. Measured here: 293 seconds of silence straight after its
+	// last deprecation warning, so a healthy build looked like it had died on
+	// that warning. The agent fills the gap itself.
+	describe('heartbeat while the output is quiet', function () {
+		it('says nothing while output is still flowing', function () {
+			assert.strictEqual(hostAgent.heartbeatLine(1000, 60000), null);
+			assert.strictEqual(hostAgent.heartbeatLine(hostAgent.QUIET_BEFORE_HEARTBEAT_MS - 1, 60000), null);
+		});
+
+		it('speaks up once it has gone quiet, and says how long it has been', function () {
+			const line = hostAgent.heartbeatLine(hostAgent.QUIET_BEFORE_HEARTBEAT_MS + 1, 3 * 60000);
+			assert.match(line, /still working/);
+			assert.match(line, /3 min so far/);
+		});
+
+		it('avoids saying "0 min" in the first minute', function () {
+			const line = hostAgent.heartbeatLine(hostAgent.QUIET_BEFORE_HEARTBEAT_MS + 1, 20000);
+			assert.match(line, /under a minute/);
+			assert.strictEqual(/0 min/.test(line), false);
+		});
+	});
+
 	describe('concurrent access', function () {
 		afterEach(function () {
 			try { fs.unlinkSync(hostChannel.lockPath()); } catch (e) { /* not locked */ }

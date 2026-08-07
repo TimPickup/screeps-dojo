@@ -17,6 +17,14 @@
 /* Directly under the title and deliberately not dim: it is the answer to the
    question the spinner provokes. */
 .duration { margin: 12px 0 0; color: var(--warn); font-size: 14px; }
+
+/* What it is doing right now, in words. The raw build output sits behind a
+   toggle because nobody should have to parse BuildKit to feel reassured. */
+.phase { margin: 6px 0 0; color: var(--text); font-size: 13px; min-height: 1.2em; }
+
+.details { margin-top: 20px; }
+.toggle { background: transparent; border: 1px solid var(--line2); border-radius: var(--radius); color: var(--muted); font-size: 11px; padding: 3px 10px; }
+.toggle:hover { border-color: var(--accent); color: var(--accent); }
 .duration b { color: var(--text); }
 
 .sub { margin: 14px 0 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
