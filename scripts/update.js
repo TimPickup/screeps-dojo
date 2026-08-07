@@ -53,7 +53,11 @@ if (dirty) {
 	fail('commit or stash them first — refusing to pull onto a dirty tree.');
 }
 
+const buildFingerprint = require('./buildFingerprint');
 const before = out('git', ['rev-parse', 'HEAD']);
+// Taken BEFORE the pull, so we can tell afterwards whether the update touched
+// anything the image is made of, or only the version string.
+const imageBefore = buildFingerprint.fingerprint();
 const wasRunning = /\bui\b/.test(out('docker', ['compose', 'ps', '--services', '--filter', 'status=running']));
 
 say('pulling…');
@@ -66,18 +70,29 @@ if (out('git', ['rev-parse', 'HEAD']) === before) {
 	process.exit(0);
 }
 
-say('step 1 of 3: rebuilding the web UI…');
+say('rebuilding the web UI…');
 if (run('npm', ['run', 'build:ui']).status !== 0) fail('UI build failed.');
 
-// The long one, and the one that looks stuck: npm prints nothing at all while
-// it fetches ~680 packages, because there is no terminal to draw a progress bar
-// on. Say so before the silence rather than leaving it to be interpreted.
-say('step 2 of 3: rebuilding the container image — the slow part, usually 5-10 minutes.');
-say('  npm goes quiet while it downloads and compiles; that is normal, not a stall.');
-if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
+// Almost every update changes no dependency at all — a release bumps the
+// version in package.json, which busts the Dockerfile's npm layer and costs
+// seven minutes reinstalling 682 identical packages. Compare what the image is
+// actually made of instead, and skip the build when none of it moved.
+const imageAfter = buildFingerprint.fingerprint();
+if (imageAfter === imageBefore) {
+	say('container image is unchanged by this update — skipping the rebuild.');
+} else {
+	// The long one, and the one that looks stuck: npm prints nothing at all
+	// while it fetches ~680 packages, because there is no terminal to draw a
+	// progress bar on. Say so before the silence rather than after it.
+	say('dependencies changed — rebuilding the container image.');
+	say('  This is the slow part, usually 5-10 minutes. npm goes quiet while it');
+	say('  downloads and compiles; that is normal, not a stall.');
+	if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
+	buildFingerprint.writeStored(imageAfter);
+}
 
 if (wasRunning) {
-	say('step 3 of 3: restarting the GUI so it runs the new code…');
+	say('restarting the GUI so it runs the new code…');
 	if (run('docker', ['compose', 'up', '-d', '--force-recreate', 'ui']).status !== 0) {
 		fail('could not restart the GUI container — start it with: npm run ui');
 	}
