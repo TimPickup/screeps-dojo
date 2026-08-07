@@ -60,48 +60,29 @@ if (run('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 // build then wakes Docker Scout, whose image scan hammers the disk long after
 // the build itself has finished.
 //
-// So: compare the image's creation time against the files the Dockerfile
-// actually reads. Anything unexpected (no image, no timestamp, a docker that
-// will not answer) falls through to building, because a stale image is the far
-// worse failure.
-const BUILD_INPUTS = [
-	'Dockerfile', 'package.json', 'package-lock.json',
-	'server-mock-patches', 'tools/mockEnginePatches.cjs'
-];
-
-function newestInputMs() {
-	let newest = 0;
-	for (const rel of BUILD_INPUTS) {
-		const full = path.join(ROOT, rel);
-		let stat;
-		try { stat = fs.statSync(full); } catch (e) { continue; }
-		newest = Math.max(newest, stat.mtimeMs);
-		if (!stat.isDirectory()) continue;
-		for (const entry of fs.readdirSync(full)) {
-			try { newest = Math.max(newest, fs.statSync(path.join(full, entry)).mtimeMs); } catch (e) { /* skip */ }
-		}
-	}
-	return newest;
-}
-
-function imageCreatedMs() {
-	// Ask compose which image belongs to the service; fall back to the default
-	// <project>-<service> name for a checkout whose containers were removed.
-	let id = out('docker', ['compose', 'images', '-q', 'dojo']).trim().split('\n')[0].trim();
-	if (!id) id = path.basename(ROOT).toLowerCase() + '-dojo';
-	const created = out('docker', ['image', 'inspect', id, '--format', '{{.Created}}']).trim();
-	const parsed = Date.parse(created);
-	return parsed > 0 ? parsed : 0;
-}
+// So: compare a fingerprint of what the image is actually MADE of — the
+// Dockerfile, the dependency graph, the patch sources — against what was
+// fingerprinted when it was last built. A version bump leaves that identical.
+// Anything unexpected (no image, nothing recorded, a docker that will not
+// answer) falls through to building: a stale image is the far worse failure.
+const buildFingerprint = require('./buildFingerprint');
 
 function buildReason() {
 	if (FORCE_BUILD) return 'asked for with --build';
 	if (NO_BUILD) return null;
-	const imageMs = imageCreatedMs();
-	if (!imageMs) return 'no image yet';
-	const inputMs = newestInputMs();
-	if (inputMs > imageMs) return 'Dockerfile or dependencies changed since the image was built';
+	if (!imageExists()) return 'no image yet';
+	const stored = buildFingerprint.readStored();
+	if (!stored) return 'never recorded what the image was built from';
+	if (stored !== buildFingerprint.fingerprint()) return 'dependencies or the Dockerfile changed';
 	return null;
+}
+
+function imageExists() {
+	// Ask compose which image belongs to the service; fall back to the default
+	// <project>-<service> name for a checkout whose containers were removed.
+	let id = out('docker', ['compose', 'images', '-q', 'dojo']).trim().split(String.fromCharCode(10))[0].trim();
+	if (!id) id = path.basename(ROOT).toLowerCase() + '-dojo';
+	return Date.parse(out('docker', ['image', 'inspect', id, '--format', '{{.Created}}']).trim()) > 0;
 }
 
 const reason = buildReason();
@@ -110,6 +91,7 @@ if (reason) {
 	console.log('[dojo-ui]   This compiles the engine (isolated-vm), builds the mock server,');
 	console.log('[dojo-ui]   and downloads ffmpeg — a few minutes, and it may look quiet mid-compile.');
 	if (run('docker', ['compose', 'build', '--progress=plain']).status !== 0) fail('image build failed.');
+	buildFingerprint.writeStored(buildFingerprint.fingerprint());
 } else if (NO_BUILD) {
 	console.log('[dojo-ui] skipping the build (--no-build) — the image may be out of date.');
 } else {

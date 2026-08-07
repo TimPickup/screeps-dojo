@@ -114,6 +114,48 @@ export const ACTION_DURATION: Record<string, string> = {
   update: '10-15 minutes'
 };
 
+// What to put in front of someone instead of raw build output. The scripts
+// already announce their phases ("[dojo-update] step 2 of 3: …"); this picks the
+// most recent one out of the log rather than inventing a second source of truth.
+//
+// Falls back to the agent's own heartbeat line, so a long silence still reads as
+// progress rather than as nothing happening.
+export function describeProgress(lines: string[], fallback: string): string {
+  // agent.log is append-only and shared by every action, so the tail still
+  // holds whatever the LAST one printed. Without this the phase line happily
+  // reported "what changed: …/releases" from a previous update while a fresh
+  // restart was only just beginning. The agent stamps "running: <summary>" when
+  // it picks an action up, so that is where this action's output starts.
+  let from = 0;
+  let summary = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const started = /\s{2}running: (.+)$/.exec(lines[i]);
+    if (started) { from = i + 1; summary = started[1].trim(); break; }
+  }
+  const mine = lines.slice(from);
+
+  for (let i = mine.length - 1; i >= 0; i--) {
+    const line = mine[i];
+    const marker = line.indexOf('[dojo-update] ');
+    if (marker !== -1) {
+      const text = line.slice(marker + '[dojo-update] '.length).trim();
+      // Indented continuations are asides, not the phase itself.
+      if (text && !line.slice(marker).startsWith('[dojo-update]   ')) return text;
+    }
+    if (line.includes('…still working')) {
+      const heartbeat = line.trim().replace(/^…?\s*/, '');
+      return (summary ? capitalise(summary) : fallback) + ' — ' + heartbeat;
+    }
+  }
+  // Restart and recreate print no phases of their own, so the agent's own
+  // one-line summary of what it is doing beats a generic "Working…".
+  return summary ? capitalise(summary) : fallback;
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export const ACTION_FALLBACK: Record<string, string> = {
   restart: 'docker compose restart ui',
   recreate: 'npm run ui',
