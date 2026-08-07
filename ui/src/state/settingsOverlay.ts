@@ -7,7 +7,21 @@ import { useSyncExternalStore } from 'react';
 
 export type SettingsSection = 'bots' | 'servers' | null;
 
-let openAt: SettingsSection | 'closed' = 'closed';
+// A host action ends in a page reload, so "was Settings open?" has to outlive
+// the document — otherwise applying a mount change from Settings dumps you back
+// on the welcome screen with no idea whether it worked.
+const RESUME_KEY = 'dojo.settings.resume';
+
+function readResume(): SettingsSection | 'closed' {
+  try {
+    const raw = sessionStorage.getItem(RESUME_KEY);
+    if (raw === null) return 'closed';
+    sessionStorage.removeItem(RESUME_KEY);
+    return raw === '' ? null : (raw as SettingsSection);
+  } catch { return 'closed'; }
+}
+
+let openAt: SettingsSection | 'closed' = readResume();
 const listeners = new Set<() => void>();
 
 function emit() { listeners.forEach((l) => l()); }
@@ -22,6 +36,15 @@ export function openSettings(section: SettingsSection = null): void {
 export function closeSettings(): void {
   openAt = 'closed';
   emit();
+}
+
+// Called just before a reload: remember the panel so it comes back with fresh
+// values rather than the ones it was holding before the server changed.
+export function rememberSettingsForReload(): void {
+  try {
+    if (openAt === 'closed') sessionStorage.removeItem(RESUME_KEY);
+    else sessionStorage.setItem(RESUME_KEY, openAt ?? '');
+  } catch { /* private mode; the reload still happens */ }
 }
 
 export function useSettingsOverlay(): { open: boolean; section: SettingsSection } {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Scenario } from '../../api/types';
 import { api } from '../../api/client';
 import { useJobStream } from '../../hooks/useJobStream';
-import { HostAgentAction } from '../Settings/HostAgentAction';
+import { UpdateNotice } from '../UpdateNotice/UpdateNotice';
 import logo from '../../assets/logo.png';
 import styles from './ScenarioList.module.css';
 
@@ -18,7 +18,6 @@ interface Props {
 
 // Landing view: scenario selector on the left, welcome / Test-All on the right.
 export function ScenarioList({ scenarios, loading = false, version, onSelect, onCreated, onRefresh }: Props) {
-  const [copied, setCopied] = useState(false);
   const createScenario = async () => {
     const name = (window.prompt('New scenario name (letters, numbers, - or _):') || '').trim();
     if (!name) return;
@@ -110,32 +109,7 @@ export function ScenarioList({ scenarios, loading = false, version, onSelect, on
             <img className={styles.welcomeLogo} src={logo} alt="Screeps Dojo" />
             <h2>Welcome to the Dojo</h2>
             {version?.updateAvailable && (
-              <div className={styles.update}>
-                <div>
-                  ⬆ A new version (<b>v{version.latest}</b>) is available — you have v{version.current}.
-                </div>
-                {/* The GUI runs inside the container and cannot rebuild the image
-                    or restart itself. With a host agent running it can ASK for
-                    that; without one it hands over the command that does it. */}
-                <div className={styles.updateCmdRow}>
-                  <span className={styles.dimLabel}>Run in your terminal:</span>
-                  <code className={styles.updateCmd}>npm run update</code>
-                  <button
-                    type="button"
-                    className={styles.updateCopy}
-                    onClick={() => {
-                      navigator.clipboard?.writeText('npm run update').then(
-                        () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
-                        () => {}
-                      );
-                    }}
-                  >{copied ? 'copied' : 'copy'}</button>
-                </div>
-                <HostAgentAction action="update" label={'Update to v' + version.latest + ' now'} />
-                <div>
-                  <a href={version.repoUrl + '/releases'} target="_blank" rel="noreferrer">What changed →</a>
-                </div>
-              </div>
+              <UpdateNotice current={version.current} latest={version.latest} repoUrl={version.repoUrl} />
             )}
             <p className={styles.dim}>Pick a scenario on the left to run it live, test it, watch replays, or edit its files.</p>
             <p className={styles.dim}>The CLI still works too: <code>npm test</code>, <code>npm run render</code>.</p>

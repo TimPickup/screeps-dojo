@@ -1,0 +1,52 @@
+/* Everything centres, like the rest of the welcome screen. The old block left
+   the button hard against the left edge while its neighbours were centred. */
+.wrap { margin: 4px auto 20px; max-width: 460px; text-align: center; }
+
+/* The alert is only the alert. Nothing actionable lives inside it, so nothing
+   has to fight the red for attention. */
+.alert {
+  padding: 9px 14px; margin-bottom: 18px;
+  background: rgba(229, 83, 75, 0.12); border: 1px solid #e5534b;
+  border-radius: var(--radius); color: #ff8a80; font-size: 13px;
+}
+.alert b { color: #ffb4ac; }
+
+.heading { margin: 0; color: var(--text); font-size: 15px; font-weight: 600; letter-spacing: 0.4px; }
+.lead { margin: 4px 0 0; color: var(--text-dim); font-size: 12px; }
+
+/* HostAgentAction lays its button out in a flex row; centre it here rather than
+   in the component, which is also used inside left-aligned settings panels. */
+.action { display: flex; justify-content: center; margin: 12px 0 0; }
+.action button { font-size: 13px; padding: 6px 18px; }
+
+.note { margin: 10px auto 0; max-width: 400px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.note b { color: var(--text-dim); }
+
+.links { margin: 14px 0 0; font-size: 12px; }
+.links a { color: var(--accent); text-decoration: none; }
+.links a:hover { text-decoration: underline; }
+.extIcon { font-size: 10px; opacity: 0.8; }
+
+/* A visual demotion, not a second offer: a rule with the label sitting in it. */
+.alt { margin-top: 20px; }
+.altRule {
+  display: block; position: relative; color: var(--muted);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+}
+.altRule::before, .altRule::after {
+  content: ''; position: absolute; top: 50%; width: 28%; height: 1px; background: var(--line2);
+}
+.altRule::before { left: 0; }
+.altRule::after { right: 0; }
+
+.cmdRow { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; }
+.cmd {
+  background: var(--bg2); border: 1px solid var(--line2); border-radius: 4px;
+  padding: 3px 10px; color: var(--text); font-family: inherit; font-size: 12px; user-select: all;
+}
+.copy {
+  background: transparent; border: 1px solid var(--line2); border-radius: 4px;
+  color: var(--text-dim); font: inherit; font-size: 11px; padding: 3px 9px;
+}
+.copy:hover { border-color: var(--accent); color: var(--accent); }
+.altHint { display: block; margin-top: 7px; color: var(--muted); font-size: 10.5px; }

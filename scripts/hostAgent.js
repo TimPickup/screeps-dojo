@@ -61,6 +61,13 @@ const isWin = process.platform === 'win32';
 const POLL_MS = 1000;          // a stat per second; the GUI should feel answered at once
 const HEARTBEAT_MS = 5000;     // must stay well under hostChannel.STALE_STATUS_MS
 const MAX_REQUEST_AGE_MS = 2 * 60 * 1000;
+// The request is stamped in the CONTAINER and judged on the HOST, and those two
+// clocks are not the same one — Docker Desktop's VM drifts, and it was measured
+// here running ~700ms ahead. A request stamped in the near future is that, not a
+// forgery, so treat it as fresh. Requiring age >= 0 made acceptance a coin flip
+// between the skew and the write-to-read latency, which is why a dropped
+// request would go through on a retry moments later.
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MIN_ACTION_INTERVAL_MS = 10 * 1000;
 
 // The whole allow-list. Each action is a fixed argv: no part of it is ever
@@ -147,7 +154,13 @@ function runSteps(action) {
 				// shell is needed on Windows to resolve docker through PATHEXT. It is
 				// safe here and only here BECAUSE every argument is a constant from
 				// ACTIONS — see rule 1. Never interpolate a request value into this.
-				child = spawn(step[0], step[1], { shell: isWin, cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+				// windowsHide matters here: shell:true goes through cmd.exe, and from a
+				// DETACHED agent that opens a console window over whatever the user is
+				// doing — blank, because the output is piped to us, so it reads as a
+				// hung program rather than as progress.
+				child = spawn(step[0], step[1], {
+					shell: isWin, cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
+				});
 			} catch (e) {
 				finish({ ok: false, message: what + ' could not start: ' + String((e && e.message) || e) });
 				return;
@@ -208,8 +221,16 @@ function createAgent(options) {
 		if (handledIds.has(id)) { log('ignored: request ' + id + ' was already handled'); return { handled: false, reason: 'duplicate' }; }
 
 		const age = now() - Date.parse(request.requestedAt || '');
-		if (!(age >= 0) || age > MAX_REQUEST_AGE_MS) {
+		if (!Number.isFinite(age)) {
+			log('refused: request ' + id + ' (' + action + ') has an unreadable timestamp');
+			return { handled: false, reason: 'stale' };
+		}
+		if (age > MAX_REQUEST_AGE_MS) {
 			log('dropped: request ' + id + ' (' + action + ') is stale — the agent was not running when it was made');
+			return { handled: false, reason: 'stale' };
+		}
+		if (age < -MAX_CLOCK_SKEW_MS) {
+			log('dropped: request ' + id + ' (' + action + ') is dated too far in the future to trust');
 			return { handled: false, reason: 'stale' };
 		}
 		if (now() - lastActionAt < MIN_ACTION_INTERVAL_MS) {
@@ -384,5 +405,6 @@ module.exports = {
 	liveAgent: liveAgent,
 	pidAlive: pidAlive,
 	MAX_REQUEST_AGE_MS: MAX_REQUEST_AGE_MS,
+	MAX_CLOCK_SKEW_MS: MAX_CLOCK_SKEW_MS,
 	MIN_ACTION_INTERVAL_MS: MIN_ACTION_INTERVAL_MS
 };
