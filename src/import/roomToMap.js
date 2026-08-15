@@ -67,7 +67,9 @@ function roomToMap(input) {
 			continue;
 		}
 		if (object.type === 'creep') {
-			if (tag !== 'me') continue; // only my creeps
+			// A spawning creep is still represented by its spawn. Recreating it as
+			// an active map creep would duplicate it and skip the spawn process.
+			if (tag !== 'me' || object.spawning) continue;
 			const creep = {
 				name: object.name, x: object.x, y: object.y, owner: 'me',
 				body: (object.body || []).map(function (part) { return part.type; }),

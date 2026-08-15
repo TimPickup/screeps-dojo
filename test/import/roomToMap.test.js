@@ -53,6 +53,14 @@ describe('roomToMap', function () {
 		]);
 	});
 
+	it('drops my creep while it is still spawning', function () {
+		const result = build([{
+			type: 'creep', x: 3, y: 3, user: 'mine', name: 'notBornYet', spawning: true,
+			body: [{ type: 'move', hits: 100 }], hits: 100, hitsMax: 100
+		}]);
+		assert.deepStrictEqual(result.map.creeps, []);
+	});
+
 	it('keeps invader and sourceKeeper structures with their tags', function () {
 		const result = build([
 			{ type: 'invaderCore', x: 25, y: 25, user: 'inv', level: 1 },
