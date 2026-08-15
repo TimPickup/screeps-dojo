@@ -366,11 +366,18 @@ button does this interactively; from the CLI:
 3. Run:
 
        npm run import-room -- <scenarioName> W1N1 W2N1
+       npm run import-room -- <scenarioName> W7N4:W6N2   # inclusive rectangle
+       npm run import-room -- <scenarioName> W1N1 --memory --segments
+       npm run import-room -- <scenarioName> W1N1 --no-creeps --no-structures
+       npm run import-room -- <scenarioName> W1N1 --overwrite
 
-This writes `scenarios/<scenarioName>/map.<ROOM>.json` per room, plus
-`memory.json` and `segments.json` if your account has them. It captures terrain,
-your structures, neutral structures, sources, mineral, controller, and **your**
-creeps. Other players' objects and unknown custom objects (e.g. Season `score`)
+This writes `scenarios/<scenarioName>/map.<ROOM>.json` per room. Memory and
+segments are opt-in in the GUI, or via `--memory` and `--segments` in the CLI;
+when selected they write `memory.json` and `segments.json`. It captures terrain,
+your structures and creeps by default; either can be unchecked in the GUI or
+disabled with the CLI flags above. Spawning creeps are never exported. Neutral
+structures, sources, mineral, and controller remain part of the room. Other
+players' objects and unknown custom objects (e.g. Season `score`)
 are dropped — skipped types are reported.
 
 Token calls are rate-limited unless you activate the 2-hour unlimited window: the

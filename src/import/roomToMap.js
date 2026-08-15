@@ -30,6 +30,8 @@ function cleanStore(store) {
 function roomToMap(input) {
 	const objects = input.objects || [];
 	const classifyOwner = input.classifyOwner;
+	const includeMyCreeps = input.includeMyCreeps !== false;
+	const includeMyStructures = input.includeMyStructures !== false;
 	const map = {
 		room: input.roomName,
 		terrain: input.terrainRows,
@@ -69,7 +71,7 @@ function roomToMap(input) {
 		if (object.type === 'creep') {
 			// A spawning creep is still represented by its spawn. Recreating it as
 			// an active map creep would duplicate it and skip the spawn process.
-			if (tag !== 'me' || object.spawning) continue;
+			if (tag !== 'me' || !includeMyCreeps || object.spawning) continue;
 			const creep = {
 				name: object.name, x: object.x, y: object.y, owner: 'me',
 				body: (object.body || []).map(function (part) { return part.type; }),
@@ -83,6 +85,7 @@ function roomToMap(input) {
 		if (KNOWN_STRUCTURES.has(object.type)) {
 			// Drop other players' structures; keep mine / npc / neutral.
 			if (object.user && tag === null) continue;
+			if (tag === 'me' && !includeMyStructures) continue;
 			const entry = { type: object.type, x: object.x, y: object.y };
 			if (object.user && OWNER_TAGS[tag]) entry.owner = OWNER_TAGS[tag];
 			for (const key of Object.keys(object)) {

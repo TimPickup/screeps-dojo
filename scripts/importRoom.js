@@ -1,7 +1,8 @@
 'use strict';
 
-// Imports live rooms from a Screeps server into scenario map.json + memory files.
-// Usage: npm run import-room -- <scenarioName> <ROOM> [ROOM...]
+// Imports live rooms from a Screeps server into scenario map.json files.
+// Usage: npm run import-room -- <scenarioName> <ROOM|ROOM:ROOM> [...] [--memory] [--segments]
+//   [--no-creeps] [--no-structures] [--overwrite]
 //
 // WHICH server is read from the scenario's own settings.json ("server": "<profile>"),
 // falling back to DOJO_DEFAULT_SCREEPS_PROFILE and then the profile named
@@ -18,11 +19,26 @@
 function parseArgs(argv) {
 	const args = argv.slice(2);
 	const scenario = args[0];
-	const rooms = args.slice(1);
-	if (!scenario || rooms.length === 0) {
-		throw new Error('usage: import-room -- <scenarioName> <ROOM> [ROOM...]');
+	const includeMemory = args.includes('--memory');
+	const includeSegments = args.includes('--segments');
+	const includeMyCreeps = !args.includes('--no-creeps');
+	const includeMyStructures = !args.includes('--no-structures');
+	const overwrite = args.includes('--overwrite');
+	const optionNames = new Set(['--memory', '--segments', '--no-creeps', '--no-structures', '--overwrite']);
+	const specs = args.slice(1).filter(function (arg) { return !optionNames.has(arg); });
+	if (!scenario || specs.length === 0) {
+		throw new Error('usage: import-room -- <scenarioName> <ROOM|ROOM:ROOM> [...] [--memory] [--segments]');
 	}
-	return { scenario: scenario, rooms: rooms };
+	const { expandRoomSpecs } = require('../src/import/roomSpecs');
+	return {
+		scenario: scenario,
+		rooms: expandRoomSpecs(specs),
+		includeMemory: includeMemory,
+		includeSegments: includeSegments,
+		includeMyCreeps: includeMyCreeps,
+		includeMyStructures: includeMyStructures,
+		overwrite: overwrite
+	};
 }
 
 const fs = require('fs');
@@ -37,6 +53,10 @@ function uniqueFileName(dir, base, ext) {
 		const candidate = base + ' (' + n + ')' + ext;
 		if (!fs.existsSync(path.join(dir, candidate))) return candidate;
 	}
+}
+
+function mapFileName(dir, roomName, overwrite) {
+	return overwrite ? 'map.' + roomName + '.json' : uniqueFileName(dir, 'map.' + roomName, '.json');
 }
 const { roomToMap } = require('../src/import/roomToMap');
 const screepsProfiles = require('../src/screepsProfiles');
@@ -103,11 +123,13 @@ async function main() {
 		const classifyOwner = await buildSyncClassifier(room.objects, asyncClassify);
 		const result = roomToMap({
 			roomName: roomName, objects: room.objects,
-			terrainRows: room.terrainRows, classifyOwner: classifyOwner
+			terrainRows: room.terrainRows, classifyOwner: classifyOwner,
+			includeMyCreeps: parsed.includeMyCreeps,
+			includeMyStructures: parsed.includeMyStructures
 		});
 		// Save per-room as map.<ROOM>.json and NEVER overwrite an existing file
 		// (a previous import or a hand-authored map) — dedupe with " (1)", " (2)"…
-		const file = uniqueFileName(outDir, 'map.' + roomName, '.json');
+		const file = mapFileName(outDir, roomName, parsed.overwrite);
 		fs.writeFileSync(path.join(outDir, file), JSON.stringify(result.map, null, '\t'));
 		const skippedSummary = Object.keys(result.skipped).length
 			? ' (skipped ' + Object.keys(result.skipped).map(function (t) { return result.skipped[t] + ' ' + t; }).join(', ') + ')'
@@ -117,18 +139,23 @@ async function main() {
 			+ result.map.creeps.length + ' creeps' + skippedSummary);
 	}
 
-	// Memory + segments (one bot-wide blob, not per room).
-	const memory = await client.getMemory();
-	if (memory !== undefined && memory !== null) {
-		fs.writeFileSync(path.join(outDir, 'memory.json'),
-			typeof memory === 'string' ? memory : JSON.stringify(memory, null, '\t'));
-		console.log('wrote ' + path.join('scenarios', parsed.scenario, 'memory.json'));
+	// Bot-wide data is deliberately opt-in rather than a side effect of
+	// importing room terrain.
+	if (parsed.includeMemory) {
+		const memory = await client.getMemory();
+		if (memory !== undefined && memory !== null) {
+			fs.writeFileSync(path.join(outDir, 'memory.json'),
+				typeof memory === 'string' ? memory : JSON.stringify(memory, null, '\t'));
+			console.log('wrote ' + path.join('scenarios', parsed.scenario, 'memory.json'));
+		}
 	}
-	const segments = await client.getSegments(Array.from({ length: 100 }, function (unused, i) { return i; }));
-	if (Object.keys(segments).length) {
-		fs.writeFileSync(path.join(outDir, 'segments.json'), JSON.stringify(segments, null, '\t'));
-		console.log('wrote ' + path.join('scenarios', parsed.scenario, 'segments.json')
-			+ ' — segments ' + Object.keys(segments).join(', '));
+	if (parsed.includeSegments) {
+		const segments = await client.getSegments(Array.from({ length: 100 }, function (unused, i) { return i; }));
+		if (Object.keys(segments).length) {
+			fs.writeFileSync(path.join(outDir, 'segments.json'), JSON.stringify(segments, null, '\t'));
+			console.log('wrote ' + path.join('scenarios', parsed.scenario, 'segments.json')
+				+ ' — segments ' + Object.keys(segments).join(', '));
+		}
 	}
 
 	client.disconnect();
@@ -141,4 +168,4 @@ if (require.main === module) {
 	});
 }
 
-module.exports = { parseArgs: parseArgs };
+module.exports = { parseArgs: parseArgs, mapFileName: mapFileName };

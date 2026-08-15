@@ -66,6 +66,11 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const [status, setStatus] = useState<string>('');
   const [importing, setImporting] = useState(false);
   const [rooms, setRooms] = useState('');
+  const [importCreeps, setImportCreeps] = useState(true);
+  const [importStructures, setImportStructures] = useState(true);
+  const [importMemory, setImportMemory] = useState(false);
+  const [importSegments, setImportSegments] = useState(false);
+  const [overwriteMaps, setOverwriteMaps] = useState(false);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
   const jumpingRef = useRef(false);
@@ -177,11 +182,14 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const runImport = async () => {
     const list = rooms.trim().split(/[\s,]+/).filter(Boolean);
     if (!list.length) return;
-    const st = await api.tokenStatus().catch(() => null);
+    const st = await api.tokenStatus(scenario).catch(() => null);
     if (st && st.needsActivation) { setToken(st); return; }
     setImporting(true); setImportLog([]);
     try {
-      const { importId } = await api.importRooms(scenario, list);
+      const { importId } = await api.importRooms(scenario, list, {
+        creeps: importCreeps, structures: importStructures,
+        memory: importMemory, segments: importSegments, overwrite: overwriteMaps
+      });
       const es = new EventSource(api.importStreamUrl(importId));
       es.addEventListener('log', (e) => setImportLog((l) => l.concat(JSON.parse((e as MessageEvent).data).line)));
       es.addEventListener('done', () => { es.close(); setImporting(false); refreshFiles(); setImportLog((l) => l.concat('✓ done')); });
@@ -208,7 +216,14 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
         <button className={styles.newFile} onClick={newFile}>+ New file</button>
         <div className={styles.importBox}>
           <div className={styles.head}>⤓ Import room</div>
-          <input className={styles.input} placeholder="W1N1 W2N1" value={rooms} onChange={(e) => setRooms(e.target.value)} />
+          <input className={styles.input} placeholder="W1N1 W2N1 or W7N4:W6N2" value={rooms} onChange={(e) => setRooms(e.target.value)} />
+          <div className={styles.importOptions}>
+            <label><input type="checkbox" checked={importCreeps} onChange={(e) => setImportCreeps(e.target.checked)} /> My creeps</label>
+            <label><input type="checkbox" checked={importStructures} onChange={(e) => setImportStructures(e.target.checked)} /> My structures</label>
+            <label><input type="checkbox" checked={importMemory} onChange={(e) => setImportMemory(e.target.checked)} /> Memory</label>
+            <label><input type="checkbox" checked={importSegments} onChange={(e) => setImportSegments(e.target.checked)} /> Memory segments</label>
+            <label><input type="checkbox" checked={overwriteMaps} onChange={(e) => setOverwriteMaps(e.target.checked)} /> Overwrite existing maps</label>
+          </div>
           <button className={styles.importBtn} disabled={importing} onClick={runImport}>{importing ? 'importing…' : 'Import from live server'}</button>
           {importLog.length > 0 && <div className={styles.importLog}>{importLog.slice(-6).map((l, i) => <div key={i}>{l}</div>)}</div>}
         </div>
@@ -286,8 +301,8 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
             <p>Your auth token's 2-hour unlimited window is inactive. Open this while logged in to Screeps, then retry:</p>
             {token.maskedUrl && <code className={styles.url}>{token.maskedUrl}</code>}
             <div className={styles.popupBtns}>
-              <button onClick={() => window.open(api.activateUrl, '_blank')}>Open in browser</button>
-              <button onClick={async () => { const st = await api.tokenStatus().catch(() => null); if (st && !st.needsActivation) { setToken(null); runImport(); } else setToken(st); }}>Retry</button>
+              <button onClick={() => window.open(api.activateUrlFor(scenario), '_blank')}>Open in browser</button>
+              <button onClick={async () => { const st = await api.tokenStatus(scenario).catch(() => null); if (st && !st.needsActivation) { setToken(null); runImport(); } else setToken(st); }}>Retry</button>
               <button onClick={() => setToken(null)}>Cancel</button>
             </div>
           </div>

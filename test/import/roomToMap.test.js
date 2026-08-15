@@ -13,8 +13,11 @@ function classifyOwner(userId) {
 	return null;
 }
 
-function build(objects) {
-	return roomToMap({ roomName: 'W1N1', objects: objects, terrainRows: terrainRows, classifyOwner: classifyOwner });
+function build(objects, options) {
+	return roomToMap(Object.assign(
+		{ roomName: 'W1N1', objects: objects, terrainRows: terrainRows, classifyOwner: classifyOwner },
+		options || {}
+	));
 }
 
 describe('roomToMap', function () {
@@ -59,6 +62,17 @@ describe('roomToMap', function () {
 			body: [{ type: 'move', hits: 100 }], hits: 100, hitsMax: 100
 		}]);
 		assert.deepStrictEqual(result.map.creeps, []);
+	});
+
+	it('can omit my creeps and structures without dropping neutral or NPC structures', function () {
+		const result = build([
+			{ type: 'creep', x: 3, y: 3, user: 'mine', name: 'worker', body: [{ type: 'move' }] },
+			{ type: 'tower', x: 4, y: 4, user: 'mine' },
+			{ type: 'container', x: 5, y: 5 },
+			{ type: 'keeperLair', x: 6, y: 6, user: 'sk' }
+		], { includeMyCreeps: false, includeMyStructures: false });
+		assert.deepStrictEqual(result.map.creeps, []);
+		assert.deepStrictEqual(result.map.structures.map(function (s) { return s.type; }), ['container', 'keeperLair']);
 	});
 
 	it('keeps invader and sourceKeeper structures with their tags', function () {

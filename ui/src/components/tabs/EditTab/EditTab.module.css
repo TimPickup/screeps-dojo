@@ -12,6 +12,8 @@
 .newFile:hover { border-color: var(--accent); color: var(--accent); }
 .importBox { margin-top: 14px; border-top: 1px solid var(--line2); padding-top: 10px; }
 .input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 4px 6px; margin-bottom: 6px; }
+.importOptions { display: flex; flex-direction: column; gap: 3px; margin: 0 0 7px; color: var(--muted); font-size: 11px; }
+.importOptions label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .importBtn { width: 100%; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 5px; }
 .importBtn:disabled { opacity: 0.5; }
 .importLog { margin-top: 6px; font-size: 11px; color: var(--muted); max-height: 120px; overflow: auto; }

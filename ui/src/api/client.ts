@@ -66,13 +66,22 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     return res.json();
   },
-  importRooms: (scenario: string, rooms: string[]) =>
-    jpost<{ importId: string }>('/api/scenarios/' + encodeURIComponent(scenario) + '/import', { rooms }),
+  importRooms: (scenario: string, rooms: string[], options?: {
+    memory?: boolean; segments?: boolean; creeps?: boolean; structures?: boolean; overwrite?: boolean;
+  }) =>
+    jpost<{ importId: string }>('/api/scenarios/' + encodeURIComponent(scenario) + '/import', {
+      rooms,
+      memory: options?.memory === true,
+      segments: options?.segments === true,
+      creeps: options?.creeps !== false,
+      structures: options?.structures !== false,
+      overwrite: options?.overwrite === true
+    }),
   importStreamUrl: (id: string) => '/api/import/' + id + '/stream',
   // Pass the scenario so the token check targets the server profile that
   // scenario will actually import from.
   tokenStatus: (scenario?: string) =>
-    jget<{ active: boolean; needsActivation: boolean; maskedUrl?: string; error?: string }>(
+    jget<{ active: boolean; needsActivation: boolean; authMode?: 'token' | 'password'; maskedUrl?: string; error?: string }>(
       '/api/import/token-status' + (scenario ? '?scenario=' + encodeURIComponent(scenario) : '')),
   activateUrl: '/api/import/activate',
   activateUrlFor: (scenario?: string) =>
@@ -104,7 +113,7 @@ export const api = {
     jget<{ ok: boolean; jsModuleCount?: number; mount?: string; error?: string }>(
       '/api/verify/bot' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
   verifyServer: (profile?: string) =>
-		jget<{ ok: boolean; authMode?: 'token' | 'password'; active?: boolean; error?: string }>(
+    jget<{ ok: boolean; authMode?: 'token' | 'password'; active?: boolean; error?: string }>(
       '/api/verify/server' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
   bootstrapStatus: () => jget<{ phase: string }>('/api/bootstrap/status'),
   bootstrapStreamUrl: () => '/api/bootstrap/stream'

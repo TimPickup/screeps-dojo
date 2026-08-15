@@ -7,6 +7,7 @@ const { loadEnvConfig } = require('../../envConfig');
 const { openSse } = require('../sse');
 const screepsProfiles = require('../../screepsProfiles');
 const scenarioSettings = require('../../scenarioSettings');
+const { expandRoomSpecs } = require('../../import/roomSpecs');
 
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 const imports = new Map(); // id -> { history, done, error, subscribers }
@@ -69,16 +70,27 @@ module.exports = function registerImportRoutes(router, ctx) {
 		const name = req.params.name;
 		let dir;
 		try { dir = pathSafe(ctx.scenariosRoot, name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
-		const rooms = (req.body && req.body.rooms) || [];
-		if (!Array.isArray(rooms) || rooms.length === 0) { ctx.sendJson(res, 400, { error: 'rooms[] required' }); return; }
-		for (const r of rooms) { if (!/^[WE]\d+[NS]\d+$/.test(r)) { ctx.sendJson(res, 400, { error: 'bad room name: ' + r }); return; } }
+		let rooms;
+		try { rooms = expandRoomSpecs((req.body && req.body.rooms) || []); }
+		catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
+		const includeMemory = Boolean(req.body && req.body.memory === true);
+		const includeSegments = Boolean(req.body && req.body.segments === true);
+		const includeMyCreeps = !req.body || req.body.creeps !== false;
+		const includeMyStructures = !req.body || req.body.structures !== false;
+		const overwrite = Boolean(req.body && req.body.overwrite === true);
 
 		counter += 1;
 		const id = 'import-' + Date.now() + '-' + counter;
 		const job = { history: [], done: false, error: null, subscribers: new Set() };
 		imports.set(id, job);
 
-		const child = spawn('node', ['scripts/importRoom.js', name].concat(rooms), { cwd: REPO_ROOT });
+		const childArgs = ['scripts/importRoom.js', name].concat(rooms);
+		if (includeMemory) childArgs.push('--memory');
+		if (includeSegments) childArgs.push('--segments');
+		if (!includeMyCreeps) childArgs.push('--no-creeps');
+		if (!includeMyStructures) childArgs.push('--no-structures');
+		if (overwrite) childArgs.push('--overwrite');
+		const child = spawn('node', childArgs, { cwd: REPO_ROOT });
 		let buf = '';
 		function onData(chunk) {
 			buf += chunk.toString();
