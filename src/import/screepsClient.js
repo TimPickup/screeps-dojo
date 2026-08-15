@@ -83,8 +83,9 @@ function createClient(config) {
 		// never to stdout); maskedUrl is the safe-to-print version.
 		async checkToken() {
 			// No token (username/password auth): the no-rate-limit window is a
-			// live-server concept, so there's nothing to check.
-			if (!token) return { active: false, secondsLeft: 0, activateUrl: '', maskedUrl: '(password auth; rate-limit check skipped)' };
+			// live-server concept, so there is nothing to activate. Treat the
+			// preflight as satisfied; connect()/me() verifies the credentials.
+			if (!token) return { active: true, authMode: 'password', secondsLeft: 0, activateUrl: '', maskedUrl: '' };
 			const base = 'https://' + hostname + '/a/#!/account/auth-tokens/noratelimit?token=';
 			const activateUrl = base + token;
 			const maskedUrl = base + maskToken(token);
@@ -99,7 +100,7 @@ function createClient(config) {
 			const until = Number(info && info.token && info.token.noRatelimitUntil) || 0;
 			const secondsLeft = Math.round((until - Date.now()) / 1000);
 			const active = secondsLeft > 0;
-			return { active: active, secondsLeft: active ? secondsLeft : 0, activateUrl: activateUrl, maskedUrl: maskedUrl };
+			return { active: active, authMode: 'token', secondsLeft: active ? secondsLeft : 0, activateUrl: activateUrl, maskedUrl: maskedUrl };
 		},
 
 		async me() {

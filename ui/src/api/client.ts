@@ -104,7 +104,7 @@ export const api = {
     jget<{ ok: boolean; jsModuleCount?: number; mount?: string; error?: string }>(
       '/api/verify/bot' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
   verifyServer: (profile?: string) =>
-    jget<{ ok: boolean; active?: boolean; error?: string }>(
+		jget<{ ok: boolean; authMode?: 'token' | 'password'; active?: boolean; error?: string }>(
       '/api/verify/server' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
   bootstrapStatus: () => jget<{ phase: string }>('/api/bootstrap/status'),
   bootstrapStreamUrl: () => '/api/bootstrap/stream'

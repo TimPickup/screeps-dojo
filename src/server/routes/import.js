@@ -38,7 +38,13 @@ module.exports = function registerImportRoutes(router, ctx) {
 			const { createClient } = require('../../import/screepsClient');
 			const client = createClient(configFor(req));
 			const status = await client.checkToken();
-			ctx.sendJson(res, 200, { active: status.active, needsActivation: !status.active, secondsLeft: status.secondsLeft, maskedUrl: status.maskedUrl });
+			ctx.sendJson(res, 200, {
+				active: status.active,
+				needsActivation: !status.active && Boolean(status.activateUrl),
+				authMode: status.authMode,
+				secondsLeft: status.secondsLeft,
+				maskedUrl: status.maskedUrl
+			});
 		} catch (e) {
 			ctx.sendJson(res, 200, { active: false, needsActivation: true, error: String((e && e.message) || e) });
 		}

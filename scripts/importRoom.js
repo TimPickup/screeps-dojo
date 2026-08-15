@@ -75,7 +75,9 @@ async function main() {
 	const client = createClient(config);
 
 	const window = await client.checkToken();
-	if (window.active) {
+	if (window.authMode === 'password') {
+		console.log('auth: username/password (token activation not required)');
+	} else if (window.active) {
 		console.log('token: no-rate-limit window active, ~' + Math.round(window.secondsLeft / 60) + ' min left');
 	} else {
 		// The activation URL embeds the raw API token, so never print it: it would

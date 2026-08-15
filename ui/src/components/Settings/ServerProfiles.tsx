@@ -95,7 +95,9 @@ export function ServerProfiles({ values, onPatch, refreshKey, dirty, onExternalC
     const r = await api.verifyServer(name);
     setVerified((v) => ({
       ...v,
-      [name]: r.ok ? (r.active ? '✓ token valid, window active' : '✓ token valid (rate-limited)') : '✗ ' + (r.error || 'invalid')
+      [name]: r.ok
+        ? (r.authMode === 'password' ? '✓ login valid (password)' : (r.active ? '✓ token valid, window active' : '✓ token valid (rate-limited)'))
+        : '✗ ' + (r.error || 'invalid')
     }));
   };
 

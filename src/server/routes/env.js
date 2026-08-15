@@ -235,14 +235,17 @@ module.exports = function registerEnvRoutes(router, ctx) {
 	router.get('/api/verify/server', async function (req, res) {
 		if (!ctx.isReady()) { ctx.sendJson(res, 503, { error: 'starting up' }); return; }
 		const wanted = (req.query.get('profile') || '').trim().toLowerCase();
+		let client;
 		try {
 			const { createClient } = require('../../import/screepsClient');
 			const config = screepsProfiles.resolve(wanted || undefined, loadEnvConfig());
-			const client = createClient(config);
+			client = createClient(config);
 			const status = await client.checkToken();
-			ctx.sendJson(res, 200, { ok: !status.error, active: status.active, secondsLeft: status.secondsLeft, error: status.error });
+			await client.connect();
+			await client.me();
+			ctx.sendJson(res, 200, { ok: true, authMode: status.authMode, active: status.active, secondsLeft: status.secondsLeft });
 		} catch (e) {
 			ctx.sendJson(res, 200, { ok: false, error: String((e && e.message) || e) });
-		}
+		} finally { if (client) client.disconnect(); }
 	});
 };
