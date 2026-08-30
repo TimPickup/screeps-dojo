@@ -2,11 +2,27 @@ import type {
   Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
   BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus
 } from './types';
+import { JSONParser } from '@streamparser/json';
 
 async function jget<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
-  return res.json();
+  
+  const parser = new JSONParser();
+  let result;
+  parser.onValue = ({ value, key, parent, stack }) => {
+    if (stack.length === 0)
+      result = value;
+  };
+
+  const reader = res.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parser.write(value);
+  }
+
+  return result;
 }
 
 async function jpost<T>(path: string, body: unknown): Promise<T> {
