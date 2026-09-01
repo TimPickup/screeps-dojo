@@ -6,6 +6,7 @@ import { usePrefs } from '../../../state/prefs';
 import { CanvasStage } from '../../CanvasStage/CanvasStage';
 import { ObjectInspector } from '../../ObjectInspector/ObjectInspector';
 import { ConsoleDrawer } from '../../ConsoleDrawer/ConsoleDrawer';
+import { arrayConsoleIndex } from '../../../api/consoleIndex';
 import { ScenarioPreview } from '../../ScenarioPreview/ScenarioPreview';
 import styles from './RunTab.module.css';
 
@@ -43,6 +44,7 @@ export function RunTab({ scenario }: { scenario: string }) {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [scenario, jobId]);
+  const consoleIndex = useMemo(() => arrayConsoleIndex(stream.console), [stream.console]);
   const selectedObj = stream.lastFrame && selectedId ? (stream.lastFrame.objects.find((o) => o._id === selectedId) || null) : null;
 
   const play = async () => {
@@ -92,7 +94,7 @@ export function RunTab({ scenario }: { scenario: string }) {
       {stream.ended && stream.recordingPath && (
         <div className={styles.recnote}>recording saved — see the <b>Replays</b> tab</div>
       )}
-      <ConsoleDrawer lines={stream.console} rightPanel={<ObjectInspector obj={selectedObj} gameTime={stream.lastFrame?.gameTime} botUserId={stream.botUserId ?? undefined} />} rightTitle="Inspector" />
+      <ConsoleDrawer source={consoleIndex} available={stream.console.length} sourceKey={jobId ?? ''} rightPanel={<ObjectInspector obj={selectedObj} gameTime={stream.lastFrame?.gameTime} botUserId={stream.botUserId ?? undefined} />} rightTitle="Inspector" />
     </div>
   );
 }

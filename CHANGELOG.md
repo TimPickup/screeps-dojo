@@ -5,6 +5,35 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+### Fixed
+
+- **Long, chatty replays no longer grind the browser to a halt.** The replay
+  viewer rebuilt the entire console — every line from tick 0 to the playhead —
+  on every single tick, so a recording with tens of thousands of log lines
+  allocated and discarded megabytes of strings per frame of playback and per
+  pixel of a scrub drag. The console is now indexed once when the recording
+  loads (two `Int32Array`s, ~8 bytes a line); moving the playhead forward or
+  back is an O(1) lookup of how many lines exist at that tick, and nothing is
+  rebuilt in either direction.
+
+- **The console drawer mounts only the tail of a long log.** Previously one
+  `<div>` per line, unbounded. It now shows the last 2,000 lines up to the
+  current tick, with a header saying how many earlier lines are hidden, and
+  mounts them in fixed 200-line blocks aligned to absolute line indices so a
+  moving playhead re-renders only the two blocks at the edges. Applies to the
+  live Run tab's console too.
+
+- **Panning the replay canvas no longer freezes on the first press.** Starting a
+  drag set `user-select: none` on `<body>`, which invalidates styles for the
+  whole document — with a console drawer full of lines, recalculating them took
+  long enough to eat the first second of the pan. The drag now calls
+  `preventDefault()` instead and touches no document-wide styles.
+
+- **The console follows new output only when you are already at the bottom.**
+  Scrolling back through history during playback is no longer yanked away.
+
 ## [0.9.0] — 2026-08-07
 
 Updates used to take about seven minutes and look broken for five of them.

@@ -5,6 +5,7 @@ import { usePrefs, REPLAY_SPEEDS } from '../../state/prefs';
 import { CanvasStage } from '../CanvasStage/CanvasStage';
 import { computeStageLayout } from '../../render/geometry';
 import { ConsoleDrawer } from '../ConsoleDrawer/ConsoleDrawer';
+import { buildConsoleIndex } from '../../api/consoleIndex';
 import { ObjectInspector } from '../ObjectInspector/ObjectInspector';
 import styles from './ReplayViewer.module.css';
 
@@ -62,14 +63,10 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
     () => (selectedId && frame ? frame.objects.find((o) => o._id === selectedId) || null : null),
     [selectedId, frame]
   );
-  const consoleLines = useMemo(() => {
-    const out: string[] = [];
-    for (let i = 0; i <= Math.min(tick, count - 1); i++) {
-      const c = frames[i] && frames[i].console;
-      if (c && c.length) for (const l of c) out.push('[' + (frames[i].gameTime ?? i) + '] ' + l);
-    }
-    return out;
-  }, [tick, frames, count]);
+  // Indexed once per recording, not rebuilt per tick: playback and scrubbing
+  // only need to know how many lines exist at the current tick, and the drawer
+  // formats the handful it actually shows.
+  const consoleIndex = useMemo(() => buildConsoleIndex(frames), [frames]);
 
   const doRender = async (format: 'gif' | 'mp4') => {
     setRender({ status: 'Rendering ' + format.toUpperCase() + '… this can take a while for long/multi-room runs.' });
@@ -175,7 +172,8 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         </select>
       </div>
 
-      <ConsoleDrawer lines={consoleLines} rightPanel={<ObjectInspector obj={selectedObj} gameTime={frame?.gameTime} botUserId={recording.meta.botUserId} />} rightTitle="Inspector" />
+      <ConsoleDrawer source={consoleIndex} available={consoleIndex.countUpTo(clampTick)} sourceKey={relPath}
+        rightPanel={<ObjectInspector obj={selectedObj} gameTime={frame?.gameTime} botUserId={recording.meta.botUserId} />} rightTitle="Inspector" />
     </div>
   );
 }
