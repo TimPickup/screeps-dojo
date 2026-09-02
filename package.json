@@ -1,6 +1,6 @@
 {
 	"name": "screeps-dojo",
-	"version": "0.9.0",
+	"version": "0.10.0",
 	"description": "Scenario test harness for Screeps bots: real engine, tick by tick, headless",
 	"private": true,
 	"license": "MIT",

@@ -7,7 +7,29 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-02
+
+Two things this release is for: importing a real room and getting back what is
+actually there, and opening a long recording without the browser stalling.
+
+### Added
+
+- **The room importer takes options.** A room argument can now be a range —
+  `W7N4:W6N2` expands to the inclusive rectangle between the two corners, up to
+  100 rooms — so seeding a block no longer means listing every room by hand.
+  Structures and creeps can each be turned off (`--no-structures`,
+  `--no-creeps`), and `memory.json` and `segments.json` are now opt-in
+  (`--memory`, `--segments`) rather than written whenever the account has them.
+  `--overwrite` replaces an existing import instead of refusing. Every one of
+  these is a checkbox in the GUI's Edit tab as well as a CLI flag.
+
 ### Fixed
+
+- **Large recordings open again.** The UI read every API response with
+  `res.json()`, which materialises the whole body as one JavaScript string; a
+  recording past V8's maximum string length threw before it could be parsed, so
+  the replay simply would not load. Responses are now parsed as they stream in
+  and the full document is never held as a string. Thanks to @Robalian (#17).
 
 - **Long, chatty replays no longer grind the browser to a halt.** The replay
   viewer rebuilt the entire console — every line from tick 0 to the playhead —
@@ -33,6 +55,24 @@ behaviour changes, patch = fixes).
 
 - **The console follows new output only when you are already at the bottom.**
   Scrolling back through history during playback is no longer yanked away.
+
+- **Imported terrain no longer turns walls into floor.** The live server encodes
+  terrain as a bitmask, so a tile that is both wall and swamp arrives as `3` — a
+  value the decoder did not know and quietly wrote out as plain. Rooms imported
+  with such tiles had walkable floor where the real room has wall. `3` now
+  decodes as wall (impassable either way), and an unrecognised mask raises an
+  error naming the value and the coordinate rather than guessing.
+
+- **A creep that was still spawning no longer arrives twice.** It was exported
+  as an active creep while also being represented by its spawn, so the scenario
+  started with a duplicate that had skipped the spawn process entirely.
+  Spawning creeps are now left to their spawn.
+
+- **Imports from username/password servers work.** Both the CLI and the GUI's
+  server check ran a no-rate-limit token preflight, which is a live-server
+  concept with no meaning for password auth — the profile came back looking
+  inactive or broken. Password profiles are now verified by connecting and
+  calling `me()`, and the check reports which auth mode it used.
 
 ## [0.9.0] — 2026-08-07
 
