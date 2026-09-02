@@ -14,6 +14,9 @@
    wash so they read as warnings at a glance rather than as more bot chatter. */
 .warning { white-space: pre-wrap; word-break: break-word; color: #f0b429; background: rgba(240, 180, 41, 0.08); border-left: 2px solid #f0b429; padding-left: 6px; margin-left: -6px; }
 .empty { color: var(--muted); }
+/* Only the tail of a long log is mounted (see ConsoleDrawer.tsx); say so rather
+   than letting the first visible line look like the start of the run. */
+.elided { color: var(--muted); font-style: italic; padding-bottom: 4px; }
 .right { width: 220px; flex: none; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
 .rightTitle { padding: 5px 8px; color: var(--accent); border-bottom: 1px solid var(--line2); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
 .rightBody { flex: 1; overflow: auto; padding: 8px; font-size: 12px; }

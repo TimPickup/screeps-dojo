@@ -181,12 +181,19 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   }, []);
   useEffect(() => {
     const onMove = (e: MouseEvent) => { const d = drag.current; if (!d) return; view.current.tx = d.tx + (e.clientX - d.x); view.current.ty = d.ty + (e.clientY - d.y); };
-    const onUp = () => { drag.current = null; document.body.style.userSelect = ''; };
+    const onUp = () => { drag.current = null; };
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, []);
 
-  const onMouseDown = (e: React.MouseEvent) => { drag.current = { x: e.clientX, y: e.clientY, tx: view.current.tx, ty: view.current.ty }; document.body.style.userSelect = 'none'; };
+  // preventDefault suppresses the browser's text-selection drag. Toggling
+  // `user-select` on <body> did the same job but invalidated styles for the
+  // entire document, which stalled the first frame of every pan by however
+  // long it took to recalculate the console drawer's line elements.
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    drag.current = { x: e.clientX, y: e.clientY, tx: view.current.tx, ty: view.current.ty };
+  };
   const moved = useRef(false);
   const onClick = (e: React.MouseEvent) => {
     const t = toTile(e.clientX, e.clientY);
