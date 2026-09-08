@@ -75,6 +75,22 @@ behaviour changes, patch = fixes).
 
 ### Fixed
 
+- **A long install looked like a hung one.** The setup screen streams npm's
+  output, and npm prints nothing at all for minutes while it compiles the
+  native modules — leaving one of its own deprecation warnings as the last
+  line on screen, which reads as the thing it died on. The in-container
+  installer now streams the compiles (`--foreground-scripts`, as the Dockerfile
+  does), drops the deprecation noise (`--loglevel=error`, none of it
+  actionable), and prints `…still working (3 min so far)` whenever the output
+  goes quiet — the same heartbeat the host agent already used for a rebuild,
+  now shared rather than copied.
+
+  The screen's working indicator was also the weaker of the two in the app —
+  three static bullets fading as one block, placed *below* a 280px log, so on a
+  short viewport it sat off the bottom of the screen. The host overlay's
+  travelling-wave dots are now a shared component, used by both, and on the
+  setup screen they sit above the log where they can be seen.
+
 - **An update that added a dependency left the container behind.**
   `/dojo/node_modules` is an anonymous volume, and Compose reuses an existing
   one when it recreates a container — only `--renew-anon-volumes` discards it.

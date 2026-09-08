@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { bootstrapCopy } from './bootstrapCopy';
+import { WorkingDots } from '../WorkingDots/WorkingDots';
 import styles from './Bootstrap.module.css';
 
 // First-run welcome: streams the in-container install log. Survives a closed
@@ -38,8 +39,12 @@ export function Bootstrap({ onReady }: { onReady: () => void }) {
     <div className={styles.wrap}>
       <h1 className={styles.title}>{copy.title}</h1>
       <p className={styles.sub}>{copy.sub}</p>
+      {/* Above the log, not below it. A repair install is minutes of nearly
+          silent output, and a 280px log pushed the old indicator off the
+          bottom of a short viewport — the one screen where proof of life
+          matters most was the one not showing any. */}
+      {!failed && <WorkingDots />}
       <pre className={styles.log} ref={bodyRef}>{log || 'starting…'}</pre>
-      {!failed && <div className={styles.spinner}>● ● ●</div>}
     </div>
   );
 }

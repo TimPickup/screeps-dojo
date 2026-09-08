@@ -125,6 +125,18 @@ describe('detecting a stale node_modules', function () {
 		assert.strictEqual(installCommand(root)[0], 'install');
 	});
 
+	it('streams the native builds and drops the deprecation noise', function () {
+		// The compiles are the slow part and, without --foreground-scripts, the
+		// silent part: the screen sits dead for minutes. --loglevel=error stops the
+		// last visible line being a deprecation warning, which then reads as the
+		// cause of a hang that is not a hang.
+		const root = make({ alpha: '1.0.0' }, ['alpha']);
+		fs.writeFileSync(path.join(root, 'package-lock.json'), '{}');
+		const args = installCommand(root);
+		assert.ok(args.includes('--foreground-scripts'));
+		assert.ok(args.includes('--loglevel=error'));
+	});
+
 	it('knows whether anything is installed at all', function () {
 		assert.strictEqual(hasModules(make({}, ['alpha'])), true);
 		assert.strictEqual(hasModules(make({}, [])), false);
