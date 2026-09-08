@@ -5,7 +5,7 @@ const { openSse } = require('../sse');
 
 module.exports = function registerBootstrapRoutes(router, ctx) {
 	router.get('/api/bootstrap/status', function (req, res) {
-		ctx.sendJson(res, 200, { phase: bootstrap.getPhase() });
+		ctx.sendJson(res, 200, { phase: bootstrap.getPhase(), reason: bootstrap.getReason() });
 	});
 
 	// Streams the install log: replays history, then live lines, then ready/failed.

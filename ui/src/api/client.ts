@@ -157,6 +157,8 @@ export const api = {
   verifyServer: (profile?: string) =>
     jget<{ ok: boolean; authMode?: 'token' | 'password'; active?: boolean; error?: string }>(
       '/api/verify/server' + (profile ? '?profile=' + encodeURIComponent(profile) : '')),
-  bootstrapStatus: () => jget<{ phase: string }>('/api/bootstrap/status'),
+  // reason: 'install' on a genuine first run, 'repair' when the container is
+  // holding an older node_modules than the code it is running.
+  bootstrapStatus: () => jget<{ phase: string; reason: 'install' | 'repair' | null }>('/api/bootstrap/status'),
   bootstrapStreamUrl: () => '/api/bootstrap/stream'
 };

@@ -66,6 +66,7 @@ if (run('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 // Anything unexpected (no image, nothing recorded, a docker that will not
 // answer) falls through to building: a stale image is the far worse failure.
 const buildFingerprint = require('./buildFingerprint');
+const composeUp = require('./composeUp');
 
 function buildReason() {
 	if (FORCE_BUILD) return 'asked for with --build';
@@ -85,6 +86,9 @@ function imageExists() {
 	return Date.parse(out('docker', ['image', 'inspect', id, '--format', '{{.Created}}']).trim()) > 0;
 }
 
+// Set when this launch built the image, so the container is brought up in a way
+// that re-seeds its node_modules volume from it. See scripts/composeUp.js.
+let rebuilt = false;
 const reason = buildReason();
 if (reason) {
 	console.log('[dojo-ui] building the container image (' + reason + ')…');
@@ -92,6 +96,7 @@ if (reason) {
 	console.log('[dojo-ui]   and downloads ffmpeg — a few minutes, and it may look quiet mid-compile.');
 	if (run('docker', ['compose', 'build', '--progress=plain']).status !== 0) fail('image build failed.');
 	buildFingerprint.writeStored(buildFingerprint.fingerprint());
+	rebuilt = true;
 } else if (NO_BUILD) {
 	console.log('[dojo-ui] skipping the build (--no-build) — the image may be out of date.');
 } else {
@@ -110,7 +115,7 @@ if (!fs.existsSync(path.join(ROOT, 'ui', 'dist', 'index.html'))) {
 require('./composeOverride').write({ log: console.log });
 
 console.log('[dojo-ui] starting the GUI container…');
-if (run('docker', ['compose', 'up', '-d', 'ui']).status !== 0) fail('docker compose up failed.');
+if (run('docker', composeUp.upArgs({ rebuilt: rebuilt })).status !== 0) fail('docker compose up failed.');
 
 // 5. poll health, then open the browser. We open as soon as the server is
 // REACHABLE (even while it's still installing the toolchain) so its welcome
@@ -166,7 +171,7 @@ const timer = setInterval(function () {
 	if (!opened && !recreated && tries === 10) {
 		recreated = true;
 		console.log('[dojo-ui] not reachable yet — recreating the container in case its port is stuck…');
-		run('docker', ['compose', 'up', '-d', '--force-recreate', 'ui']);
+		run('docker', composeUp.upArgs({ forceRecreate: true }));
 	}
 	if (!opened && tries > 60) {
 		clearInterval(timer);

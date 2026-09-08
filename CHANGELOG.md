@@ -75,6 +75,34 @@ behaviour changes, patch = fixes).
 
 ### Fixed
 
+- **An update that added a dependency left the container behind.**
+  `/dojo/node_modules` is an anonymous volume, and Compose reuses an existing
+  one when it recreates a container — only `--renew-anon-volumes` discards it.
+  So a release that changed a dependency rebuilt the image correctly and then
+  started a container still holding the previous packages, indefinitely. The
+  symptom is a long way from the cause: the GUI reads its source over the bind
+  mount, so the new code is visibly there while the module it needs is not —
+  Season 5 appeared in the settings form and then failed to load in the engine.
+  `npm run ui` and `npm run update` now renew the volume when, and only when,
+  they rebuilt the image.
+
+  That alone would only help from the *next* release, since the update carrying
+  the fix is still performed by the old launcher. So the server now also checks
+  that every dependency `package.json` declares actually resolves, and treats a
+  populated-but-stale `node_modules` the same way it treats a missing one: the
+  setup screen appears, reinstalls, and the GUI carries on by itself. That screen
+  says which of the two it is doing — being told "first run" with a project
+  already on disk reads as though it had been lost.
+
+  A repair reinstalls with `npm ci` rather than `npm install`. The volume can
+  also be stale in a way that leaves nothing missing at all: every package
+  present, but the **engine patches** belonging to another revision, which is
+  what a checkout across releases leaves behind. `npm install` cannot fix that —
+  it has no reason to replace a package that is already there, so the old
+  patched files survive and `postinstall` refuses them as an unexpected hash.
+  Deleting `node_modules` and reinstalling from the lockfile is the only route
+  back to files the current patch set can apply to.
+
 - **Every API response was parsed by hand, in JavaScript.** Reading a
   recording past V8's maximum string length needed a streaming parser, and
   that parser was made the default for all 19 GET endpoints — including
