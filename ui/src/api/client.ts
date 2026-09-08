@@ -5,25 +5,49 @@ import type {
 } from './types';
 import { JSONParser } from '@streamparser/json';
 
-async function jget<T>(path: string): Promise<T> {
+// Above this, parse the response as it streams; below it, hand the whole body
+// to the engine's own parser.
+//
+// `res.json()` decodes the body to one JavaScript string before parsing it, and
+// V8 caps a single string at roughly 512 MB — a recording past that threw before
+// it could be parsed at all, which is what the streaming path is here for. But
+// the streaming parser is JavaScript walking the document character by character,
+// where `res.json()` is the engine's C++ parser: measured on a 169 MB recording,
+// 8.2s against 1.9s, all of it on the main thread. Paying that on every response,
+// including the handful of bytes `/api/health` returns, is the wrong default.
+//
+// 256 MB rather than the full 512: Content-Length counts BYTES and the cap is on
+// CHARACTERS, so a document with any multi-byte text needs headroom, and the
+// parse holds the string and the object graph at once.
+export const NATIVE_PARSE_LIMIT = 256 * 1024 * 1024;
+
+// Exported for its unit tests: there is no jsdom here, so the only way to cover
+// the parser choice is to call it against a stubbed fetch.
+export async function jget<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
-  
+
+  // No Content-Length means no way to know, so take the path that cannot fail.
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > 0 && declared <= NATIVE_PARSE_LIMIT) {
+    return res.json() as Promise<T>;
+  }
+  if (!res.body) return res.json() as Promise<T>;
+
   const parser = new JSONParser();
-  let result;
-  parser.onValue = ({ value, key, parent, stack }) => {
-    if (stack.length === 0)
-      result = value;
+  let result: unknown;
+  parser.onValue = ({ value, stack }) => {
+    if (stack.length === 0) result = value;
   };
 
   const reader = res.body.getReader();
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     parser.write(value);
   }
 
-  return result;
+  return result as T;
 }
 
 async function jpost<T>(path: string, body: unknown): Promise<T> {
