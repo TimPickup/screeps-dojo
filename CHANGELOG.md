@@ -100,6 +100,17 @@ behaviour changes, patch = fixes).
   they are empty and the dojo seeds that clock; Season 5 deletes a depleted
   Thorium mineral instead, so a countdown on one was wrong and visible to both
   the bot and the inspector. A mod can now declare a resource finite.
+### Fixed
+
+- **A fresh clone on Windows could not build.** The repo carried no
+  `.gitattributes`, and git for Windows installs `core.autocrlf=true` by
+  default — so checking out `server-mock-patches/*.patch` rewrote every one of
+  them with CRLF endings. `git apply` then has a trailing CR on each context
+  line, matches nothing in the LF sources npm just wrote, and `npm ci` dies in
+  `postinstall` with `patch failed: dist/src/screepsServer.js:47 … patch does
+  not apply`. It reads like a stale patch set against a moved dependency, which
+  is the wrong thing to go looking at. Patch files are now marked `-text` and
+  are checked out byte for byte on every platform.
 
 ## [0.10.0] — 2026-09-02
 

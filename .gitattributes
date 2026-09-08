@@ -1,0 +1,13 @@
+# Patch files are applied with `git apply` inside the Linux container, against
+# sources npm just wrote with LF endings. A patch checked out with CRLF has a
+# trailing \r on every context line, matches nothing, and fails as "patch does
+# not apply" — which reads like a stale patch set rather than a checkout
+# artefact. On Windows core.autocrlf=true is the default that git for Windows
+# installs, so without this line a fresh clone there cannot build at all.
+# -text: store and check these out byte for byte, whatever the platform.
+*.patch -text
+
+# Everything the container executes as a script has the same requirement: a
+# shebang line ending in \r makes the kernel look for an interpreter that does
+# not exist ("bad interpreter: /bin/sh^M").
+*.sh text eol=lf
