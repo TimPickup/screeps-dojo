@@ -54,6 +54,7 @@ if (dirty) {
 }
 
 const buildFingerprint = require('./buildFingerprint');
+const composeUp = require('./composeUp');
 const before = out('git', ['rev-parse', 'HEAD']);
 // Taken BEFORE the pull, so we can tell afterwards whether the update touched
 // anything the image is made of, or only the version string.
@@ -77,6 +78,9 @@ if (run('npm', ['run', 'build:ui']).status !== 0) fail('UI build failed.');
 // version in package.json, which busts the Dockerfile's npm layer and costs
 // seven minutes reinstalling 682 identical packages. Compare what the image is
 // actually made of instead, and skip the build when none of it moved.
+// Set when the image was rebuilt: the container must then be brought up in a
+// way that re-seeds its node_modules volume from it. See scripts/composeUp.js.
+let rebuilt = false;
 const imageAfter = buildFingerprint.fingerprint();
 if (imageAfter === imageBefore) {
 	say('container image is unchanged by this update — skipping the rebuild.');
@@ -89,11 +93,12 @@ if (imageAfter === imageBefore) {
 	say('  downloads and compiles; that is normal, not a stall.');
 	if (run('docker', ['compose', 'build']).status !== 0) fail('image build failed.');
 	buildFingerprint.writeStored(imageAfter);
+	rebuilt = true;
 }
 
 if (wasRunning) {
 	say('restarting the GUI so it runs the new code…');
-	if (run('docker', ['compose', 'up', '-d', '--force-recreate', 'ui']).status !== 0) {
+	if (run('docker', composeUp.upArgs({ rebuilt: rebuilt, forceRecreate: true })).status !== 0) {
 		fail('could not restart the GUI container — start it with: npm run ui');
 	}
 }

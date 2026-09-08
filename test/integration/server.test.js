@@ -109,6 +109,18 @@ describe('GUI server (Phase 1)', function () {
 		assert.strictEqual(typeof season5.probes, 'undefined');
 	});
 
+	it('GET /api/bootstrap/status says why it is installing, not just that it is', async function () {
+		// The setup screen shows different copy for a first run and for repairing a
+		// container whose node_modules is older than the code it runs. Without a
+		// reason it would tell someone mid-project that this is their first run.
+		const r = await get(port, '/api/bootstrap/status');
+		assert.strictEqual(r.status, 200);
+		const body = JSON.parse(r.body);
+		assert.ok(Object.prototype.hasOwnProperty.call(body, 'phase'));
+		assert.ok(Object.prototype.hasOwnProperty.call(body, 'reason'), 'the UI reads this');
+		assert.ok(body.reason === null || body.reason === 'install' || body.reason === 'repair');
+	});
+
 	it('serves the exact Canvas render font faces', async function () {
 		const regular = await get(port, '/api/render/font?weight=400');
 		const bold = await get(port, '/api/render/font?weight=700');
