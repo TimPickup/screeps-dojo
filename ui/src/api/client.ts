@@ -1,6 +1,7 @@
 import type {
   Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
-  BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus
+  BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus,
+  ModsResponse
 } from './types';
 import { JSONParser } from '@streamparser/json';
 
@@ -123,6 +124,7 @@ export const api = {
     jpost<{ ok: boolean; renamed: number }>('/api/env/rename-profile', { kind, from, to }),
   bots: () => jget<BotProfilesResponse>('/api/bots'),
   servers: () => jget<ScreepsProfilesResponse>('/api/servers'),
+  mods: () => jget<ModsResponse>('/api/mods'),
   scenarioSettings: (scenario: string) =>
     jget<ScenarioSettingsResponse>('/api/scenarios/' + encodeURIComponent(scenario) + '/settings'),
   verifyBot: (profile?: string) =>

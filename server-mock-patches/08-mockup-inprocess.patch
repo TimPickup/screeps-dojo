@@ -92,7 +92,13 @@ diff --git a/dist/src/screepsServer.js b/dist/src/screepsServer.js
 -                    resolve();
 -                }
 +        const dbPath = path.resolve(this.opts.path, DB_FILE);
-+        const modPath = path.resolve(this.opts.path, MOD_FILE);
++        // An explicitly supplied modfile — dojo hands the engine the run's
++        // curated mod list — wins over the packaged empty default that the
++        // asset copy above just wrote into the server directory. Every role
++        // (main, storage, runner, processor) must read the SAME file, or a mod
++        // silently applies in some processes and not others.
++        const modPath = this.opts.modfile ? path.resolve(this.opts.modfile) : path.resolve(this.opts.path, MOD_FILE);
++        this.modPath = modPath;
 +        this.inProcess = dojoFeatures.isEnabled('inProcess');
 +        process.env.DB_PATH = dbPath;
 +        process.env.MODFILE = modPath;
@@ -175,12 +181,12 @@ diff --git a/dist/src/screepsServer.js b/dist/src/screepsServer.js
 +            this.emit('info', 'Starting engine processes.');
 +            this.startProcess('engine_runner', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'runner.js'), {
 +                DRIVER_MODULE: '@screeps/driver',
-+                MODFILE: path.resolve(this.opts.path, MOD_FILE),
++                MODFILE: this.modPath,
 +                STORAGE_PORT: `${this.opts.port}`,
 +            });
 +            this.startProcess('engine_processor', path.resolve(path.dirname(require.resolve('@screeps/engine')), 'processor.js'), {
 +                DRIVER_MODULE: '@screeps/driver',
-+                MODFILE: path.resolve(this.opts.path, MOD_FILE),
++                MODFILE: this.modPath,
 +                STORAGE_PORT: `${this.opts.port}`,
 +            });
 +        }

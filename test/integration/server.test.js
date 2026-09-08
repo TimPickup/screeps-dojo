@@ -93,6 +93,22 @@ describe('GUI server (Phase 1)', function () {
 		assert.deepStrictEqual(JSON.parse(r.body), { ok: true, ready: true });
 	});
 
+	it('GET /api/mods serves the curated catalog the runner validates against', async function () {
+		// The UI must never keep its own copy of this list: a second list would
+		// let the settings form offer a mod the runner then refuses.
+		const r = await get(port, '/api/mods');
+		assert.strictEqual(r.status, 200);
+		const body = JSON.parse(r.body);
+		const modRegistry = require('../../src/mods');
+		assert.deepStrictEqual(body.mods.map(function (m) { return m.id; }), modRegistry.knownIds());
+		const season5 = body.mods.find(function (m) { return m.id === 'season5'; });
+		assert.ok(season5, 'season5 should be offered');
+		assert.ok(season5.name && season5.description, 'the UI renders both');
+		assert.ok(season5.unavailable.length > 0, 'the form says what a mod does NOT bring');
+		// The catalog is data, not behaviour: no functions cross the wire.
+		assert.strictEqual(typeof season5.probes, 'undefined');
+	});
+
 	it('serves the exact Canvas render font faces', async function () {
 		const regular = await get(port, '/api/render/font?weight=400');
 		const bold = await get(port, '/api/render/font?weight=700');

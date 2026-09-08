@@ -5,6 +5,7 @@ import type { ScenarioPreviewScene } from '../../render/scenarioPreview';
 import { buildScenarioPreviewScene } from '../../render/scenarioPreview';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
+import { useModImages } from '../../hooks/useModImages';
 import styles from './ScenarioPreview.module.css';
 
 interface CachedPreview {
@@ -37,6 +38,7 @@ function cacheScene(scenario: string, cached: CachedPreview): void {
 export function ScenarioPreview({ scenario }: { scenario: string }) {
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
+  const modImages = useModImages();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [scene, setScene] = useState<ScenarioPreviewScene | null>(null);
@@ -101,7 +103,7 @@ export function ScenarioPreview({ scenario }: { scenario: string }) {
       const tx = (width - worldWidth * scale) / 2;
       const ty = (height - worldHeight * scale) / 2;
       ctx.setTransform(scale * dpr, 0, 0, scale * dpr, tx * dpr, ty * dpr);
-      drawStaticScene(ctx, scene, { initialSourceEnergy: true, terrainTextures });
+      drawStaticScene(ctx, scene, { initialSourceEnergy: true, terrainTextures, modImages });
     };
     const schedule = () => {
       if (!raf) raf = window.requestAnimationFrame(render);
@@ -110,7 +112,7 @@ export function ScenarioPreview({ scenario }: { scenario: string }) {
     observer.observe(host);
     schedule();
     return () => { observer.disconnect(); if (raf) window.cancelAnimationFrame(raf); };
-  }, [scene, fontsReady, terrainTextures]);
+  }, [scene, fontsReady, terrainTextures, modImages]);
 
   const roomCount = scene ? Object.keys(scene.terrain).length : 0;
   const duplicateCount = scene?.duplicateRooms.length || 0;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { api } from '../../../api/client';
 import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
+import { parseDoc } from '../../ScenarioSettingsEditor/settingsDoc';
 import { ScenarioSettingsEditor } from '../../ScenarioSettingsEditor/ScenarioSettingsEditor';
 import styles from './EditTab.module.css';
 
@@ -73,6 +74,11 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const [overwriteMaps, setOverwriteMaps] = useState(false);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
+  // Which curated game mods this scenario selects. The map editor offers their
+  // objects (a Season 5 reactor) only where a run would understand one. Read
+  // from the settings draft while it is being edited, so ticking Season 5 in
+  // the ⚙ makes the reactor appear without a save.
+  const [savedMods, setSavedMods] = useState<string[]>([]);
   const jumpingRef = useRef(false);
 
   const selectedKind = files.find((f) => f.path === selected)?.kind;
@@ -86,6 +92,14 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
 
   const refreshFiles = () => api.files(scenario).then(setFiles).catch(() => {});
   useEffect(() => { refreshFiles(); }, [scenario]);
+  useEffect(() => {
+    let live = true;
+    api.scenarioSettings(scenario)
+      .then((r) => { if (live) setSavedMods(r.settings?.mods || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [scenario]);
+  const scenarioMods = isSettings ? (parseDoc(settingsDraft).form?.mods ?? savedMods) : savedMods;
   useEffect(() => { setView('visual'); }, [selected]);
 
   const load = (path: string, text: string) => {
@@ -263,7 +277,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                   isSettings ? (
                     <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} />
                   ) : (
-                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} />
+                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} />
                   )
                 ) : (
                   <div className={styles.monaco}>

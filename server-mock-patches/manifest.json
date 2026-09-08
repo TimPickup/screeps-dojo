@@ -30,6 +30,18 @@
     {
       "type": "patch",
       "package": "@screeps/common",
+      "patch": "server-mock-patches/10-common-idempotent-mod-load.patch",
+      "targets": [
+        {
+          "path": "lib/config-manager.js",
+          "pristineSha256": "6c45691c6d3773d2f17f74cc4dca0dae623d9551fe7cffd18f6a279ba3de4924",
+          "patchedSha256": "d7164a5dbae1cea86d50e53ee38985710bbc54d757494874d44f0f0ec4f0b7ed"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/common",
       "patch": "server-mock-patches/04-common-inprocess-storage.patch",
       "targets": [
         {
@@ -112,7 +124,7 @@
         {
           "path": "dist/src/screepsServer.js",
           "pristineSha256": "838ec9cb819f9999cd2e9a8df59632262080357adc2011844ddbf6a38e0ad588",
-          "patchedSha256": "5b72cedf798bb91e007020a3e1b419cd4cef19bc140acfa629297b86302817d1"
+          "patchedSha256": "a1d69035da95efb05e2be7e1d9a08e4fdb933d20f8029df5110dfdef706d914a"
         }
       ]
     },

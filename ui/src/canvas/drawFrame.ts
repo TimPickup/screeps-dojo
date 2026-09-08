@@ -14,7 +14,9 @@ import {
 	drawConstructionSite,
 } from './dynamic.ts';
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
-import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
+import { drawReactor, drawUnknownObject } from './modObjects.ts';
+import type { ModImages } from './modImages.ts';
+import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
 
@@ -23,6 +25,10 @@ interface DrawOptions {
 	layers: StaticLayers;
 	layout: StageLayout;
 	showVisuals: boolean;
+	// Artwork a loaded mod brings (see modImages.ts). Optional everywhere: every
+	// drawing routine falls back to vectors, so a recording still renders if the
+	// images never loaded.
+	modImages?: ModImages;
 }
 
 interface ActionTarget {
@@ -223,6 +229,12 @@ export function drawFrame(
 				drawConstructionSite(ctx, object, centerX, centerY, baseFrame.gameTime + (subFrame ?? 0));
 				break;
 			case 'tombstone': drawTombstone(ctx, centerX, centerY); break;
+			// Season 5. Drawn per frame rather than baked into the structure
+			// layer: its edge turns, and it starts and stops turning as Thorium
+			// arrives and burns away.
+			case 'reactor':
+				drawReactor(ctx, object, centerX, centerY, baseFrame.gameTime + (subFrame ?? 0), options.modImages);
+				break;
 			case 'energy': case 'resource': {
 				const store = (object.store as Record<string, number> | undefined) || {};
 				let amount = 0;
@@ -231,6 +243,11 @@ export function drawFrame(
 				drawDroppedResource(ctx, centerX, centerY, amount, resourceType);
 				break;
 			}
+			default:
+				// An object type from a mod this renderer has no artwork for. It
+				// still belongs on the map.
+				if (!KNOWN_OBJECT_TYPES.has(object.type)) drawUnknownObject(ctx, object, centerX, centerY);
+				break;
 		}
 	}
 

@@ -6,6 +6,7 @@ const { parse, merge, remove } = require('../envFile');
 const botProfiles = require('../../botProfiles');
 const screepsProfiles = require('../../screepsProfiles');
 const scenarioSettings = require('../../scenarioSettings');
+const modRegistry = require('../../mods');
 const { pathSafe } = require('../pathSafe');
 
 // Keys the Settings screen may read back. Bot/screeps profile keys are matched
@@ -194,6 +195,17 @@ module.exports = function registerEnvRoutes(router, ctx) {
 		}
 	});
 
+	// The curated game-mod catalog. The UI renders whatever this returns and
+	// never keeps its own copy — a second list would drift from the one the
+	// runner actually validates against (src/mods.js).
+	router.get('/api/mods', function (req, res) {
+		try {
+			ctx.sendJson(res, 200, { mods: modRegistry.catalog() });
+		} catch (e) {
+			ctx.sendJson(res, 500, { error: String((e && e.message) || e) });
+		}
+	});
+
 	// A scenario's effective settings: what settings.json asks for, plus what it
 	// resolves to once profiles and defaults are applied. One readFile.
 	router.get('/api/scenarios/:name/settings', function (req, res) {
@@ -211,7 +223,7 @@ module.exports = function registerEnvRoutes(router, ctx) {
 			});
 		} catch (e) {
 			ctx.sendJson(res, 200, {
-				present: true, settings: { bots: {} }, warnings: [],
+				present: true, settings: { bots: {}, mods: [] }, warnings: [],
 				error: String((e && e.message) || e)
 			});
 		}

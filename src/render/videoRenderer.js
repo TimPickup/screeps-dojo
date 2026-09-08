@@ -17,6 +17,7 @@ const FONT_FILES = [
 ];
 let sharedRendererPromise = null;
 let terrainTexturesPromise = null;
+let modImagesPromise = null;
 let fontsRegistered = false;
 
 function loadTerrainTextures() {
@@ -30,6 +31,26 @@ function loadTerrainTextures() {
 		});
 	}
 	return terrainTexturesPromise;
+}
+
+// Artwork a game mod brings, read off disk so an export looks like the browser
+// (ui/src/assets/season5, MIT — see the README there). A file that fails to
+// load is not fatal: every drawing routine falls back to vectors.
+function loadModImages() {
+	if (!modImagesPromise) {
+		const dir = path.resolve(__dirname, '../../ui/src/assets/season5');
+		const load = function (file) {
+			return loadImage(path.join(dir, file)).catch(function () { return undefined; });
+		};
+		modImagesPromise = Promise.all([
+			load('reactor-core.png'),
+			load('reactor-edge.png'),
+			load('T.png')
+		]).then(function (images) {
+			return { reactorCore: images[0], reactorEdge: images[1], thorium: images[2] };
+		});
+	}
+	return modImagesPromise;
 }
 
 function loadSharedRenderer() {
@@ -134,7 +155,7 @@ async function renderRecording(recording, outFile, options) {
 		options);
 	validateSettings(recording, settings);
 	throwIfCancelled(settings.signal);
-	const [shared, terrainTextures] = await Promise.all([loadSharedRenderer(), loadTerrainTextures()]);
+	const [shared, terrainTextures, modImages] = await Promise.all([loadSharedRenderer(), loadTerrainTextures(), loadModImages()]);
 	registerFonts(shared.renderFontFamily);
 	const availableRooms = Object.keys(recording.terrain || {});
 	const rooms = Array.isArray(settings.rooms) && settings.rooms.length
@@ -154,6 +175,7 @@ async function renderRecording(recording, outFile, options) {
 	const layerResolution = settings.pixelsPerRoom / 50;
 	const layers = new shared.StaticLayers(recording, layout, layerResolution, createCanvas, {
 		textures: terrainTextures,
+		modImages: modImages,
 		pathFactory: function () { return new Path2D(); }
 	});
 	const sprites = new shared.CreepRenderer();
@@ -194,7 +216,8 @@ async function renderRecording(recording, outFile, options) {
 			sprites: sprites,
 			layers: layers,
 			layout: layout,
-			showVisuals: true
+			showVisuals: true,
+			modImages: modImages
 		});
 		const raw = canvas.data();
 		if (raw.length !== expectedBytes) {

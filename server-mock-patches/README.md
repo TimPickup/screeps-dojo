@@ -28,6 +28,17 @@ individual value inherits the master/default-on behavior.
 - Retryable multi-role driver initialization.
 - Stable runner/processor exports and deterministic direct tick draining.
 - Optional deletion of stale `ACTIVE_ROOMS` during `world.reset()`.
+- An idempotent `configManager.load()`. Applying a mod is not repeatable — it
+  pushes engine listeners and custom object prototypes and cannot be undone — so
+  loading the same `mods.json` twice in one process silently doubles every
+  per-tick effect. Stock, each process loads once; the dojo runs storage inside
+  the driver's process, which puts both call sites in the same one.
+- An externally supplied `modfile` server option, honoured by every engine role.
+  Stock, the mockup copies an empty `mods.json` into the server directory on
+  connect and pins main, storage, runner and processor to it, so a game mod
+  could not be loaded at all. The dojo hands each run its own curated mod list
+  (`src/mods.js`) and every role now reads that same file — a mod either applies
+  everywhere or the run's post-connect probe fails it.
 
 ## Installation and verification
 

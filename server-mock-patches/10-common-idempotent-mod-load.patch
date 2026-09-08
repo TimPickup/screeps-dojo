@@ -1,0 +1,31 @@
+--- a/lib/config-manager.js
++++ b/lib/config-manager.js
+@@ -8,11 +8,26 @@
+     bots: {}
+ }};
+
++// Applying a mod is NOT idempotent: mod(config) pushes engine event listeners
++// and custom object prototypes, mutates the shared constants, and there is no
++// way to unload one. Loading the same mods.json twice in a process therefore
++// doubles every per-tick effect silently — Season 5 pays its reactor score
++// twice a tick, applies the Thorium decay penalty twice, and registers the
++// Reactor prototype twice — with nothing anywhere reporting a problem.
++//
++// Stock, each process loads exactly once (the storage process in its own
++// start(), everything else in driver.connect). The dojo runs storage IN the
++// driver's process, so both call sites land in the same one. Remembering which
++// file has been applied makes the second call a no-op wherever it comes from.
++let loadedModFile = null;
++
+ exports.load = function() {
+     if(!process.env.MODFILE) {
+         throw new Error('MODFILE environment variable is not set!');
+     }
+     var modsJsonFilename = path.resolve(process.cwd(), process.env.MODFILE);
++    if(loadedModFile === modsJsonFilename) {
++        return;
++    }
++    loadedModFile = modsJsonFilename;
+     try {
+         fs.statSync(modsJsonFilename);
+     }

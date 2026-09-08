@@ -7,6 +7,10 @@ const OWNER_TAGS = { me: 'me', invader: 'invader', sourceKeeper: 'sourceKeeper' 
 
 // Structure types the dojo server can place (engine `type` values). Anything
 // not here, and not source/mineral/controller/creep, is dropped as unknown.
+//
+// A game mod adds to this list: `extraStructureTypes` carries the types the
+// scenario's selected mods introduce (src/mods.js importTypes), so importing a
+// live Season 5 room keeps its reactor instead of counting it as unknown.
 const KNOWN_STRUCTURES = new Set([
 	'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
 	'factory', 'observer', 'powerSpawn', 'nuker', 'rampart', 'constructedWall',
@@ -15,7 +19,12 @@ const KNOWN_STRUCTURES = new Set([
 
 // Engine object fields we never copy onto a structure entry (positional/identity
 // or engine-internal); everything else passes through (hits, store, level, etc.).
-const STRUCTURE_OMIT = new Set(['_id', 'type', 'x', 'y', 'room', 'user', 'spawning']);
+//
+// `launchTime` is a Season 5 reactor's absolute start tick on the LIVE server —
+// millions of ticks ahead of a fresh sim, where `gameTime - launchTime` goes
+// negative and the mod's score formula (log10 of it) turns into NaN. A reactor
+// starts its clock again on its first tick here, which is what a scenario wants.
+const STRUCTURE_OMIT = new Set(['_id', 'type', 'x', 'y', 'room', 'user', 'spawning', 'launchTime']);
 
 function cleanStore(store) {
 	if (!store || typeof store !== 'object') return undefined;
@@ -29,6 +38,8 @@ function cleanStore(store) {
 
 function roomToMap(input) {
 	const objects = input.objects || [];
+	const known = new Set(KNOWN_STRUCTURES);
+	for (const type of input.extraStructureTypes || []) known.add(type);
 	const classifyOwner = input.classifyOwner;
 	const includeMyCreeps = input.includeMyCreeps !== false;
 	const includeMyStructures = input.includeMyStructures !== false;
@@ -65,6 +76,10 @@ function roomToMap(input) {
 		if (object.type === 'mineral') {
 			const mineral = { x: object.x, y: object.y, mineralType: object.mineralType, density: object.density };
 			if (object._id) mineral.id = object._id;
+			// How much is actually LEFT. Without it the map re-seeds a full node,
+			// which silently rewinds a half-mined mineral — and for a finite
+			// resource like Season 5 Thorium there is no "full" to fall back to.
+			if (typeof object.mineralAmount === 'number') mineral.mineralAmount = object.mineralAmount;
 			map.minerals.push(mineral);
 			continue;
 		}
@@ -82,7 +97,7 @@ function roomToMap(input) {
 			map.creeps.push(creep);
 			continue;
 		}
-		if (KNOWN_STRUCTURES.has(object.type)) {
+		if (known.has(object.type)) {
 			// Drop other players' structures; keep mine / npc / neutral.
 			if (object.user && tag === null) continue;
 			if (tag === 'me' && !includeMyStructures) continue;

@@ -107,6 +107,44 @@ describe('roomToMap', function () {
 		assert.deepStrictEqual(enemy.map.controller, { x: 20, y: 20, level: 6 });
 	});
 
+	it('records how much of a mineral is LEFT, not a fresh one', function () {
+		// Without this a half-mined mineral imports as full — and Season 5
+		// Thorium is finite, so there is no "full" to rewind it to.
+		const result = build([
+			{ type: 'mineral', x: 35, y: 35, mineralType: 'T', density: 3, mineralAmount: 12345 }
+		]);
+		assert.deepStrictEqual(result.map.minerals, [
+			{ x: 35, y: 35, mineralType: 'T', density: 3, mineralAmount: 12345 }
+		]);
+	});
+
+	it('records a mineral that has been mined out', function () {
+		const result = build([{ type: 'mineral', x: 1, y: 1, mineralType: 'H', density: 1, mineralAmount: 0 }]);
+		assert.strictEqual(result.map.minerals[0].mineralAmount, 0);
+	});
+
+	it('drops a mod object type by default, and keeps it when the mod is selected', function () {
+		const reactor = { type: 'reactor', x: 25, y: 25, user: 'mine', store: { T: 40 } };
+		const vanilla = build([reactor]);
+		assert.deepStrictEqual(vanilla.map.structures, []);
+		assert.deepStrictEqual(vanilla.skipped, { reactor: 1 });
+
+		const season5 = build([reactor], { extraStructureTypes: ['reactor'] });
+		assert.deepStrictEqual(season5.skipped, {});
+		assert.deepStrictEqual(season5.map.structures, [
+			{ type: 'reactor', x: 25, y: 25, owner: 'me', store: { T: 40 } }
+		]);
+	});
+
+	it('drops the live-server launchTime from a reactor', function () {
+		// It is an absolute tick on the source server; here it would make
+		// gameTime - launchTime negative and the mod's score formula NaN.
+		const result = build([
+			{ type: 'reactor', x: 25, y: 25, user: 'mine', store: { T: 40 }, launchTime: 48123456 }
+		], { extraStructureTypes: ['reactor'] });
+		assert.strictEqual(result.map.structures[0].launchTime, undefined);
+	});
+
 	it('preserves source and mineral ids when present', function () {
 		const result = build([
 			{ type: 'source', x: 10, y: 10, _id: 'src123' },

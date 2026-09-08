@@ -63,6 +63,19 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
     ],
   },
   link: { stats: [cooldown] },
+  // Season 5. `launchTime` is when the reactor last started burning, so the
+  // thing worth reading is how long it has run — which is also what the mod
+  // exposes to bot code as reactor.continuousWork.
+  reactor: {
+    stats: [{
+      label: 'continuous work', keys: ['launchTime'],
+      value: (o, gt) => {
+        const started = num(o, 'launchTime');
+        if (started === undefined || typeof gt !== 'number') return null;
+        return Math.max(0, gt - started) + ' ticks';
+      },
+    }],
+  },
   extractor: { stats: [cooldown] },
   controller: {
     showStore: false,

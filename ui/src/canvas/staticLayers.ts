@@ -5,11 +5,14 @@ import { circle, poly, roundedSquare, text } from './primitives.ts';
 import { drawWallIslands } from './terrainWalls.ts';
 import { drawSwampIslands } from './terrainSwamps.ts';
 import { drawRamparts } from './ramparts.ts';
+import type { ModImages } from './modImages.ts';
+import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawDeposit } from './deposits.ts';
 import type { TerrainTextures } from './terrainTextures.ts';
 import {
 	DEFAULT_MINERAL_COLOR,
+	KNOWN_OBJECT_TYPES,
 	MINERAL_COLORS,
 	RENDER_COLORS,
 	ROOM_SIZE_TILES,
@@ -136,6 +139,7 @@ export function drawStaticStructures(
 	ctx: CanvasRenderingContext2D,
 	frame: Frame,
 	layout: StageLayout,
+	modImages?: ModImages,
 ): void {
 	const objectsInDrawOrder = frameObjectsInDrawOrder(frame, layout);
 	for (const room of Object.keys(layout.offsets)) {
@@ -162,7 +166,13 @@ export function drawStaticStructures(
 				// Darken the fill while retaining the resource color as its outline.
 				const mineralDarkColor = darkenMineralColor(mineralColor);
 				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
-				text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
+				// Thorium gets the mod's own icon where it is available; the
+				// lettering stays the fallback, so the deposit is never unlabelled.
+				if (mineralType === 'T' && modImages?.thorium) {
+					ctx.drawImage(modImages.thorium, object.x + 0.5 - 0.45, object.y + 0.5 - 0.45, 0.9, 0.9);
+				} else {
+					text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
+				}
 			} else if (object.type === 'deposit') {
 				drawDeposit(ctx, object);
 			} else if (object.type === 'controller') {
@@ -244,21 +254,28 @@ export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], la
 	}
 }
 
+// One-shot render of a whole scene — the map editor and the scenario preview.
+// It shares every drawing routine with the replay; what it does NOT share is
+// drawFrame's per-tick pass, so anything drawn only there (a reactor, a dropped
+// pile) has to be drawn here too or the editor shows an empty tile where the
+// replay shows an object.
 export function drawStaticScene(
 	ctx: CanvasRenderingContext2D,
 	scene: { terrain: Record<string, string[]>; frame: Frame; layout: StageLayout },
-	options: { initialSourceEnergy?: boolean; terrainTextures?: TerrainTextures } = {},
+	options: { initialSourceEnergy?: boolean; terrainTextures?: TerrainTextures; modImages?: ModImages } = {},
 ): void {
 	drawTerrainScene(ctx, scene.terrain, scene.layout, options.terrainTextures);
 	drawMergedWalls(ctx, scene.terrain, scene.frame, scene.layout, options.terrainTextures?.wallNoise);
-	drawStaticStructures(ctx, scene.frame, scene.layout);
+	drawStaticStructures(ctx, scene.frame, scene.layout, options.modImages);
 	for (const object of frameObjectsInDrawOrder(scene.frame, scene.layout)) {
 		const roomOffset = scene.layout.offsets[object.room];
 		if (!roomOffset) continue;
 		const cx = roomOffset.col * ROOM_SIZE_TILES + object.x + 0.5;
 		const cy = roomOffset.row * ROOM_SIZE_TILES + object.y + 0.5;
 		if (object.type === 'tower') drawTowerTurret(ctx, object, cx, cy, scene.frame.gameTime);
+		else if (object.type === 'reactor') drawReactor(ctx, object, cx, cy, scene.frame.gameTime, options.modImages);
 		else if (options.initialSourceEnergy && object.type === 'source') drawSourceCore(ctx, object, cx, cy);
+		else if (!KNOWN_OBJECT_TYPES.has(object.type)) drawUnknownObject(ctx, object, cx, cy);
 	}
 	drawRamparts(ctx, scene.frame, scene.layout);
 }
@@ -270,10 +287,11 @@ export function buildStructureCanvas(
 	canvasFactory: CanvasFactory = browserCanvas,
 	terrain: Record<string, string[]> = {},
 	wallTexture?: CanvasImageSource,
+	modImages?: ModImages,
 ): HTMLCanvasElement {
 	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
 		drawMergedWalls(ctx, terrain, frame, layout, wallTexture);
-		drawStaticStructures(ctx, frame, layout);
+		drawStaticStructures(ctx, frame, layout, modImages);
 	});
 }
 

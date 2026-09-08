@@ -12,10 +12,7 @@
 // carry the raw captured state, so only the LATEST frame is retained (live preview is
 // current-state, not scrubbable — that's what recordings are for).
 const path = require('path');
-const { fork } = require('child_process');
-
-const REPO_ROOT = path.join(__dirname, '..', '..');
-const CHILD = path.join(REPO_ROOT, 'scripts', 'runScenarioChild.js');
+const { forkScenario } = require('../scenarioChild');
 
 let active = null; // { jobId, kind, scenario, child, history, lastFrame, subscribers, done }
 let counter = 0;
@@ -43,30 +40,16 @@ function startJob(kind, scenarioDir, options) {
 	};
 	active = job;
 
-	const args = [scenarioDir, options.record === true ? 'record' : ''];
-	const child = fork(CHILD, args, { cwd: REPO_ROOT, silent: false });
-	job.child = child;
-
-	child.on('message', function (msg) {
-		if (!msg) return;
-		if (msg.ev) {
-			// the 'test' kind doesn't need frames; drop them to save IPC/memory
-			if (msg.ev.type === 'frame' && kind === 'test') return;
-			broadcast(job, msg.ev);
-		}
-		if (msg.done) job.done = true;
+	// A 'test' run is a text verdict, so it never asks for frames — they are the
+	// bulk of the IPC traffic. forkScenario reports a dead child as a 'fatal'
+	// event, so a subscriber always sees something terminal.
+	const run = forkScenario(scenarioDir, {
+		record: options.record === true,
+		streamFrames: kind !== 'test',
+		onEvent: function (ev) { broadcast(job, ev); }
 	});
-	child.on('exit', function (code) {
-		if (!job.done) {
-			// child died without a clean end (crash/kill) — synthesize a terminal event
-			broadcast(job, { type: 'fatal', error: 'run process exited (' + code + ')' });
-			job.done = true;
-		}
-	});
-	child.on('error', function (err) {
-		broadcast(job, { type: 'fatal', error: String((err && err.message) || err) });
-		job.done = true;
-	});
+	job.child = run.child;
+	run.promise.then(function () { job.done = true; }, function () { job.done = true; });
 
 	return { jobId: jobId };
 }

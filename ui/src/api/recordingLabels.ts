@@ -27,11 +27,15 @@ export function statusLabel(status: string | undefined): string {
 // otherwise an unfinalised run reads 'interrupted' twice in two lines. Rows that
 // badge PASS/FAIL still want it, since the badge says nothing about the ending.
 export function recordingSubtitle(
-  entry: { timestamp: string; status?: string; ticks: number | null },
+  entry: { timestamp: string; status?: string; ticks: number | null; meta?: { mods?: string[] } | null },
   options: { includeStatus?: boolean } = {}
 ): string {
   const when = formatRecordingTimestamp(entry.timestamp);
   const ticks = entry.ticks === null || entry.ticks === undefined ? null : `${entry.ticks}t`;
   const status = options.includeStatus === false ? null : statusLabel(entry.status);
-  return [when, ticks, status].filter(Boolean).join(' · ');
+  // Which RULES this replay was recorded under. A Season 5 recording shows
+  // objects and scores that make no sense read as vanilla, so it says so.
+  // Absent on recordings made before mods existed, which is the same as vanilla.
+  const mods = entry.meta?.mods?.length ? entry.meta.mods.join('+') : null;
+  return [when, ticks, mods, status].filter(Boolean).join(' · ');
 }
