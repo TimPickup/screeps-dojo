@@ -75,6 +75,17 @@ behaviour changes, patch = fixes).
 
 ### Fixed
 
+- **Every API response was parsed by hand, in JavaScript.** Reading a
+  recording past V8's maximum string length needed a streaming parser, and
+  that parser was made the default for all 19 GET endpoints — including
+  `/api/health`. It walks the document character by character where
+  `res.json()` is the engine's own C++ parser: on a 169 MB recording, 8.2s
+  against 1.9s, all of it on the main thread. The parser is now chosen by the
+  response's declared size — native below 256 MB, streaming above it or when
+  no size is declared, so an outsized recording still loads. `/api/recordings/file`
+  sends `Content-Length` rather than piping chunked, without which every
+  recording, however small, took the slow path.
+
 - **Importing a room keeps its seasonal objects.** The room importer dropped
   every type it did not recognise, so a live Season 5 room arrived without its
   reactor (`skipped 1 reactor`); it now also keeps the types the scenario's
@@ -100,7 +111,6 @@ behaviour changes, patch = fixes).
   they are empty and the dojo seeds that clock; Season 5 deletes a depleted
   Thorium mineral instead, so a countdown on one was wrong and visible to both
   the bot and the inspector. A mod can now declare a resource finite.
-### Fixed
 
 - **A fresh clone on Windows could not build.** The repo carried no
   `.gitattributes`, and git for Windows installs `core.autocrlf=true` by

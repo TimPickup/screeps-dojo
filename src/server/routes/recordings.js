@@ -43,7 +43,15 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 			// loadRecording() only here to assemble a salvaged run if recording.json
 			// is missing; if it exists we never parse it server-side.
 			if (!fs.existsSync(abs)) loadRecording(abs);
-			res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+			// Content-Length, not chunked. The client picks its JSON parser by the
+			// declared size — the engine's own parser below the string limit, a
+			// streaming one above it — and without this header every recording,
+			// however small, takes the slow path. Stat after loadRecording(), which
+			// is what writes the file in the salvage case.
+			res.writeHead(200, {
+				'Content-Type': 'application/json; charset=utf-8',
+				'Content-Length': fs.statSync(abs).size
+			});
 			fs.createReadStream(abs).on('error', function () { try { res.end(); } catch (e) { /* */ } }).pipe(res);
 		} catch (e) {
 			ctx.sendJson(res, 404, { error: String((e && e.message) || e) });

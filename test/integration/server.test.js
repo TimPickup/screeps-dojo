@@ -424,6 +424,20 @@ describe('GET /api/recordings', function () {
 		assert.match(JSON.parse(r.body).error, /EACCES/);
 	});
 
+	it('serves a recording with its exact byte length, not chunked', async function () {
+		// The UI picks its JSON parser from this header — the engine's own parser
+		// below the string limit, a streaming one above it. Piping the file without
+		// it made every recording, however small, take the slow path.
+		const rel = 'alpha/20260619-120000/recording.json';
+		const r = await get(port, '/api/recordings/file?path=' + encodeURIComponent(rel));
+		assert.strictEqual(r.status, 200);
+		const onDisk = fs.statSync(path.join(recordingsRoot, 'alpha', '20260619-120000', 'recording.json')).size;
+		assert.strictEqual(Number(r.headers['content-length']), onDisk);
+		assert.strictEqual(r.headers['transfer-encoding'], undefined);
+		assert.strictEqual(Buffer.byteLength(r.body), onDisk, 'body matches the length promised');
+		assert.deepStrictEqual(JSON.parse(r.body).frames, []);
+	});
+
 	it('does not leak recordings from outside the root', async function () {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-outside-'));
 		try {
