@@ -5,6 +5,7 @@
 const { createServer, TerrainMatrix } = require('./serverBoot');
 const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
 const warnings = require('./harnessWarnings');
+const modRegistry = require('./mods');
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
@@ -116,8 +117,13 @@ function structureDefaults(type, spawnIndex) {
 }
 
 class DojoWorld {
-	constructor() {
-		this.server = createServer();
+	// options.mods    — active mod IDs (src/mods.js), for mod-supplied object
+	//                   defaults and for the run's metadata
+	// options.modfile — the mods.json the engine must read; absent means vanilla
+	constructor(options) {
+		options = options || {};
+		this.mods = options.mods || [];
+		this.server = createServer(options.modfile ? { modfile: options.modfile } : undefined);
 		this.bot = null;        // main bot User (set by addMainBot)
 		this.botUserId = null;
 		this.modules = null;    // set by the runner before setup() runs
@@ -611,7 +617,11 @@ class DojoWorld {
 			doc[doc.resourceType || 'energy'] = doc.amount;
 			delete doc.amount;
 		}
-		const withDefaults = Object.assign({}, structureDefaults(type, 1), doc);
+		// Mod defaults sit BETWEEN the built-in ones and the scenario's own: a
+		// selected mod may know something vanilla does not (a Thorium mineral
+		// needs an amount or Season 5 deletes it), but the scenario still wins.
+		const withDefaults = Object.assign({}, structureDefaults(type, 1),
+			modRegistry.objectDefaults(this.mods, type, doc), doc);
 		await this.applyClocks(type, withDefaults);
 		const result = await this.world.addRoomObjectUnchecked(room, type, x, y, withDefaults);
 		// An NPC engine pins its room regardless of `activate` — that flag only
@@ -709,7 +719,10 @@ class DojoWorld {
 				doc[decay.field] = (await now()) + this.engineConstant(decay.constant);
 			}
 		}
-		if (regen) {
+		// A mod may declare a resource finite — Season 5 Thorium never comes
+		// back, it is deleted when it runs out — in which case a regeneration
+		// deadline on it is wrong, and visible to the bot and the inspector.
+		if (regen && !modRegistry.suppressesRegen(this.mods, type, doc)) {
 			// A full node has nothing pending — the engine's handlers only run
 			// their clock while it is empty, so seeding one would just show a
 			// bogus ticksToRegeneration to the bot.
@@ -924,7 +937,10 @@ class DojoWorld {
 				} catch (error) { /* no visuals for this room */ }
 			}
 		}
-		return { gameTime: gameTime, cpu: cpu, objects: objects, flags: flags, eventLog: eventLog, visuals: visuals };
+		return {
+			gameTime: gameTime, cpu: cpu, objects: objects, flags: flags,
+			eventLog: eventLog, visuals: visuals, users: await this.readUsers()
+		};
 	}
 
 	// Terrain as the map-format char rows, read back from the server, keyed
@@ -951,6 +967,22 @@ class DojoWorld {
 
 	// --- observation -----------------------------------------------------
 
+	// { userId: { username, score } } for every user in the world, NPCs included.
+	// `score` is 0 rather than absent when the engine has never written one, so a
+	// scenario can compare it without knowing whether a mod that scores is loaded.
+	async readUsers() {
+		const { db } = await this.world.load();
+		const users = {};
+		for (const doc of await db.users.find({})) {
+			users[doc._id] = {
+				username: doc.username,
+				score: typeof doc.score === 'number' ? doc.score : 0
+			};
+		}
+		return users;
+	}
+
+
 	// Snapshot read from the DB between ticks (spec §4): the runner and
 	// scenario until()/expect() see ONLY this, never bot internals.
 	async readState() {
@@ -960,7 +992,13 @@ class DojoWorld {
 		const objects = await db['rooms.objects'].find({});
 		const flagDocs = await db['rooms.flags'].find({});
 
-		const state = { gameTime: gameTime, creeps: {}, hostileCreeps: {}, flags: {}, objects: objects };
+		const state = {
+			gameTime: gameTime, creeps: {}, hostileCreeps: {}, flags: {}, objects: objects,
+			// Score is a USER field, not a room object: Season 5 reactors pay the
+			// reactor's owner (bulkUsers.inc(user, 'score')), so until() and
+			// expect() can only see scoring through here.
+			users: await this.readUsers()
+		};
 		for (const object of objects) {
 			if (object.type !== 'creep') continue;
 			const creep = {

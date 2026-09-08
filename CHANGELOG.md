@@ -7,6 +7,100 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- **Game mods: a scenario can run under real Screeps season rules.** Add
+  `"mods": ["season5"]` to a scenario's `settings.json` — or tick **Game mods**
+  in its ⚙ — and the run loads the official
+  [Season 5 mod](https://github.com/screeps/mod-season5) (pinned by commit) into
+  the engine. Thorium, reactors, `Creep.claimReactor()`, reactor scoring, the
+  Thorium decay penalty, the same-player terminal restriction and the Season 5
+  stronghold reward tables all come from the mod itself, so the engine's own
+  implementation stays the source of truth. Verified in both engine modes (fast
+  in-process and stock multiprocess).
+
+  The mod list is **curated**, not arbitrary: a scenario names an id from the
+  catalog in `src/mods.js`, which is the only thing that turns an id into a
+  module path. An unknown id fails the run before the engine boots. See
+  **Game mods** in the README for what Season 5 does and does not bring — the
+  parts of it that live in a backend service or a cron scheduler do nothing
+  here, so scenarios place their own reactors and Thorium (and get sane
+  defaults for them). Three worked examples: `season5-reactor` (the minimum),
+  `season5-thorium-mine` (extractor mining, on its own) and
+  `season5-thorium-chain` (mine, haul, feed the reactor, score).
+
+- **Score changes are logged.** When a user's score moves, the run writes a
+  console line — `score: dojo 12 (+2)` — which puts it in the live view, in
+  `result.console` and in the recording. Vanilla scores never move, so vanilla
+  runs are unaffected.
+
+- **Reactors and Thorium render**, using the mod's own MIT-licensed artwork
+  (vendored in `ui/src/assets/season5`): a green core, an edge that turns only
+  while the reactor is owned and burning, the owner's colour ringed around it,
+  and the Thorium icon on its mineral. Live view, replay, GIF and MP4 all share
+  the same drawing code, and rotation is derived from game time, so an export at
+  8x looks like the replay at 1x. Any *other* object a mod introduces now gets a
+  labelled marker instead of being invisible. The map editor and the scenario
+  preview draw them too: they render through `drawStaticScene`, which shares
+  every drawing routine with the replay but not `drawFrame`'s per-tick pass — so
+  a reactor showed as an empty tile there, and a Thorium mineral fell back to
+  lettering while the replay used the icon. Both now go through the same code
+  with the same artwork.
+
+- **User scores are observable.** `state.users[userId] = { username, score }` in
+  `readState()` and per frame in recordings, because Season 5 pays score to a
+  reactor's owner rather than to a room — `until()` and `expect()` had no way to
+  see it before. Older recordings simply lack the field.
+
+### Changed
+
+- **Every scenario now runs in its own process, from the CLI too.** The GUI
+  already forked one process per run; `npm test` ran them sequentially in one
+  mocha process. A mod cannot be unloaded — it mutates engine constants, event
+  listeners and prototype registrations — so a process that has run a Season 5
+  scenario can never run a vanilla one again. Both paths now go through
+  `src/scenarioChild.js`. A failed `expect()` still fails the test, and still
+  keeps its recording.
+
+- **Recordings record which mods they were made under** (`meta.mods`), and the
+  replay list shows them: a Season 5 recording holds objects and scores that
+  make no sense read as vanilla.
+
+- **The mock-engine patch set honours an external `MODFILE`.** The mockup pinned
+  every engine role to the empty `mods.json` it copies into `server/` on connect;
+  it now uses the run's own mod file and hands the same one to main, storage,
+  runner and processor. A patch-hash mismatch (a `node_modules` left over from an
+  older revision of the patch set) now says how to recover instead of printing a
+  bare hash.
+
+### Fixed
+
+- **Importing a room keeps its seasonal objects.** The room importer dropped
+  every type it did not recognise, so a live Season 5 room arrived without its
+  reactor (`skipped 1 reactor`); it now also keeps the types the scenario's
+  selected mods add. It also records a mineral's **current `mineralAmount`**
+  rather than re-seeding a full node — a half-mined mineral used to import as
+  untouched, and for a finite resource like Thorium there is no "full" to rewind
+  to. A reactor's live-server `launchTime` is dropped on the way in: it is an
+  absolute tick on the source server, and here it would make the mod's score
+  formula NaN.
+
+- **A mod loaded twice, silently doubling every per-tick effect.** Applying a
+  mod is not repeatable — it pushes engine listeners and custom object
+  prototypes and cannot be undone — and the fast in-process engine ran
+  `configManager.load()` twice in one process (the driver's own call, plus the
+  dojo's in-process storage adapter mirroring what the real storage process
+  does). Season 5 paid its reactor score **twice a tick** and applied the
+  Thorium decay penalty twice, with nothing reporting a problem. `load()` is now
+  idempotent per mod file, and the test suite asserts both the listener count
+  and the exact score rate rather than merely that the score went up. The stock
+  multiprocess engine was never affected.
+
+- **Thorium carries no regeneration deadline.** Vanilla minerals come back once
+  they are empty and the dojo seeds that clock; Season 5 deletes a depleted
+  Thorium mineral instead, so a countdown on one was wrong and visible to both
+  the bot and the inspector. A mod can now declare a resource finite.
+
 ## [0.10.0] — 2026-09-02
 
 Two things this release is for: importing a real room and getting back what is

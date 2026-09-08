@@ -61,6 +61,7 @@ function mapFileName(dir, roomName, overwrite) {
 const { roomToMap } = require('../src/import/roomToMap');
 const screepsProfiles = require('../src/screepsProfiles');
 const scenarioSettings = require('../src/scenarioSettings');
+const modRegistry = require('../src/mods');
 
 // .env is mounted into the container; load it without a dependency.
 function loadEnv() {
@@ -125,7 +126,10 @@ async function main() {
 			roomName: roomName, objects: room.objects,
 			terrainRows: room.terrainRows, classifyOwner: classifyOwner,
 			includeMyCreeps: parsed.includeMyCreeps,
-			includeMyStructures: parsed.includeMyStructures
+			includeMyStructures: parsed.includeMyStructures,
+			// Whatever the scenario's mods add — a Season 5 room has a reactor,
+			// and dropping it would be the one object the import was for.
+			extraStructureTypes: modRegistry.importTypes(settings.mods)
 		});
 		// Save per-room as map.<ROOM>.json and NEVER overwrite an existing file
 		// (a previous import or a hand-authored map) — dedupe with " (1)", " (2)"…

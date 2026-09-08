@@ -2,19 +2,24 @@
 
 // Optional per-scenario overrides: scenarios/<name>/settings.json.
 //
-//   { "bot": "speedrun", "bots": { "enemy": "default" }, "server": "season" }
+//   { "bot": "speedrun", "bots": { "enemy": "default" }, "server": "season",
+//     "mods": ["season5"] }
 //
 // "bot" is shorthand for bots.main. Values are profile NAMES, never paths: a
 // host path that was not bind-mounted when the container was created is
 // unreadable from inside it, so accepting one could only fail confusingly.
+// "mods" names curated game mods (src/mods.js) for the same reason — and
+// because a mod is code the engine runs, so scenario input must never be able
+// to name one that is not in the catalog.
 //
 // An absent file means "inherit everything" and is the normal case, so load()
 // costs one readFile and never throws for ENOENT.
 const fs = require('fs');
 const path = require('path');
+const mods = require('./mods');
 
 const FILE_NAME = 'settings.json';
-const KNOWN_KEYS = ['bot', 'bots', 'server'];
+const KNOWN_KEYS = ['bot', 'bots', 'server', 'mods'];
 const MAIN_SIDE = 'main';
 const SIDE_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
@@ -56,7 +61,9 @@ function validate(raw, label) {
 		throw new Error(where + '"server" must be a non-empty profile name');
 	}
 
-	const settings = { bots: bots };
+	// Unlike an unknown KEY, an unknown MOD is fatal: a scenario written for
+	// Season 5 that quietly ran vanilla would produce confidently wrong results.
+	const settings = { bots: bots, mods: mods.validate(raw.mods, label) };
 	if (raw.server !== undefined) settings.server = raw.server.toLowerCase();
 	return { settings: settings, warnings: warnings };
 }
@@ -68,7 +75,7 @@ function load(scenarioDir) {
 	try {
 		text = fs.readFileSync(file, 'utf8');
 	} catch (e) {
-		if (e && e.code === 'ENOENT') return { settings: { bots: {} }, warnings: [], present: false };
+		if (e && e.code === 'ENOENT') return { settings: { bots: {}, mods: [] }, warnings: [], present: false };
 		throw e;
 	}
 	const label = path.basename(scenarioDir) + '/' + FILE_NAME;

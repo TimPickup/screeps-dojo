@@ -56,10 +56,29 @@ export interface HostAgentStatus {
 }
 
 // The parsed contents of a scenario's settings.json. `bots` maps a side
-// ('main' is the scenario's own bot) to a bot profile name.
+// ('main' is the scenario's own bot) to a bot profile name; `mods` lists the
+// curated game mods the run loads (empty means vanilla Screeps).
 export interface ScenarioSettings {
   bots: Record<string, string>;
   server?: string;
+  mods?: string[];
+}
+
+// One entry of the curated catalog (GET /api/mods). The server owns this list;
+// the UI never hardcodes one.
+export interface ModProfile {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  supported: string[];
+  unavailable: string[];
+  requires: string[];
+  conflicts: string[];
+}
+
+export interface ModsResponse {
+  mods: ModProfile[];
 }
 
 export interface ScenarioSettingsResponse {
@@ -96,6 +115,9 @@ export interface RecordingMeta {
   // side -> container dir of the codebase that produced this recording.
   // Absent on recordings made before bot profiles existed.
   bots?: Record<string, string>;
+  // Curated game mods this run loaded. Absent on recordings made before mods
+  // existed, which is the same thing as vanilla.
+  mods?: string[];
   test?: TestResult | null;
 }
 
@@ -145,6 +167,9 @@ export interface Frame {
   // newline-separated command strings (src/dojoWorld.js captureState). Optional:
   // recordings made before this was captured simply do not carry it.
   visuals?: Record<string, string>;
+  // userId -> { username, score }. Season 5 pays score to a reactor's OWNER, so
+  // it is a user field, not an object field. Absent on older recordings.
+  users?: Record<string, { username?: string; score?: number }>;
 }
 
 export interface Recording {

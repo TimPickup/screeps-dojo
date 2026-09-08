@@ -117,6 +117,9 @@ export const TERRAIN_COLORS: Readonly<Record<string, string>> = {
 };
 
 export const MINERAL_COLORS: Readonly<Record<string, string>> = {
+	// Thorium (Season 5). Its own green, so a Thorium deposit reads as seasonal
+	// at a glance rather than as another grey mineral.
+	T: '#8fe04a',
 	H: '#cdcdcd',
 	O: '#cdcdcd',
 	U: '#52daf8',
@@ -222,6 +225,55 @@ export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([
 	'source',
 	'mineral',
 	'deposit',
+]);
+
+// Season 5 reactor. The official client draws a 150x150 sprite on a 100-unit
+// tile, so the artwork is 1.5 tiles across; its edge rotates π every four
+// seconds, and one tick is one second of replay at 1x.
+export const REACTOR_RENDER_STYLE = {
+	size: 1.5,
+	secondsPerHalfTurn: 4,
+	glowRadius: 1.6,
+	glowInner: '#67a700',
+	glowOpacity: 0.55,
+	// A claimed-but-empty reactor still glows, faintly — enough to find it on
+	// the map without implying it is running.
+	idleGlowScale: 0.6,
+	idleGlowOpacity: 0.22,
+	coreFill: '#3f6b12',
+	coreOutline: '#bcff50',
+	edgeFill: '#bcff50',
+	ownerRingRadius: 0.62,
+	ownerRingWidth: 0.09,
+} as const;
+
+// Anything a loaded mod placed that the renderer has no artwork for. Visible
+// and selectable beats invisible: a scenario that placed it should see it.
+export const UNKNOWN_OBJECT_RENDER_STYLE = {
+	radius: 0.4,
+	fill: '#2a2a2a',
+	stroke: '#9a9a9a',
+	outlineWidth: 0.06,
+	labelFont: 0.42,
+	labelOffsetY: 0.15,
+	labelChars: 3,
+} as const;
+
+// Types the renderer draws deliberately, somewhere. Anything outside this set
+// came from a mod the renderer does not know, and gets the marker above.
+export const KNOWN_OBJECT_TYPES: ReadonlySet<string> = new Set([
+	...STATIC_LAYER_OBJECT_TYPES,
+	'reactor',
+	'creep',
+	'powerCreep',
+	'constructionSite',
+	'tombstone',
+	'ruin',
+	'rampart',
+	'energy',
+	'resource',
+	'nuke',
+	'portal',
 ]);
 
 export const CONSTRUCTION_SITE_RENDER_STYLE = {

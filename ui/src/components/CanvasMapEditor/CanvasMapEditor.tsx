@@ -10,6 +10,7 @@ import {
 import styles from './CanvasMapEditor.module.css';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
+import { useModImages } from '../../hooks/useModImages';
 
 type Tool = { kind: 'select' } | { kind: 'terrain'; value: string } | { kind: 'object'; value: string };
 type Selection = { kind: 'structure' | 'flag'; index: number } | null;
@@ -18,15 +19,30 @@ export type CanvasMapEditorChangeKind = 'load' | 'edit';
 interface Props {
   value: string;
   onChange: (value: string, kind: CanvasMapEditorChangeKind) => void;
+  // Curated game mods this scenario selects (settings.json "mods"). They add
+  // placeable objects and resources — a reactor is only offered where a run
+  // would actually understand one.
+  mods?: string[];
 }
 
 const OBJECTS = [
   'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory',
   'container', 'road', 'rampart', 'constructedWall', 'source', 'controller', 'mineral', 'flag',
 ];
+// What each mod adds to the palette. A map keeps its seasonal objects whatever
+// is selected — this only decides what can be PLACED, so unticking a mod never
+// silently deletes anything.
+const MOD_OBJECTS: Record<string, string[]> = { season5: ['reactor'] };
+const MOD_MINERALS: Record<string, string[]> = { season5: ['T'] };
 const OWNED = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory', 'rampart', 'controller']);
-const STORE_CAPACITY: Record<string, number> = { storage: 1000000, terminal: 300000, container: 2000 };
+const STORE_CAPACITY: Record<string, number> = { storage: 1000000, terminal: 300000, container: 2000, reactor: 1000 };
 const MINERALS = ['H', 'O', 'U', 'L', 'K', 'Z', 'X'];
+
+function withModExtras(base: string[], mods: string[] | undefined, extras: Record<string, string[]>): string[] {
+  const out = base.slice();
+  for (const mod of mods || []) for (const value of extras[mod] || []) if (!out.includes(value)) out.push(value);
+  return out;
+}
 const ROOM_RE = /^[WE]\d+[NS]\d+$/;
 
 function frameFor(map: EditableMap): Frame {
@@ -69,9 +85,10 @@ function isClaimed(owner: unknown): boolean {
   return owner != null && owner !== 'neutral' && owner !== 'unclaimed';
 }
 
-export function CanvasMapEditor({ value, onChange }: Props) {
+export function CanvasMapEditor({ value, onChange, mods }: Props) {
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
+  const modImages = useModImages();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const modelRef = useRef<EditableMap | null>(null);
@@ -148,7 +165,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
     const scale = canvasSize * dpr / 50;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     const layout = computeStageLayout([model.room]);
-    drawStaticScene(ctx, { terrain: { [model.room]: model.terrain }, frame: frameFor(model), layout }, { initialSourceEnergy: true, terrainTextures });
+    drawStaticScene(ctx, { terrain: { [model.room]: model.terrain }, frame: frameFor(model), layout }, { initialSourceEnergy: true, terrainTextures, modImages });
     if (hovered) {
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(hovered.x, hovered.y, 1, 1);
@@ -163,7 +180,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
         ctx.stroke();
       }
     }
-  }, [model, selection, hovered, canvasSize, fontsReady, terrainTextures]);
+  }, [model, selection, hovered, canvasSize, fontsReady, terrainTextures, modImages]);
 
   const tileFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -263,7 +280,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
         <section className={styles.section}>
           <div className={styles.label}>Objects</div>
           <div className={styles.grid}>
-            {OBJECTS.map((value) => (
+            {withModExtras(OBJECTS, mods, MOD_OBJECTS).map((value) => (
               <button key={value} className={tool.kind === 'object' && tool.value === value ? styles.active : styles.button}
                 onClick={() => setTool({ kind: 'object', value })}>{value === 'constructedWall' ? 'constructed wall' : value}</button>
             ))}
@@ -304,7 +321,7 @@ export function CanvasMapEditor({ value, onChange }: Props) {
           {selectedObject?.type === 'mineral' && <>
             <label className={styles.property}>mineral<select className={styles.input} value={selectedObject.mineralType || 'H'}
               onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, mineralType: event.target.value }))}>
-              {MINERALS.map((value) => <option key={value} value={value}>{value}</option>)}
+              {withModExtras(MINERALS, mods, MOD_MINERALS).map((value) => <option key={value} value={value}>{value}</option>)}
             </select></label>
             <label className={styles.property}>density<select className={styles.input} value={selectedObject.density || 3}
               onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, density: Number(event.target.value) }))}>

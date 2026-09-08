@@ -20,19 +20,20 @@ describe('scenarioSettings', function () {
 	it('treats an absent file as "inherit everything"', function () {
 		const loaded = scenarioSettings.load(dir);
 		assert.strictEqual(loaded.present, false);
-		assert.deepStrictEqual(loaded.settings, { bots: {} });
+		assert.deepStrictEqual(loaded.settings, { bots: {}, mods: [] });
 		assert.deepStrictEqual(loaded.warnings, []);
 	});
 
 	it('reads "bot" as shorthand for bots.main', function () {
 		write('{"bot":"speedrun"}');
-		assert.deepStrictEqual(scenarioSettings.load(dir).settings, { bots: { main: 'speedrun' } });
+		assert.deepStrictEqual(scenarioSettings.load(dir).settings, { bots: { main: 'speedrun' }, mods: [] });
 	});
 
 	it('merges bot and bots into one map', function () {
 		write('{"bot":"speedrun","bots":{"enemy":"default"},"server":"season"}');
 		assert.deepStrictEqual(scenarioSettings.load(dir).settings, {
 			bots: { enemy: 'default', main: 'speedrun' },
+			mods: [],
 			server: 'season'
 		});
 	});
@@ -91,8 +92,33 @@ describe('scenarioSettings', function () {
 		assert.deepStrictEqual(loaded.warnings, []);
 	});
 
+	it('reads and normalizes the mod list', function () {
+		write('{"mods":["Season5","season5"]}');
+		assert.deepStrictEqual(scenarioSettings.load(dir).settings.mods, ['season5']);
+	});
+
+	// Unlike an unknown KEY, which only warns: a scenario written for Season 5
+	// that silently ran vanilla would produce confidently wrong results.
+	it('refuses an unavailable mod instead of warning', function () {
+		write('{"mods":["season4"]}');
+		assert.throws(function () { scenarioSettings.load(dir); }, /unknown mod "season4"/);
+	});
+
+	it('refuses anything that could name a module', function () {
+		write('{"mods":["../../evil"]}');
+		assert.throws(function () { scenarioSettings.load(dir); }, /invalid mod ID/);
+	});
+
+	it('accepts what the editor writes for a modded scenario', function () {
+		// ui/.../settingsDoc.ts serializeDoc emits exactly this
+		write('{\n\t"bot": "speedrun",\n\t"mods": [\n\t\t"season5"\n\t]\n}\n');
+		const loaded = scenarioSettings.load(dir);
+		assert.deepStrictEqual(loaded.settings, { bots: { main: 'speedrun' }, mods: ['season5'] });
+		assert.deepStrictEqual(loaded.warnings, []);
+	});
+
 	it('accepts an empty object — what the ⚙ creates for a new scenario', function () {
 		write('{}\n');
-		assert.deepStrictEqual(scenarioSettings.load(dir).settings, { bots: {} });
+		assert.deepStrictEqual(scenarioSettings.load(dir).settings, { bots: {}, mods: [] });
 	});
 });

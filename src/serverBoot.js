@@ -130,9 +130,13 @@ function warnOnDirectDbWrites(world) {
 	return world;
 }
 
-function createServer() {
+// `options` reaches ScreepsServer untouched; the one the dojo sets is
+// `modfile`, the run's curated mods.json (src/mods.js). The mockup writes it
+// into process.env.MODFILE and hands the same path to every engine role, so a
+// mod either loads everywhere or the run fails a probe — never half-applied.
+function createServer(options) {
 	assertInProcessIsolation(process.env);
-	const server = new ScreepsServer();
+	const server = new ScreepsServer(options);
 	const origStartProcess = server.startProcess.bind(server);
 	server.startProcess = function patchedStartProcess(name, execPath, childEnv) {
 		return origStartProcess(name, execPath, configureChildEnv(name, childEnv));

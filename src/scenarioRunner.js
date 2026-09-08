@@ -26,6 +26,7 @@ const harnessWarnings = require('./harnessWarnings');
 const botModules = require('./botModules');
 const botProfiles = require('./botProfiles');
 const scenarioSettings = require('./scenarioSettings');
+const modRegistry = require('./mods');
 const { loadEnvConfig } = require('./envConfig');
 const { createRecorder } = require('./recording');
 const { getMockEngineFeatures } = require('./serverBoot');
@@ -60,6 +61,32 @@ function installSideContext(scenarioDir, emitWarning) {
 	return { sides: sides, settings: loaded.settings };
 }
 
+// One line per user whose score moved this tick, e.g. "score: dojo 12 (+3)".
+// Score is written by a mod (Season 5 pays a reactor's owner), so in a vanilla
+// run every score stays 0 and this never says anything. Emitting it as a
+// console line rather than a metric puts it in the live view, in
+// `result.console`, and in the recording — all three for free.
+function scoreDeltas(previous, state) {
+	const lines = [];
+	const users = state.users || {};
+	for (const id of Object.keys(users)) {
+		const score = users[id].score || 0;
+		const before = previous[id] || 0;
+		if (score === before) continue;
+		const change = score - before;
+		lines.push('score: ' + (users[id].username || id) + ' ' + score
+			+ ' (' + (change > 0 ? '+' : '') + change + ')');
+	}
+	return lines;
+}
+
+function snapshotScores(state) {
+	const scores = {};
+	const users = state.users || {};
+	for (const id of Object.keys(users)) scores[id] = users[id].score || 0;
+	return scores;
+}
+
 function snapshotHits(state) {
 	const hits = {};
 	for (const name of Object.keys(state.creeps)) hits[name] = state.creeps[name].hits;
@@ -86,14 +113,20 @@ async function runScenario(scenarioDir, options) {
 	// Resolve bot profiles BEFORE requiring the scenario — see installSideContext.
 	// harnessWarnings is reset below, so settings warnings are buffered until then.
 	const pendingWarnings = [];
-	const { sides } = installSideContext(scenarioDir, function (w) { pendingWarnings.push(w); });
+	const { sides, settings } = installSideContext(scenarioDir, function (w) { pendingWarnings.push(w); });
 
 	const scenario = require(path.join(scenarioDir, 'scenario.js'));
 	if (typeof scenario.maxTicks !== 'number' || scenario.maxTicks <= 0) throw new Error(scenarioDir + ': maxTicks is required');
 	if (typeof scenario.setup !== 'function') throw new Error(scenarioDir + ': setup(world) is required');
 	if (typeof scenario.expect !== 'function') throw new Error(scenarioDir + ': expect(result, assert) is required');
 
-	const world = new DojoWorld();
+	// The engine reads the mod list once, when the driver connects — which
+	// happens inside the first world.reset() — so the file has to exist before
+	// the world does. Mods can never be unloaded afterwards; see
+	// scripts/runScenarioChild.js for why every scenario gets its own process.
+	const modIds = settings.mods;
+	const modFile = modRegistry.createModFile(modIds);
+	const world = new DojoWorld({ mods: modIds, modfile: modFile && modFile.path });
 	const consoleLines = [];
 	let lastConsoleLen = 0;
 	const recordingEnabled = options.record === true || scenario.record === true || process.env.DOJO_RECORD === '1';
@@ -108,6 +141,9 @@ async function runScenario(scenarioDir, options) {
 			// which codebase produced this replay — a recording is a lot less
 			// useful if you cannot tell which bot was running
 			bots: sides,
+			// which RULES produced this replay: Season 5 objects and scores make
+			// no sense read as vanilla
+			mods: modIds,
 			endReason: endReason,
 			ticks: ticks
 		};
@@ -158,6 +194,14 @@ async function runScenario(scenarioDir, options) {
 		harnessWarnings.reset();   // a fresh run starts with a clean slate
 		for (const warning of pendingWarnings) harnessWarnings.warnOnce(warning, warning);
 		await world.reset();
+		// @screeps/common CATCHES and logs mod load failures, so a mod that threw
+		// on load leaves a server that looks healthy and silently runs vanilla.
+		// Fail here, before setup() places objects only a mod understands.
+		modRegistry.probe(modIds, null, {
+			scenario: path.basename(scenarioDir),
+			modFile: modFile && modFile.path,
+			engineMode: getMockEngineFeatures().inProcess ? 'fast in-process' : 'stock multiprocess'
+		});
 		world.modules = typeof scenario.modules === 'function' ? scenario.modules() : scenario.modules;
 		await scenario.setup(world);
 		if (!world.bot) {
@@ -179,7 +223,8 @@ async function runScenario(scenarioDir, options) {
 		let state = await world.readState();
 		emit({
 			type: 'start', scenario: path.basename(scenarioDir), maxTicks: scenario.maxTicks,
-			botUserId: world.botUserId, bots: sides, mockEngineFeatures: getMockEngineFeatures()
+			botUserId: world.botUserId, bots: sides, mods: modIds,
+			mockEngineFeatures: getMockEngineFeatures()
 		});
 
 		// terrain is captured once (it never changes); feed both the recorder
@@ -208,6 +253,7 @@ async function runScenario(scenarioDir, options) {
 		const damageTaken = {};
 		const seenCreeps = new Set(Object.keys(state.creeps));
 		let previousHits = snapshotHits(state);
+		let previousScores = snapshotScores(state);
 		let endReason = 'maxTicks';
 
 		for (let i = 0; i < scenario.maxTicks; i++) {
@@ -222,6 +268,11 @@ async function runScenario(scenarioDir, options) {
 			if (typeof world.takeBotErrors === 'function') {
 				for (const err of world.takeBotErrors()) consoleLines.push('⚠ bot error: ' + err);
 			}
+
+			// Before the console delta is taken, so a score change lands on the
+			// tick that earned it.
+			for (const line of scoreDeltas(previousScores, state)) consoleLines.push(line);
+			previousScores = snapshotScores(state);
 
 			const tickConsole = takeConsoleDelta();
 			// capture the frame ONCE and feed both the recorder and the live
@@ -259,6 +310,7 @@ async function runScenario(scenarioDir, options) {
 		const result = {
 			endReason: endReason,
 			ticks: ticks,
+			mods: modIds,
 			damageTaken: damageTaken,
 			survived: survived,
 			console: consoleLines,
@@ -302,6 +354,9 @@ async function runScenario(scenarioDir, options) {
 		// scenario's bot profiles installed would silently apply them to the next
 		botModules.clearSides();
 		world.stop();
+		// After the server is stopped: nothing reads MODFILE again, and leaving
+		// the file behind would litter tmp for every run.
+		if (modFile) modFile.cleanup();
 	}
 }
 

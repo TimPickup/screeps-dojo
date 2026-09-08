@@ -43,7 +43,16 @@ function targetState(targetPath, target) {
 	const actual = readHash(targetPath);
 	if (actual === target.patchedSha256) return 'patched';
 	if (actual === target.pristineSha256) return 'pristine';
-	throw new Error('Unexpected hash for ' + targetPath + ': ' + (actual || '<missing>'));
+	// Refusing to write over a file we do not recognise is the point — but the
+	// commonest cause is a node_modules that still holds a PREVIOUS revision of
+	// one of these patches (an existing container's volume after the patch set
+	// changed), and `npm install` will not replace it. Say so: without this the
+	// failure is a hash and a dead end.
+	throw new Error('Unexpected hash for ' + targetPath + ': ' + (actual || '<missing>')
+		+ '\n  This file is neither pristine nor patched by the CURRENT patch set — most often'
+		+ '\n  a node_modules left over from an older revision of it. Reinstall the dependency'
+		+ '\n  tree rather than patching over it: `npm ci` here, or, for the container,'
+		+ '\n  `npm run ui:down && npm run ui` (which re-seeds node_modules from the image).');
 }
 
 function inspectOperations(context) {

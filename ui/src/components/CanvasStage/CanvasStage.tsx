@@ -5,6 +5,7 @@ import { CreepRenderer } from '../../canvas/creeps';
 import { drawFrame } from '../../canvas/drawFrame';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
+import { useModImages } from '../../hooks/useModImages';
 import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
 import styles from './CanvasStage.module.css';
 
@@ -48,6 +49,7 @@ interface Props {
 export function CanvasStage({ recording, layout, relPath, playing, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
+  const modImages = useModImages();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
@@ -58,11 +60,15 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const lastTs = useRef(0);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const stateRef = useRef({ playing, speed, tick, showVisuals, selectedId });
+  // The draw loop is created once; a ref lets it pick up the artwork as it
+  // finishes decoding, without tearing the loop down and back up.
+  const modImagesRef = useRef(modImages);
   const [ready, setReady] = useState(false);
   // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
   const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
   recordingRef.current = recording;
   stateRef.current = { playing, speed, tick, showVisuals, selectedId };
+  modImagesRef.current = modImages;
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
@@ -74,12 +80,12 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
     if (!fontsReady || !terrainTextures) return () => { cancelled = true; };
     const initial = recordingRef.current;
     const sprites = new CreepRenderer();
-    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, { textures: terrainTextures });
+    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, { textures: terrainTextures, modImages });
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
     if (!cancelled) setReady(true);
     return () => { cancelled = true; };
-  }, [layout, relPath, recording.meta.botUserId, fontsReady, terrainTextures]);
+  }, [layout, relPath, recording.meta.botUserId, fontsReady, terrainTextures, modImages]);
 
   // keep playhead synced to a scrubbed tick when paused
   useEffect(() => { if (!playing) playhead.current = tick; }, [tick, playing]);
@@ -139,7 +145,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       if (c) {
         const f0 = activeRecording.frames[Math.min(drawTick, count - 1)];
         c.layers.sync(f0);
-        drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals });
+        drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, modImages: modImagesRef.current });
       }
 
       // selection ring

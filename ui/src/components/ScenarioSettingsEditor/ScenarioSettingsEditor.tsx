@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { openSettings } from '../../state/settingsOverlay';
-import type { BotProfile, ScreepsProfile } from '../../api/types';
+import type { BotProfile, ModProfile, ScreepsProfile } from '../../api/types';
 import {
-  canonicalName, optionsFor, parseDoc, serializeDoc, validateForm,
+  canonicalName, optionsFor, parseDoc, serializeDoc, toggleMod, validateForm,
   type SettingsForm,
 } from './settingsDoc';
 import styles from './ScenarioSettingsEditor.module.css';
@@ -19,6 +19,7 @@ interface Registry {
   botDefault: string;
   servers: ScreepsProfile[];
   serverDefault: string;
+  mods: ModProfile[];
 }
 
 function names(profiles: Array<{ name: string }>): string[] {
@@ -48,10 +49,14 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
 
   useEffect(() => {
     let live = true;
-    Promise.all([api.bots(), api.servers()])
-      .then(([bots, servers]) => {
+    Promise.all([api.bots(), api.servers(), api.mods()])
+      .then(([bots, servers, mods]) => {
         if (!live) return;
-        setRegistry({ bots: bots.profiles, botDefault: bots.default, servers: servers.profiles, serverDefault: servers.default });
+        setRegistry({
+          bots: bots.profiles, botDefault: bots.default,
+          servers: servers.profiles, serverDefault: servers.default,
+          mods: mods.mods,
+        });
       })
       .catch((e) => { if (live) setRegistryError((e as Error).message); });
     return () => { live = false; };
@@ -94,7 +99,12 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
   // selected instead of the form blanking them.
   const botNames = registry ? names(registry.bots) : [];
   const serverNames = registry ? names(registry.servers) : [];
-  const problems = validateForm(form, botNames, serverNames);
+  const modCatalog = registry ? registry.mods : [];
+  const modIds = modCatalog.map((mod) => mod.id);
+  const problems = validateForm(form, botNames, serverNames, modIds);
+  // A mod the file names but the catalog no longer offers: shown so it can be
+  // unticked, since the run refuses to start until it is gone.
+  const strayMods = form.mods.filter((id) => !modIds.includes(id));
 
   const setSides = (sides: SettingsForm['sides']) => update({ ...form, sides });
   const editSide = (index: number, patch: Partial<SettingsForm['sides'][number]>) =>
@@ -187,6 +197,49 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
             <pre className={styles.code}>{SIDE_SNIPPET}</pre>
           </div>
         )}
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.label}>Game mods</div>
+        {modCatalog.length === 0 && <div className={styles.hint}>No game mods are available.</div>}
+        {modCatalog.map((mod) => {
+          const on = form.mods.includes(mod.id);
+          return (
+            <div key={mod.id} className={styles.modRow}>
+              <input
+                type="checkbox"
+                id={'mod-' + mod.id}
+                checked={on}
+                onChange={(e) => update({ ...form, mods: toggleMod(form.mods, mod.id, e.target.checked, modIds) })}
+              />
+              <div className={styles.modBody}>
+                <label className={styles.modName} htmlFor={'mod-' + mod.id}>{mod.name}</label>
+                <div className={styles.modDesc}>{mod.description}</div>
+                {/* Selecting a mod turns on everything it implements — the
+                    upstream mod has no per-mechanic seams to expose. */}
+                {on && mod.unavailable.length > 0 && (
+                  <ul className={styles.modList}>
+                    {mod.unavailable.map((line, i) => <li key={i}>not included: {line}</li>)}
+                  </ul>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {strayMods.map((id) => (
+          <div key={id} className={styles.modRow}>
+            <input
+              type="checkbox"
+              checked
+              onChange={() => update({ ...form, mods: toggleMod(form.mods, id, false, modIds) })}
+            />
+            <div className={styles.modBody}>
+              <span className={[styles.modName, styles.modGone].join(' ')}>{id}</span>
+              <div className={styles.modDesc}>Named by settings.json but not available here — untick it to run this scenario.</div>
+            </div>
+          </div>
+        ))}
+        {problems.mods && <div className={styles.bad}>{problems.mods}</div>}
       </div>
 
       <div className={styles.section}>

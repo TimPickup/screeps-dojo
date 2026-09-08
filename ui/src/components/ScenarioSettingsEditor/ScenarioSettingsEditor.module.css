@@ -22,3 +22,13 @@
 .parseError { color: var(--hostile); margin-bottom: 6px; }
 .warn { color: var(--warn); font-size: 11px; margin: 4px 0; }
 .warn code { color: var(--accent); }
+
+/* Game mods: a checkbox per curated mod, with what it does and does not bring. */
+.modRow { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.modRow input { margin-top: 2px; flex: none; }
+.modName { color: var(--text); font-size: 12px; font-weight: 600; }
+.modBody { min-width: 0; }
+.modDesc { color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 2px; }
+.modList { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 4px 0 0; padding-left: 16px; }
+.modList li { margin: 0; }
+.modGone { color: var(--warn); }

@@ -6,7 +6,8 @@
 // configure. Its test suite asserts the shape emitted here still loads.
 
 export const MAIN_SIDE = 'main';
-export const KNOWN_KEYS = ['bot', 'bots', 'server'];
+export const KNOWN_KEYS = ['bot', 'bots', 'server', 'mods'];
+export const MOD_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
 export const SIDE_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 export interface SettingsSide {
@@ -20,6 +21,9 @@ export interface SettingsForm {
   bot: string;
   sides: SettingsSide[];
   server: string;
+  // Curated game-mod IDs, in the order the file listed them. An empty list is
+  // vanilla Screeps, and serializeDoc then omits the key entirely.
+  mods: string[];
 }
 
 export interface ParsedDoc {
@@ -33,10 +37,13 @@ export interface FormProblems {
   bot: string | null;
   server: string | null;
   sides: Array<{ side: string | null; profile: string | null }>;
+  // One message for the whole list: a mod the catalog does not offer is fatal
+  // to the run, unlike an unknown profile name, which only warns.
+  mods: string | null;
 }
 
 export function emptyForm(): SettingsForm {
-  return { bot: '', sides: [], server: '' };
+  return { bot: '', sides: [], server: '', mods: [] };
 }
 
 function fail(extras: Record<string, unknown>, error: string): ParsedDoc {
@@ -85,6 +92,16 @@ export function parseDoc(text: string): ParsedDoc {
     if (typeof source.server !== 'string' || !source.server) return fail(extras, '"server" must be a non-empty profile name');
     form.server = source.server;
   }
+  if (source.mods !== undefined) {
+    if (!Array.isArray(source.mods)) return fail(extras, '"mods" must be an array of mod IDs');
+    for (const value of source.mods) {
+      if (typeof value !== 'string' || !value.trim()) return fail(extras, '"mods" entries must be non-empty mod IDs');
+      const id = value.trim().toLowerCase();
+      // A mod the catalog does not know still parses: it stays in the form,
+      // visible and removable, rather than being silently dropped on first save.
+      if (form.mods.indexOf(id) === -1) form.mods.push(id);
+    }
+  }
   return { form, extras, error: null };
 }
 
@@ -108,6 +125,10 @@ export function serializeDoc(form: SettingsForm, extras: Record<string, unknown>
   const server = form.server.trim();
   if (server) out.server = server;
 
+  // Unchecking the last mod removes the key, the same way an empty bot or
+  // server field is omitted rather than written as "".
+  if (form.mods.length) out.mods = form.mods.slice();
+
   // Unknown keys ride along at the end: the runner only warns about them, so
   // dropping a hand-written key on the first form save would be theft.
   for (const key of Object.keys(extras)) if (!(key in out)) out[key] = extras[key];
@@ -129,7 +150,18 @@ function unknownProfile(value: string, known: string[], what: string): string | 
   return matches(known, name) ? null : '"' + name + '" is not a registered ' + what + ' profile';
 }
 
-export function validateForm(form: SettingsForm, knownBots: string[], knownServers: string[]): FormProblems {
+// Unknown mod IDs, named. An empty catalog means the list never loaded, not
+// that every ID is wrong — the same reasoning as unknownProfile.
+function unknownMods(mods: string[], knownMods: string[]): string | null {
+  if (!mods.length || !knownMods.length) return null;
+  const bad = mods.filter((id) => !knownMods.some((known) => known.toLowerCase() === id.toLowerCase()));
+  if (!bad.length) return null;
+  return bad.map((id) => '"' + id + '"').join(', ')
+    + (bad.length > 1 ? ' are not available mods' : ' is not an available mod')
+    + ' — the run will refuse to start';
+}
+
+export function validateForm(form: SettingsForm, knownBots: string[], knownServers: string[], knownMods: string[] = []): FormProblems {
   const counts = new Map<string, number>();
   for (const row of form.sides) {
     const side = row.side.trim().toLowerCase();
@@ -152,13 +184,27 @@ export function validateForm(form: SettingsForm, knownBots: string[], knownServe
   return {
     bot: unknownProfile(form.bot, knownBots, 'bot'),
     server: unknownProfile(form.server, knownServers, 'server'),
-    sides
+    sides,
+    mods: unknownMods(form.mods, knownMods)
   };
 }
 
 export function hasProblems(problems: FormProblems): boolean {
-  return Boolean(problems.bot || problems.server
+  return Boolean(problems.bot || problems.server || problems.mods
     || problems.sides.some((row) => row.side || row.profile));
+}
+
+// Checkbox toggle, keeping the catalog's order rather than click order so the
+// file does not churn. Unknown IDs already in the file keep their place.
+export function toggleMod(mods: string[], id: string, on: boolean, catalogOrder: string[]): string[] {
+  const next = mods.filter((m) => m !== id);
+  if (!on) return next;
+  next.push(id);
+  const rank = (m: string) => {
+    const i = catalogOrder.indexOf(m);
+    return i === -1 ? catalogOrder.length : i;
+  };
+  return next.sort((a, b) => (rank(a) - rank(b)) || a.localeCompare(b));
 }
 
 // A name stored in the file but missing from the registry must stay selectable,

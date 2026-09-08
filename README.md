@@ -182,7 +182,8 @@ Any scenario may carry an optional `settings.json`:
 {
   "bot": "speedrun",
   "bots": { "enemy": "default" },
-  "server": "season"
+  "server": "season",
+  "mods": ["season5"]
 }
 ```
 
@@ -191,6 +192,8 @@ Any scenario may carry an optional `settings.json`:
 - `bots` — any other side, so you can pit two versions of your bot against each
   other: `world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) })`.
 - `server` — which Screeps server profile **Import a room** talks to.
+- `mods` — which **game mods** this scenario runs under (see below). Absent or
+  `[]` is vanilla Screeps.
 
 Values are profile *names*, never paths. Edit the file through the scenario's ⚙
 (a form, or raw JSON — the same way `map*.json` opens in the map editor), or by
@@ -200,6 +203,107 @@ normal case.
 An unknown or unmounted profile fails the run immediately, naming the profiles
 that are registered — never halfway through with a confusing missing-module
 error.
+
+## Game mods
+
+A scenario can run under a real Screeps **game mod** — the same code the
+official servers load — so you can test a bot against a season's rules instead
+of vanilla:
+
+```json
+{ "mods": ["season5"] }
+```
+
+Tick it in the scenario's ⚙ (**Game mods**), or write it by hand. No mod, or an
+empty list, is vanilla Screeps.
+
+### Available mods
+
+| id | what it is |
+| --- | --- |
+| `season5` | Official [Season 5](https://github.com/screeps/mod-season5) rules: Thorium, reactors, scoring, terminal restrictions and Season 5 stronghold rewards. |
+
+**Season 5 gives you**, all from the official mod, so the engine's own
+implementation stays the source of truth:
+
+- `RESOURCE_THORIUM` (`"T"`), included in `RESOURCES_ALL`
+- `FIND_REACTORS`, `LOOK_REACTORS`, and the player-visible `Reactor` object
+- `Creep.claimReactor()` and reactor ownership
+- Thorium consumption, `continuousWork`, and score paid to the reactor's owner
+- Thorium accelerating decay and creep ageing for anything sharing its tile
+- Depleted Thorium minerals removed
+- Terminal transfers restricted to terminals owned by the same player
+- Season 5 stronghold reward tables
+- A nuke landing in a stronghold room marking its core `depositType: "nuked"`
+
+**What it does not give you.** The mod hangs part of itself off a backend
+service and a cron scheduler, and the dojo runs the engine without either. So
+these do nothing here, by design:
+
+- automatic Thorium and reactor world generation
+- scoreboard ranking cronjobs and the backend scoreboard route
+- room decoration endpoints and the official renderer's metadata
+- backend respawn hooks
+
+That is the trade that makes a scenario reproducible: you place the seasonal
+objects yourself, exactly where you want them, instead of a cronjob rolling
+random positions.
+
+```js
+// in setup(), or as map.json entries — either works
+await world.addObject('W0N0', 'reactor', 20, 25, {});
+await world.addObject('W0N0', 'mineral', 10, 10, { mineralType: 'T' });
+```
+
+Selecting `season5` fills in what the missing cronjobs would have: a reactor
+gets a store, a Thorium mineral gets an amount (or Season 5 deletes it on the
+first tick), and an invader core gets `depositType: "normal"`. Anything you
+write yourself always wins.
+
+Score is a **user** field, because Season 5 pays the reactor's owner rather than
+the room, so `until()` and `expect()` read it from `state.users`:
+
+```js
+until: (state) => state.users[myUserId].score >= 30
+```
+
+`examples/season5-reactor` is a complete worked example: claim a reactor, haul
+Thorium into it, assert the score. Copy it into `scenarios/` and run it.
+
+### Why the list is curated
+
+A mod is arbitrary code the **engine** loads into its own process. It mutates
+shared state — game constants, engine event listeners, custom object prototypes
+— and Screeps offers no way to unload one. So the dojo will not take a path, a
+git URL, or a drop-in folder: a scenario names an id from the catalog in
+`src/mods.js`, and that file is the only thing that ever turns an id into a
+module path. An id that is not in the catalog fails the run before the engine
+boots, rather than quietly running vanilla and producing confidently wrong
+results.
+
+For the same reason **every scenario runs in its own process** — both from the
+GUI and from `npm test`. A process that has loaded Season 5 can never go back to
+vanilla, so it is never asked to.
+
+Because @screeps/common catches and logs mod-load failures rather than raising
+them, a run also **probes** its mods once the engine is up (is `RESOURCE_THORIUM`
+there? did the driver register the `reactor` prototype?) and stops with a message
+naming the failed check and the expected package if anything is missing.
+
+### Adding another mod
+
+1. Add the package to `package.json`, pinned to an exact commit, and rebuild the
+   image (`npm run ui:down && npm run ui`, or `docker compose build`).
+2. Add a catalog entry in `src/mods.js`: id, display name, description, module
+   name, load order, what works and what does not, any world-object defaults
+   standing in for cronjobs, and the post-load probes.
+3. If it introduces objects worth seeing, give them artwork in
+   `ui/src/canvas/modObjects.ts` and a palette entry in the map editor.
+   Without artwork they still render — as a labelled marker — rather than
+   vanishing.
+
+The UI reads the catalog from `GET /api/mods`, so there is no second list to
+keep in step.
 
 ## Screeps server profiles
 

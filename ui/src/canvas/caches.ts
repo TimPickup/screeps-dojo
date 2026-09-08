@@ -8,6 +8,7 @@ import {
 import { populateFrameMy } from './ownership.ts';
 import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION, SWAMP_RENDER_STYLE } from './renderConstants.ts';
 import { AnimatedSwampRenderer } from './terrainSwamps.ts';
+import type { ModImages } from './modImages.ts';
 import type { TerrainRenderResources, TerrainTextures } from './terrainTextures.ts';
 
 // ---- Per-epoch static-scene background cache ----
@@ -55,6 +56,7 @@ export class StaticLayers {
 	private animatedSwamps?: AnimatedSwampRenderer;
 	private terrainRowsByRoom: Record<string, string[]>;
 	private wallTexture?: CanvasImageSource;
+	private modImages?: ModImages;
 
 	constructor(
 		recording: Recording,
@@ -69,6 +71,7 @@ export class StaticLayers {
 		this.botUserId = recording.meta.botUserId;
 		this.terrainRowsByRoom = recording.terrain;
 		this.wallTexture = terrainResources.textures?.wallNoise;
+		this.modImages = terrainResources.modImages;
 		const firstSwampTexture = terrainResources.textures?.swampNoise1;
 		const secondSwampTexture = terrainResources.textures?.swampNoise2;
 		const animateSwamps = SWAMP_RENDER_STYLE.animated
@@ -103,6 +106,7 @@ export class StaticLayers {
 			canvasFactory,
 			this.terrainRowsByRoom,
 			this.wallTexture,
+			this.modImages,
 		);
 		this.rampart = this.rampartKey
 			? buildRampartCanvas(firstFrame, layout, resolution, canvasFactory)
@@ -130,6 +134,7 @@ export class StaticLayers {
 				this.canvasFactory,
 				this.terrainRowsByRoom,
 				this.wallTexture,
+				this.modImages,
 			);
 		}
 		const nextRampartKey = rampartEpochKey(frame);

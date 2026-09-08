@@ -17,6 +17,12 @@ export function mockCtx(): { ctx: CanvasRenderingContext2D; log: Call[] } {
       setTransform: (...transformArgs: unknown[]) => log.push({ op: 'pattern.setTransform', args: transformArgs }),
     };
   };
+  target.createRadialGradient = (...args: unknown[]) => {
+    log.push({ op: 'createRadialGradient', args });
+    return {
+      addColorStop: (...stopArgs: unknown[]) => log.push({ op: 'gradient.addColorStop', args: stopArgs }),
+    };
+  };
   target.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
   const props = [
     'fillStyle', 'strokeStyle', 'lineWidth', 'globalAlpha', 'globalCompositeOperation',

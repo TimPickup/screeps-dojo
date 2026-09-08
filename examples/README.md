@@ -37,5 +37,65 @@ every required piece of the `scenario.js` contract.
   - `until(state)` — optional early-stop predicate, checked after each tick.
   - `expect(result, assert)` — pass/fail assertions on the finished run.
 
+## `season5-reactor` — a scenario running under a game mod
+
+The same contract, plus one line of `settings.json`:
+
+    { "mods": ["season5"] }
+
+That loads the official Season 5 mod into the engine, which is where Thorium,
+`FIND_REACTORS` and `Creep.claimReactor()` come from — run this scenario without
+the mod and `main.js` throws on its first line.
+
+    cp -r examples/season5-reactor scenarios/season5-reactor
+    npm test -- season5-reactor record
+
+A CLAIM creep takes the reactor; a hauler carries Thorium into it from the
+container beside it; the reactor burns the Thorium and pays **score to its
+owner**, which is a user field, so `until()` reads `state.users[id].score`
+rather than anything in the room.
+
+The reactor and the Thorium are placed by the scenario, in `map.json`. Season 5
+normally generates them with a backend cronjob, which the dojo does not run —
+placing them yourself is what makes the run reproducible. Selecting the mod
+fills in the fields those cronjobs would have set (a reactor's store, a Thorium
+mineral's amount), so a bare `{ "type": "reactor", "x": 20, "y": 25 }` works.
+
+Record it and the replay shows the reactor spin up as the first Thorium lands.
+See **Game mods** in the main `README.md` for the full list of what Season 5
+brings and what it deliberately does not.
+
+## `season5-thorium-mine` — mining Thorium
+
+The narrow one. An extractor on the deposit, one creep with WORK parts, no
+reactor and no scoring, so a failure here can only be about mining.
+
+    npm test -- season5-thorium-mine
+
+Thorium is an ordinary mineral to the engine — extractor, WORK parts, `harvest`
+— with one difference that the assertions pin down: it is **finite**. What comes
+out of the deposit is gone from it, and it carries no regeneration deadline,
+because Season 5 deletes a mined-out Thorium node instead of refilling it.
+
+Note the map's controller is RCL 6. Below that the engine zeroes an extractor
+and nothing can be mined at all.
+
+## `season5-thorium-chain` — the whole pipeline
+
+Mine it, carry it across the room, feed the reactor, score.
+
+    npm test -- season5-thorium-chain record
+
+Three creeps, three jobs: a **miner** on the deposit in one corner, a **hauler**
+ferrying to the reactor in the other, and a **claimer** that takes the reactor —
+which is the part that matters, because Season 5 pays score to a reactor's
+*owner*, so an unclaimed reactor full of Thorium scores nothing.
+
+The container by the deposit starts with a load in it so the hauler has work
+from tick 1 and the replay shows all three jobs at once. Watch the console: the
+run logs every score change, and you can see the rate step from `+1` to `+2` as
+`continuousWork` passes 9 — that is Season 5's
+`1 + floor(log10(1 + continuousWork))`.
+
 See the main `README.md` ("Writing a scenario") for the full field reference,
 multi-room maps, recording, and importing rooms from a live server.

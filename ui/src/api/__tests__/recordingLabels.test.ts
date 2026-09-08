@@ -67,3 +67,19 @@ describe('recordingSubtitle', () => {
       .toBe('2026-08-03 14:34:42 · 2500t');
   });
 });
+
+describe('recordingSubtitle with mods', () => {
+  it('names the mods a recording was made under', () => {
+    const line = recordingSubtitle(
+      { timestamp: '20260902-033014', ticks: 14, status: 'until', meta: { mods: ['season5'] } },
+      { includeStatus: false },
+    );
+    expect(line).toContain('season5');
+  });
+
+  it('says nothing for a vanilla recording, or one made before mods existed', () => {
+    const vanilla = recordingSubtitle({ timestamp: '20260902-033014', ticks: 14, meta: { mods: [] } }, { includeStatus: false });
+    const older = recordingSubtitle({ timestamp: '20260902-033014', ticks: 14 }, { includeStatus: false });
+    expect(vanilla).toBe(older);
+  });
+});

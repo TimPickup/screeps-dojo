@@ -155,7 +155,9 @@ export function structureLayer(type: string): 'floor' | 'overlay' | 'main' {
 export function makeEditableObject(type: string, x: number, y: number): EditableObject {
   const object: EditableObject = { type, x, y };
   if (['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory', 'rampart'].includes(type)) object.owner = 'me';
-  if (['storage', 'terminal', 'container'].includes(type)) object.store = {};
+  // A reactor's store is where its Thorium goes, and the mod's processor reads
+  // it every tick — an editor-placed one without a store would be a crash.
+  if (['storage', 'terminal', 'container', 'reactor'].includes(type)) object.store = {};
   if (type === 'controller') object.level = 0;
   if (type === 'mineral') { object.mineralType = 'H'; object.density = 3; }
   if (type === 'source' || type === 'mineral') object.id = randomObjectId();
