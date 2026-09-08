@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WorkingDots } from '../WorkingDots/WorkingDots';
 import { api } from '../../api/client';
 import {
   useHostAction, clearHostAction, decidePhase, describeProgress,
@@ -86,9 +87,7 @@ export function HostActionOverlay() {
                 This can take <b>{duration}</b>, depending on the update and your machine.
               </p>
             )}
-            <div className={styles.dots} aria-label="working">
-              <span /><span /><span /><span />
-            </div>
+            <WorkingDots />
             <p className={styles.phase}>{describeProgress(log, 'Working…')}</p>
             <p className={styles.sub}>
               Please don&rsquo;t navigate away or close this tab. The server restarts partway

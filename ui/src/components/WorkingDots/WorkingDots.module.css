@@ -1,0 +1,23 @@
+/* Four dots taking it in turns. The stagger is the whole effect: a shared
+   animation with only the delay changed reads as one travelling wave. */
+.dots { display: flex; gap: 10px; justify-content: center; margin: 26px 0 4px; height: 14px; }
+.dots span {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--accent);
+  animation: bounce 1.1s cubic-bezier(0.36, 0.05, 0.35, 1) infinite;
+}
+.dots span:nth-child(2) { animation-delay: 0.13s; }
+.dots span:nth-child(3) { animation-delay: 0.26s; }
+.dots span:nth-child(4) { animation-delay: 0.39s; }
+
+@keyframes bounce {
+  0%, 65%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-13px); opacity: 1; }
+}
+
+/* Motion this insistent is exactly what someone who asked for less of it does
+   not want; the text alone still says what is happening. */
+@media (prefers-reduced-motion: reduce) {
+  .dots span { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+}

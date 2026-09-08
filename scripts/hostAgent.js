@@ -71,8 +71,11 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MIN_ACTION_INTERVAL_MS = 10 * 1000;
 // How quiet the output has to go before we say something ourselves, and how
 // often we check. Long enough that a chatty build is never interrupted.
-const QUIET_BEFORE_HEARTBEAT_MS = 25 * 1000;
-const HEARTBEAT_TICK_MS = 10 * 1000;
+// Shared with the in-container installer, which streams into the setup screen
+// and had the same silent-npm problem. See src/progressHeartbeat.js.
+const progressHeartbeat = require('../src/progressHeartbeat');
+const QUIET_BEFORE_HEARTBEAT_MS = progressHeartbeat.QUIET_BEFORE_HEARTBEAT_MS;
+const HEARTBEAT_TICK_MS = progressHeartbeat.HEARTBEAT_TICK_MS;
 const NEWLINE = String.fromCharCode(10);
 
 // The whole allow-list. Each action is a fixed argv: no part of it is ever
@@ -141,13 +144,7 @@ function readRequest() {
 //
 // Output is piped rather than inherited, and written to agent.log as it
 // arrives, so the GUI can tail a rebuild instead of watching a spinner.
-// null while output is still flowing; a line to print once it has gone quiet.
-// Pure so the thing the user actually reads is covered by a test.
-function heartbeatLine(quietMs, elapsedMs) {
-	if (quietMs < QUIET_BEFORE_HEARTBEAT_MS) return null;
-	const mins = Math.round(elapsedMs / 60000);
-	return '  …still working (' + (mins < 1 ? 'under a minute' : mins + ' min') + ' so far)' + NEWLINE;
-}
+const heartbeatLine = progressHeartbeat.heartbeatLine;
 
 function runSteps(action) {
 	return new Promise(function (resolve) {

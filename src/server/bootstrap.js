@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const progressHeartbeat = require('../progressHeartbeat');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const LOG_DIR = path.join(REPO_ROOT, 'server');
@@ -44,9 +45,15 @@ function hasModules(root) {
 // used only when something is actually installed and wrong.
 function installCommand(root) {
 	const base = root || REPO_ROOT;   // a root only for the tests
+	// --foreground-scripts streams the native builds, as the Dockerfile does. They
+	// are the slow part, and without it they are also the SILENT part: npm's own
+	// output stops for minutes and the screen looks dead. --loglevel=error drops
+	// the deprecation warnings, none of which are actionable and the last of which
+	// would otherwise be left sitting on screen as the apparent cause.
+	const flags = ['--no-audit', '--no-fund', '--foreground-scripts', '--loglevel=error'];
 	const hasLock = fs.existsSync(path.join(base, 'package-lock.json'));
-	if (hasModules(base) && hasLock) return ['ci', '--no-audit', '--no-fund'];
-	return ['install', '--no-audit', '--no-fund'];
+	if (hasModules(base) && hasLock) return ['ci'].concat(flags);
+	return ['install'].concat(flags);
 }
 
 // "Installed" means the engine toolchain actually RESOLVES — not merely that a
@@ -134,18 +141,27 @@ function start() {
 		: '[dojo] installing toolchain (first run, a few minutes)…\n';
 	fs.writeFileSync(LOG_FILE, banner);
 	const child = spawn('npm', args, { cwd: REPO_ROOT, shell: process.platform === 'win32' });
-	function append(chunk) {
-		const text = chunk.toString();
+	function write(text) {
 		try { fs.appendFileSync(LOG_FILE, text); } catch (e) { /* ignore */ }
 		broadcast({ type: 'log', line: text });
+	}
+	// Say something while npm says nothing. The compiles in here run silent for
+	// minutes, and the last line before the silence is one of npm's deprecation
+	// warnings — so a healthy install reads as having died on that warning. This
+	// is the same heartbeat the host agent streams into a rebuild.
+	const heartbeat = progressHeartbeat.startHeartbeat(write);
+	function append(chunk) {
+		heartbeat.bump();
+		write(chunk.toString());
 	}
 	child.stdout.on('data', append);
 	child.stderr.on('data', append);
 	child.on('close', function (code) {
+		heartbeat.stop();
 		if (code === 0 && isInstalled()) { state.phase = 'ready'; broadcast({ type: 'ready' }); }
 		else { state.phase = 'failed'; broadcast({ type: 'failed', code: code }); }
 	});
-	child.on('error', function (err) { state.phase = 'failed'; broadcast({ type: 'failed', error: String(err.message || err) }); });
+	child.on('error', function (err) { heartbeat.stop(); state.phase = 'failed'; broadcast({ type: 'failed', error: String(err.message || err) }); });
 	return { ready: false };
 }
 
