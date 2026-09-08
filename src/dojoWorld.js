@@ -1,10 +1,19 @@
 'use strict';
 
-// Facade over screeps-server-mockup (spec §3): the only file that touches
-// mockup/server internals. Runner, loader, and (later) recorder use this API.
-const { createServer, TerrainMatrix } = require('./serverBoot');
-const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
-const warnings = require('./harnessWarnings');
+// The world facade (spec §3): runner, loader, and recorder use this API and
+// nothing below it. The class splits in two along the engine seam (issue #1):
+// this file keeps every engine-agnostic decision — type defaults, decay and
+// regeneration clocks, owner resolution, map orchestration, input validation —
+// and a driver (src/drivers/) does the actual reads and writes against one
+// engine's storage. Drivers are required lazily, so loading this file pulls in
+// no engine at all: a future in-process engine has to be able to run outside
+// the container, where screeps-server-mockup is not even installed.
+const { parseTerrain, validateEdges, autoMirror } = require('./mapFormat');
+
+// Engines by name, as require PATHS rather than required modules — the whole
+// point of the seam is that a driver's engine stack loads only when a world
+// is actually constructed against it.
+const DRIVERS = { mockup: './drivers/mockupDriver' };
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
@@ -56,11 +65,6 @@ const REGEN_CLOCKS = {
 // ENERGY_REGEN_TIME (300) — far too long for a combat sandbox; respawn after a
 // keeper dies still follows the engine's normal 300-tick cycle.
 const KEEPER_FIRST_SPAWN_DELAY = 5;
-
-// How long a dormant room sleeps between forced processing passes (see
-// activateSimRooms). Vanilla's roomsForceUpdate uses 90 + up to 20 random
-// jitter; a deterministic 100 keeps scenario runs reproducible.
-const FORCE_UPDATE_INTERVAL = 100;
 
 // Engine-required fields for objects defined in a map's structures[] array
 // (the editor exports sources/spawns/etc. that way). Without these the engine
@@ -116,98 +120,47 @@ function structureDefaults(type, spawnIndex) {
 }
 
 class DojoWorld {
-	constructor() {
-		this.server = createServer();
+	// `options.engine` picks the driver ('mockup' is the default and, so far,
+	// the only one). Selection is a constructor concern on purpose: by the
+	// time a DojoWorld exists its engine is loaded and fixed.
+	constructor(options) {
+		const engine = (options && options.engine) || 'mockup';
+		if (!DRIVERS[engine]) {
+			throw new Error("unknown engine '" + engine + "' — available: " + Object.keys(DRIVERS).join(', '));
+		}
+		const Driver = require(DRIVERS[engine]);
+		this.driver = new Driver();
 		this.bot = null;        // main bot User (set by addMainBot)
 		this.botUserId = null;
 		this.modules = null;    // set by the runner before setup() runs
 	}
 
+	// The raw mockup world — the mockup-only escape hatch the integration
+	// tests assert against. Nothing engine-agnostic may rely on it.
 	get world() {
-		return this.server.world;
+		return this.driver.world;
 	}
 
 	async reset() {
-		await this.server.world.reset();
+		await this.driver.reset();
 	}
 
 	async start() {
-		// The engine writes to the same collections the raw-access guard watches,
-		// and in the fast in-process mode it does so in THIS process — so the
-		// guard stands down while the engine is the one running (see
-		// src/harnessWarnings.js).
-		warnings.suspend();
-		try {
-			await this.server.start();
-		} finally {
-			warnings.resume();
-		}
+		await this.driver.start();
 	}
 
 	stop() {
-		this.server.stop();
+		this.driver.stop();
 	}
 
 	async tick() {
-		await this.activateSimRooms();
-		warnings.suspend();
-		try {
-			await this.server.tick();
-		} finally {
-			warnings.resume();
-		}
+		await this.driver.tick();
 	}
 
-	// The engine only processes rooms listed in its per-tick ACTIVE_ROOMS set
-	// — the driver DRAINS that set as it reads it (getAllRoomsNames), so it is
-	// a work list for one tick, never a lasting state.
-	//
-	// A real server refills the set from three sources:
-	// (1) the processor re-activates any room its own in-use predicate
-	//     matches — owned controller, player-owned objects, dropped energy,
-	//     tombstones, nukes, portals (engine processor.js). The mockup runs
-	//     the same processor, so this works here untouched.
-	// (2) player intents activate their target rooms (driver saveUserIntents
-	//     — also already working here).
-	// (3) backend cron jobs: roomsForceUpdate wakes every DORMANT room every
-	//     90-110 ticks so absolute-time mechanics (source regen, decay,
-	//     controller downgrade) still advance, and NPC rooms — keeper lairs,
-	//     invader cores, whose user-'2'/'3' objects the processor's predicate
-	//     deliberately ignores — are kept alive by the stronghold/invader
-	//     crons (backend-local cronjobs.js).
-	//
-	// The mockup has no crons at all, so (3) is missing entirely: a dormant
-	// room would be frozen FOREVER rather than for ~100 ticks — creeps left
-	// there never age (the engine never even stamps ageTime), sources never
-	// regenerate, controllers never downgrade, keeper lairs never spawn. This
-	// plays the roomsForceUpdate role before every tick, on a deterministic
-	// 100-tick cadence where the real cron jitters (90 + up to 20), because a
-	// test harness wants reproducible runs.
-	//
-	// A room's FIRST pass is not this method's job: addObject/addCreep already
-	// wake a room when something is placed in it, and placeMapObjects wakes
-	// every room it loads. So a room seen here with no alarm yet is only armed,
-	// not activated — otherwise every inert room in the world would be
-	// processed once at startup for nothing.
-	//
-	// NPC rooms do NOT rely on this: a keeper lair or invader core pins its
-	// room permanently active when it is placed (see keepRoomActive), so it
-	// runs every tick instead of stuttering on the 100-tick cadence.
-	async activateSimRooms() {
-		const { db, env } = await this.world.load();
-		const gameTime = await this.world.gameTime;
-
-		// Whatever is missing from ACTIVE_ROOMS right now was not re-activated
-		// by the engine at the end of last tick — it is dormant.
-		const activeRooms = new Set(await env.smembers(env.keys.ACTIVE_ROOMS));
-		const rooms = await db.rooms.find({});
-		for (const room of rooms) {
-			if (activeRooms.has(room._id)) continue;
-			if (!room.nextForceUpdateTime || gameTime >= room.nextForceUpdateTime) {
-				if (room.nextForceUpdateTime) await env.sadd(env.keys.ACTIVE_ROOMS, room._id);
-				await db.rooms.update({ _id: room._id }, { $set: { nextForceUpdateTime: gameTime + FORCE_UPDATE_INTERVAL } });
-			}
-		}
+	// What the underlying engine can and cannot simulate — the runner surfaces
+	// this on the start event so scenarios can adapt to a partial engine.
+	engineFeatures() {
+		return this.driver.engineFeatures();
 	}
 
 	// --- world building -------------------------------------------------
@@ -266,15 +219,8 @@ class DojoWorld {
 			this.sealExteriorExits(maps);
 		}
 		for (const map of maps) {
-			// setRoom rather than addRoom: addRoom stamps `active: true` on the
-			// room doc, and the engine re-activates any room whose doc carries
-			// that flag every time it is processed (processor.js "may be set in
-			// intents") — saveRoomInfo $sets fields and never removes one, so
-			// the flag is sticky and the room can never go dormant.
-			await this.world.setRoom(map.room,'normal',false);
-			const terrain = new TerrainMatrix();
-			for (const tile of parseTerrain(map.terrain)) terrain.set(tile.x, tile.y, tile.type);
-			await this.world.setTerrain(map.room, terrain);
+			await this.driver.createRoom(map.room);
+			await this.driver.setTerrain(map.room, parseTerrain(map.terrain));
 			// Controllers must exist BEFORE addBot runs: mockup's addBot throws
 			// without one, and it claims the room's controller (sets user +
 			// level 1) itself. Place the map's controller now — from the
@@ -286,45 +232,40 @@ class DojoWorld {
 				return entry.type === 'controller';
 			});
 			const controller = map.controller || structuresController;
-			// Unchecked (not addObject) on purpose: this runs BEFORE the bot
-			// exists, so there is no owner to resolve yet — applyMapControllers
-			// claims them afterwards — and a controller has neither type defaults
-			// nor a clock. Waking the room here would be pointless too: nothing
-			// else is in it yet.
+			// Straight to the driver (not addObject) on purpose: this runs BEFORE
+			// the bot exists, so there is no owner to resolve yet —
+			// applyMapControllers claims them afterwards — and a controller has
+			// neither type defaults nor a clock. Waking the room here would be
+			// pointless too: nothing else is in it yet.
 			if (controller) {
-				await this.world.addRoomObjectUnchecked(map.room, 'controller', controller.x, controller.y, {
+				await this.driver.insertObject(map.room, 'controller', controller.x, controller.y, {
 					level: controller.level || 0, progress: 0
 				});
 			} else {
-				await this.world.addRoomObjectUnchecked(map.room, 'controller', 0, 0, { level: 0 });
+				await this.driver.insertObject(map.room, 'controller', 0, 0, { level: 0 });
 			}
 		}
 	}
 
 	async addMainBot(botOptions) {
 		const options = Object.assign({ username: 'dojo', modules: this.modules || {} }, botOptions);
-		this.bot = await this.world.addBot(options);
+		this.bot = await this.driver.addBot(options);
 		this.botUserId = this.bot.id;
 
 		// Surface bot runtime crashes. An uncaught exception in the bot's loop
 		// (typo, bad API call, pathfinding into an unloaded room…) is otherwise
-		// invisible: the mock server's User forwards console.log lines but drops
-		// the error, so the bot just silently does nothing. We subscribe to the
-		// raw console channel ourselves and keep the errors for the runner.
+		// invisible: the bot just silently does nothing. The driver watches the
+		// engine's error channel; the dedup here collapses the same error
+		// repeating every tick, and takeBotErrors hands the rest to the runner.
 		this._botErrors = [];
 		this._lastBotError = null;
 		try {
-			const { pubsub } = this.server.common.storage;
-			await pubsub.subscribe('user:' + this.botUserId + '/console', (event) => {
-				let parsed; try { parsed = JSON.parse(event); } catch (e) { return; }
-				const err = parsed && (parsed.error || (parsed.messages && parsed.messages.error));
-				if (!err) return;
-				const s = String(err);
-				if (s === this._lastBotError) return; // collapse the same error repeating every tick
-				this._lastBotError = s;
-				this._botErrors.push(s);
+			await this.driver.subscribeBotErrors(this.botUserId, (err) => {
+				if (err === this._lastBotError) return;
+				this._lastBotError = err;
+				this._botErrors.push(err);
 			});
-		} catch (e) { /* pubsub shape differs — non-fatal, just no error capture */ }
+		} catch (e) { /* error channel unavailable — non-fatal, just no error capture */ }
 		// screeps-server-mockup sets safeMode: 20000 on the controller when addBot
 		// runs, which prevents invader attacks for 20000 ticks — clear it so the
 		// sim reflects real-world conditions (spec §3: harness must not mask bugs).
@@ -344,25 +285,24 @@ class DojoWorld {
 	// `memory` may be a JSON string or a plain object.
 	async seedMemory(memory) {
 		if (!this.botUserId) throw new Error('seedMemory: add the main bot first');
-		const { env } = await this.world.load();
 		const json = typeof memory === 'string' ? memory : JSON.stringify(memory);
-		await env.set(env.keys.MEMORY + this.botUserId, json);
+		await this.driver.seedMemory(this.botUserId, json);
 	}
 
 	// Seeds RawMemory segment contents. `segments` is a map of
 	// segmentNumber -> string. The bot still selects active segments at runtime.
 	async seedSegments(segments) {
 		if (!this.botUserId) throw new Error('seedSegments: add the main bot first');
-		const { env } = await this.world.load();
+		const normalized = {};
 		for (const key of Object.keys(segments)) {
 			const value = segments[key];
-			await env.hset(env.keys.MEMORY_SEGMENTS + this.botUserId, Number(key),
-				typeof value === 'string' ? value : JSON.stringify(value));
+			normalized[key] = typeof value === 'string' ? value : JSON.stringify(value);
 		}
+		await this.driver.seedSegments(this.botUserId, normalized);
 	}
 
 	async addEnemyBot(botOptions) {
-		return this.world.addBot(botOptions);
+		return this.driver.addBot(botOptions);
 	}
 
 	// Removes the spawn(s) addBot forced into a room — for scenarios that want
@@ -428,7 +368,7 @@ class DojoWorld {
 		let spawnIndex = 2;
 		// Absolute tick at which keeper lairs without an explicit nextSpawnTime
 		// fire their first keeper (see the keeperLair handling below).
-		const firstKeeperSpawn = (await this.world.gameTime) + KEEPER_FIRST_SPAWN_DELAY;
+		const firstKeeperSpawn = (await this.driver.gameTime()) + KEEPER_FIRST_SPAWN_DELAY;
 		for (const map of maps) {
 			// Every object goes through addObject/addCreep so a map-loaded world is
 			// built exactly like a scenario-built one — same type defaults, same
@@ -513,9 +453,8 @@ class DojoWorld {
 		// remove exactly this doc, never match by name.
 		let bootstrapSpawnId = null;
 		if (adoptHome) {
-			const { db } = await this.world.load();
-			const bootstrap = await db['rooms.objects'].findOne({ room: home.room, type: 'spawn', x: home.x, y: home.y });
-			bootstrapSpawnId = bootstrap ? bootstrap._id : null;
+			const matched = await this.driver.findObjects({ room: home.room, type: 'spawn', x: home.x, y: home.y });
+			bootstrapSpawnId = matched.length ? matched[0]._id : null;
 		}
 		if (options && options.memory !== undefined) await this.seedMemory(options.memory);
 		if (options && options.segments !== undefined) await this.seedSegments(options.segments);
@@ -549,7 +488,6 @@ class DojoWorld {
 	// controller saved as owner:'me' level:3 loads that way, and owner:'neutral'
 	// (or 'unclaimed', or no owner) loads as an unclaimed level-0 controller.
 	async applyMapControllers(maps) {
-		const { db } = await this.world.load();
 		for (const map of maps) {
 			const c = (map.structures || []).find(function (s) { return s.type === 'controller'; }) || map.controller;
 			if (!c) continue;
@@ -613,7 +551,7 @@ class DojoWorld {
 		}
 		const withDefaults = Object.assign({}, structureDefaults(type, 1), doc);
 		await this.applyClocks(type, withDefaults);
-		const result = await this.world.addRoomObjectUnchecked(room, type, x, y, withDefaults);
+		const result = await this.driver.insertObject(room, type, x, y, withDefaults);
 		// An NPC engine pins its room regardless of `activate` — that flag only
 		// defers the immediate wake (bulk loads wake the room once at the end),
 		// while pinning is a standing property of what was just placed.
@@ -637,11 +575,10 @@ class DojoWorld {
 	// Wakes every room it touched, because a change the engine never processes
 	// is a change the bot never sees. Returns how many objects were updated.
 	async updateObject(query, changes) {
-		const { db } = await this.world.load();
-		const matched = await db['rooms.objects'].find(query);
+		const matched = await this.driver.findObjects(query);
 		const rooms = new Set();
 		for (const doc of matched) {
-			await db['rooms.objects'].updateUnchecked({ _id: doc._id }, await this.buildUpdate(doc, changes));
+			await this.driver.updateObjectById(doc._id, await this.buildUpdate(doc, changes));
 			if (doc.room) rooms.add(doc.room);
 		}
 		for (const room of rooms) await this.activateRoom(room);
@@ -670,10 +607,9 @@ class DojoWorld {
 	// tick to notice a structure is gone. Same selector as updateObject; returns
 	// how many objects were removed.
 	async removeObject(query) {
-		const { db } = await this.world.load();
-		const matched = await db['rooms.objects'].find(query);
+		const matched = await this.driver.findObjects(query);
 		if (!matched.length) return 0;
-		await db['rooms.objects'].removeWhereUnchecked(query);
+		await this.driver.removeObjectsWhere(query);
 		const rooms = new Set();
 		for (const doc of matched) if (doc.room) rooms.add(doc.room);
 		for (const room of rooms) await this.activateRoom(room);
@@ -701,7 +637,7 @@ class DojoWorld {
 		const seed = seedDefaults !== false;
 		// One gameTime read at most, and only when a clock is actually in play.
 		let gameTime = null;
-		const now = async () => (gameTime === null ? (gameTime = await this.world.gameTime) : gameTime);
+		const now = async () => (gameTime === null ? (gameTime = await this.driver.gameTime()) : gameTime);
 		if (decay) {
 			if (doc.ticksToDecay !== undefined) {
 				doc[decay.field] = (await now()) + doc.ticksToDecay;
@@ -748,7 +684,7 @@ class DojoWorld {
 		if (!userId) throw new Error('addCreep: no user (add the main bot first or pass user)');
 		const bodyParts = this.buildCreepBody(creepOptions.body, creepOptions.boosts);
 		const fullHits = bodyParts.length * BODY_PART_HITS;
-		const result = await this.world.addRoomObjectUnchecked(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, {
+		const result = await this.driver.insertObject(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, {
 			user: userId, name: creepOptions.name,
 			body: bodyParts,
 			hits: creepOptions.hits !== undefined ? creepOptions.hits : fullHits,
@@ -784,12 +720,12 @@ class DojoWorld {
 		});
 	}
 
-	// One engine constant, by name, from the running server (@screeps/common) —
-	// so dojo never keeps its own copy of a game number the server can change
-	// under it. Throws rather than falling back to a stale literal: a silently
-	// wrong lifetime or capacity is far harder to spot than a missing constant.
+	// One engine constant, by name, from the running engine — so dojo never
+	// keeps its own copy of a game number the engine can change under it.
+	// Throws rather than falling back to a stale literal: a silently wrong
+	// lifetime or capacity is far harder to spot than a missing constant.
 	engineConstant(name) {
-		const value = this.server.constants ? this.server.constants[name] : undefined;
+		const value = this.driver.constant(name);
 		if (value === undefined) {
 			throw new Error('engine constant ' + name + ' is unavailable from the server');
 		}
@@ -817,136 +753,46 @@ class DojoWorld {
 		const hasClaim = bodyParts.some(function (part) { return part.type === 'claim'; });
 		const ticksToLive = options.ticksToLive !== undefined ? options.ticksToLive
 			: this.engineConstant(hasClaim ? 'CREEP_CLAIM_LIFE_TIME' : 'CREEP_LIFE_TIME');
-		return (await this.world.gameTime) + ticksToLive;
+		return (await this.driver.gameTime()) + ticksToLive;
 	}
 
-	// Wakes a room for the next tick. ACTIVE_ROOMS is the engine's per-tick
-	// work list: a dormant room (or one no player intent has ever touched)
-	// ignores whatever we drop into it until something re-activates it, which
-	// is why the real backend activates a room from its world-mutating API.
-	// One tick only: ACTIVE_ROOMS is drained as the driver reads it. Never set
-	// `db.rooms.active` here — that pins the room forever (see keepRoomActive),
-	// and a one-off wake must let the room fall asleep again.
+	// Wakes a room for the next tick — see the driver's activateRoom for why a
+	// room even needs waking (the engine's ACTIVE_ROOMS work list).
 	async activateRoom(roomName) {
-		const { env } = await this.world.load();
-		await env.sadd(env.keys.ACTIVE_ROOMS, roomName);
+		await this.driver.activateRoom(roomName);
 	}
 
-	// The opposite: pins a room active permanently, at a one-off cost of a
-	// single field write and nothing per tick.
-	//
-	// The processor reads the room's own doc each time it processes the room
-	// (driver getRoomInfo -> db.rooms.findOne) and re-activates it for the next
-	// tick when the doc carries `active`:
-	//     if (roomInfo.active) { activateRoom = true; delete roomInfo.active; }   // processor.js
-	// That `delete` cannot clear the STORED flag, because the doc is persisted
-	// with `saveRoomInfo = db.rooms.update({_id}, {$set: roomInfo})` and `$set`
-	// never unsets a key that is simply absent. So the flag survives every pass
-	// and the room re-activates itself for as long as it is set — the engine
-	// does the work, we pay nothing per tick.
-	//
-	// Undo it with an explicit `$set: { active: false }`; nothing else will.
+	// Pins a room active permanently (NPC rooms must run every tick, not on the
+	// force-update cadence) — mechanics in the driver's keepRoomActive.
 	async keepRoomActive(roomName) {
-		const { db } = await this.world.load();
-		await db.rooms.update({ _id: roomName }, { $set: { active: true } });
-		await this.activateRoom(roomName);
+		await this.driver.keepRoomActive(roomName);
 	}
 
-	// Flags are NOT room objects: one doc per (user, room) in 'rooms.flags',
-	// data string in the engine wire format (spec §5).
+	// Flags are NOT room objects — the driver stores them in the engine's own
+	// flag format; this end resolves and validates the owner.
 	async addFlag(name, room, x, y, flagOptions) {
 		const options = flagOptions || {};
 		const userId = options.user === undefined ? this.botUserId : this.resolveOwner(options.user);
 		if (!userId) throw new Error('addFlag: no user (add the main bot first or pass user)');
-		const { db } = await this.world.load();
-		const entry = serializeFlags([{
+		await this.driver.addFlag(userId, room, {
 			name: name, x: x, y: y,
 			color: options.color, secondaryColor: options.secondaryColor
-		}]);
-		const existing = await db['rooms.flags'].findOne({ room: room, user: userId });
-		if (existing) {
-			const existingFlags = parseFlags(existing.data);
-			if (existingFlags.some(function (f) { return f.name === name; })) {
-				throw new Error('flag ' + name + ' already exists in ' + room + ' for this user');
-			}
-			await db['rooms.flags'].update({ _id: existing._id }, { $set: { data: existing.data + '|' + entry } });
-		} else {
-			await db['rooms.flags'].insert({ room: room, user: userId, data: entry });
-		}
+		});
 	}
 
 	// --- recording capture (spec §7) --------------------------------------
 
-	// Full-fidelity frame for the recorder: raw object docs (positions, hits,
-	// store, actionLog with attack/heal/say), flag docs, and the per-room
-	// engine event log. Richer than readState on purpose: anything not
-	// recorded can't be rendered later.
+	// Full-fidelity frame for the recorder: raw object docs, flags, the per-room
+	// engine event log, RoomVisual draws, cpu. Assembled by the driver — what a
+	// frame can carry is a property of the engine.
 	async captureFrame() {
-		const { db, env } = await this.world.load();
-		const gameTime = await this.world.gameTime;
-		// CPU the bot used this tick. The engine runtime persists it to the user doc each tick
-		// (@screeps/driver runtime/make.js: $set.lastUsedCpu = usedTime), so we can read it here without
-		// advancing the world. ms of CPU; null if unavailable (e.g. a tick the bot was skipped).
-		let cpu = null;
-		if (this.botUserId) {
-			try {
-				const users = await db.users.find({ _id: this.botUserId });
-				if (users && users[0] && typeof users[0].lastUsedCpu === 'number') cpu = users[0].lastUsedCpu;
-			} catch (error) { /* cpu unavailable for this tick */ }
-		}
-		const objects = await db['rooms.objects'].find({});
-		const flags = await db['rooms.flags'].find({});
-		const roomNames = new Set();
-		for (const object of objects) {
-			if (object.room) roomNames.add(object.room);
-		}
-		const eventLog = {};
-		for (const roomName of roomNames) {
-			try {
-				const raw = await env.hget(env.keys.ROOM_EVENT_LOG, roomName);
-				eventLog[roomName] = raw ? JSON.parse(raw) : [];
-			} catch (error) {
-				eventLog[roomName] = [];
-			}
-		}
-		// The bot's own RoomVisual draws (paths, island outlines, etc.). The
-		// engine stores them per user/room/tick at key roomVisual:<user>,<room>,<time>
-		// (driver/runtime/make.js). Capture for the main bot so replays/preview
-		// can show them. The just-run tick's visuals are keyed at gameTime (try
-		// gameTime-1 as a fallback for any off-by-one in timing).
-		const visuals = {};
-		if (this.botUserId) {
-			for (const roomName of roomNames) {
-				try {
-					let raw = await env.get(env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + gameTime);
-					if (!raw) raw = await env.get(env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + (gameTime - 1));
-					if (raw) visuals[roomName] = raw;
-				} catch (error) { /* no visuals for this room */ }
-			}
-		}
-		return { gameTime: gameTime, cpu: cpu, objects: objects, flags: flags, eventLog: eventLog, visuals: visuals };
+		return this.driver.captureFrame(this.botUserId);
 	}
 
-	// Terrain as the map-format char rows, read back from the server, keyed
-	// by room name. Captured once per recording (terrain never changes).
+	// Terrain as the map-format char rows, keyed by room name. Captured once
+	// per recording (terrain never changes).
 	async captureTerrain() {
-		const { db } = await this.world.load();
-		const roomDocs = await db.rooms.find({});
-		const terrainByRoom = {};
-		for (const doc of roomDocs) {
-			const matrix = await this.world.getTerrain(doc._id);
-			const rows = [];
-			for (let y = 0; y < 50; y++) {
-				let row = '';
-				for (let x = 0; x < 50; x++) {
-					const type = matrix.get(x, y);
-					row += type === 'wall' ? '#' : type === 'swamp' ? '~' : '.';
-				}
-				rows.push(row);
-			}
-			terrainByRoom[doc._id] = rows;
-		}
-		return terrainByRoom;
+		return this.driver.captureTerrain();
 	}
 
 	// --- observation -----------------------------------------------------
@@ -955,10 +801,8 @@ class DojoWorld {
 	// scenario until()/expect() see ONLY this, never bot internals.
 	async readState() {
 		if (!this.botUserId) throw new Error('readState: add the main bot first (creep ownership is classified against it)');
-		const { db } = await this.world.load();
-		const gameTime = await this.world.gameTime;
-		const objects = await db['rooms.objects'].find({});
-		const flagDocs = await db['rooms.flags'].find({});
+		const gameTime = await this.driver.gameTime();
+		const objects = await this.driver.findObjects({});
 
 		const state = { gameTime: gameTime, creeps: {}, hostileCreeps: {}, flags: {}, objects: objects };
 		for (const object of objects) {
@@ -972,10 +816,8 @@ class DojoWorld {
 			if (object.user === this.botUserId) state.creeps[object.name] = creep;
 			else state.hostileCreeps[object.name] = creep;
 		}
-		for (const doc of flagDocs) {
-			for (const flag of parseFlags(doc.data)) {
-				state.flags[flag.name] = { name: flag.name, room: doc.room, x: flag.x, y: flag.y, user: doc.user };
-			}
+		for (const flag of await this.driver.readFlags()) {
+			state.flags[flag.name] = flag;
 		}
 		return state;
 	}
