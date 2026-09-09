@@ -7,6 +7,18 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-09-09
+
+Scenarios can run under real Screeps season rules. Add `"mods": ["season5"]` to
+a scenario and the official Season 5 mod loads into the engine, so Thorium,
+reactors and reactor scoring come from the mod itself rather than from a
+reimplementation here that would drift out of date.
+
+Shipping that turned up a run of infrastructure faults it had been sitting on
+top of: a container left holding a previous version's packages after any update
+that changed a dependency, a fresh clone that could not build on Windows at all,
+and every API response being parsed by hand in JavaScript.
+
 ### Added
 
 - **Game mods: a scenario can run under real Screeps season rules.** Add
@@ -748,6 +760,13 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.11.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.11.0
+[0.10.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.10.0
+[0.9.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.9.0
+[0.8.1]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.8.1
+[0.8.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.8.0
+[0.7.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.7.0
+[0.6.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.6.0
 [0.5.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.5.0
 [0.4.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.3.0
