@@ -60,6 +60,14 @@ The root `postinstall` applies the set idempotently. Docker copies this director
 and the installer before `npm ci`, so a fresh image cannot contain an unverified
 partial patch set.
 
+Every file here is applied or copied byte for byte, so `.gitattributes` marks the
+whole directory `-text`: a checkout that rewrote line endings changes the hashes
+and breaks the install, and `core.autocrlf=true` is the git for Windows default.
+Attributes only apply at checkout, so for clones taken before that the installer
+normalises CRLF back to LF in patch files and copy sources and reports what it
+repaired. The pinned hashes are still verified afterwards, so a repair that was
+not merely line endings still fails.
+
 ## Dependency upgrades
 
 Extract or install the new pristine dependency versions, rebase each applicable

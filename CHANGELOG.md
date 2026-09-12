@@ -7,6 +7,29 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Windows clone builds again, however it was taken.** 0.11.0 held patch
+  files byte for byte against `core.autocrlf=true` but missed
+  `server-mock-patches/lib/dojo-features.js`, which the manifest also pins by
+  hash — so a default git for Windows clone rewrote it to CRLF and the image
+  build stopped on `Copy source hash mismatch:
+  /dojo/server-mock-patches/lib/dojo-features.js`. Two changes, because the
+  first alone would have left everyone who already cloned stuck:
+  - `.gitattributes` now holds the whole `server-mock-patches/` directory
+    byte-exact rather than just `*.patch`, so a file added there later is
+    covered without anyone remembering, and a test asserts it for every source
+    the manifest lists.
+  - The installer repairs a CRLF checkout itself instead of refusing it. LF is
+    what the manifest hashed and what the container needs, so it strips the CR
+    back out of patch files and copy sources and carries on — the pinned hash,
+    still checked afterwards, is what proves the repair right. Content that
+    differs for any other reason is refused exactly as before. It says what it
+    repaired rather than doing it in silence, since the clone is still worth
+    replacing. Attributes only apply at checkout, and `git pull` does not
+    re-check-out a file that did not otherwise change, so without this an
+    existing clone stays broken.
+
 ## [0.11.0] — 2026-09-09
 
 Scenarios can run under real Screeps season rules. Add `"mods": ["season5"]` to

@@ -112,18 +112,27 @@ function gitApplyEnv(packageRoot) {
 	return env;
 }
 
+// The patch is fed on stdin rather than by path so it can be normalised first
+// (see normaliseEol): a patch checked out with CRLF carries a trailing \r on
+// every context line, matches nothing, and fails as "patch does not apply" —
+// which reads like a stale patch set rather than a checkout artefact. An LF
+// patch passes through byte for byte, so this is only ever a repair.
 function runPatch(operation, dryRun) {
+	const raw = fs.readFileSync(operation.patchPath);
+	const patch = normaliseEol(raw);
 	const args = ['apply', '--recount'];
 	if (dryRun) args.push('--check');
-	args.push(operation.patchPath);
+	args.push('-');
 	const result = childProcess.spawnSync('git', args, {
 		cwd: operation.packageRoot,
 		encoding: 'utf8',
+		input: patch,
 		env: gitApplyEnv(operation.packageRoot)
 	});
 	if (result.status !== 0) {
 		throw new Error('Patch failed: ' + operation.definition.patch + '\n' + (result.stdout || '') + (result.stderr || ''));
 	}
+	return !patch.equals(raw);
 }
 
 function regenerateSnapshot(context) {
@@ -156,6 +165,36 @@ function verifySnapshot(context) {
 	if (!fs.existsSync(output) || fs.statSync(output).size === 0) throw new Error('Runtime snapshot is missing for ' + snapshot.package);
 }
 
+// Every file this installs comes out of the repository, and the manifest pins a
+// sha256 over its RAW BYTES. A checkout that rewrote line endings therefore
+// breaks the install — and core.autocrlf=true is the default git for Windows
+// installs, so that is an ordinary clone there, not an exotic one.
+//
+// .gitattributes holds server-mock-patches/ byte-exact so a fresh clone is
+// right to begin with, but it only applies at checkout: a clone taken before it
+// landed keeps the rewritten copy, and `git pull` does not re-check-out a file
+// that did not otherwise change. Rather than send people through
+// `git rm --cached -r . && git reset --hard`, repair it here. LF is what the
+// manifest hashed and what the Linux container needs, so stripping the CR back
+// out is the one difference we can correct rather than refuse — and the pinned
+// hash, checked after, is what proves the correction right. Anything else is a
+// real difference and still stops the install.
+function normaliseEol(content) {
+	// latin1 round-trips every byte, so this rewrites bytes and not decoded text.
+	return Buffer.from(content.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
+}
+
+// Returns the bytes to copy, and whether they had to be repaired to get there.
+function readCopySource(operation) {
+	const expected = operation.definition.patchedSha256;
+	if (!fs.existsSync(operation.sourcePath)) throw new Error('Copy source is missing: ' + operation.sourcePath);
+	const content = fs.readFileSync(operation.sourcePath);
+	if (sha256(content) === expected) return { content: content, normalised: false };
+	const normalised = normaliseEol(content);
+	if (sha256(normalised) === expected) return { content: normalised, normalised: true };
+	throw new Error('Copy source hash mismatch: ' + operation.sourcePath);
+}
+
 function run(mode, options) {
 	if (mode !== 'apply' && mode !== 'check') throw new Error('Usage: mockEnginePatches.cjs <apply|check> [--json]');
 	const context = loadContext(options);
@@ -166,14 +205,22 @@ function run(mode, options) {
 			return op.definition.patch || op.definition.target;
 		}).join(', '));
 		verifySnapshot(context);
-		return { mode: mode, changed: 0, verified: operations.length, snapshotRegenerated: false };
+		return { mode: mode, changed: 0, verified: operations.length, snapshotRegenerated: false, normalised: [] };
 	}
 
 	const pending = operations.filter(function (operation) { return operation.state === 'pristine'; });
+	// The dry run is also where a line-ending repair is discovered, so record what
+	// needed one and report it: silently correcting the checkout would hide a
+	// clone that is worth fixing at source.
+	const normalised = [];
+	const sources = new Map();
 	for (const operation of pending) {
-		if (operation.definition.type === 'patch') runPatch(operation, true);
-		else if (readHash(operation.sourcePath) !== operation.definition.patchedSha256) {
-			throw new Error('Copy source hash mismatch: ' + operation.sourcePath);
+		if (operation.definition.type === 'patch') {
+			if (runPatch(operation, true)) normalised.push(operation.definition.patch);
+		} else {
+			const source = readCopySource(operation);
+			sources.set(operation, source.content);
+			if (source.normalised) normalised.push(operation.definition.source);
 		}
 	}
 
@@ -189,7 +236,7 @@ function run(mode, options) {
 			if (operation.definition.type === 'patch') runPatch(operation, false);
 			else {
 				fs.mkdirSync(path.dirname(operation.targets[0].filename), { recursive: true });
-				fs.copyFileSync(operation.sourcePath, operation.targets[0].filename);
+				fs.writeFileSync(operation.targets[0].filename, sources.get(operation));
 			}
 		}
 		const verified = inspectOperations(context);
@@ -205,7 +252,13 @@ function run(mode, options) {
 		}
 		throw error;
 	}
-	return { mode: mode, changed: pending.length, verified: operations.length, snapshotRegenerated: snapshotRegenerated };
+	return {
+		mode: mode,
+		changed: pending.length,
+		verified: operations.length,
+		snapshotRegenerated: snapshotRegenerated,
+		normalised: normalised
+	};
 }
 
 function main() {
@@ -214,8 +267,19 @@ function main() {
 	try {
 		const result = run(mode);
 		if (json) process.stdout.write(JSON.stringify({ ok: true, result: result }) + '\n');
-		else console.log('[dojo] mock engine patches: ' + result.verified + ' verified, ' + result.changed + ' changed'
-			+ (result.snapshotRegenerated ? ', runtime snapshot regenerated' : ''));
+		else {
+			console.log('[dojo] mock engine patches: ' + result.verified + ' verified, ' + result.changed + ' changed'
+				+ (result.snapshotRegenerated ? ', runtime snapshot regenerated' : ''));
+			// Worth saying out loud rather than repairing in silence: the install is
+			// fine, but the checkout it came from is not, and every other file read
+			// from that clone carries the same rewrite.
+			if (result.normalised.length) {
+				console.log('[dojo] repaired CRLF line endings in ' + result.normalised.length + ' repository file(s): '
+					+ result.normalised.join(', ')
+					+ '\n[dojo] this checkout was taken with core.autocrlf=true, before .gitattributes held'
+					+ '\n[dojo] these files byte for byte. Nothing to do; to clear it at source, re-clone.');
+			}
+		}
 	} catch (error) {
 		if (json) process.stdout.write(JSON.stringify({ ok: false, error: String(error.message || error) }) + '\n');
 		else console.error('[dojo] mock engine patches failed:', error.message || error);
