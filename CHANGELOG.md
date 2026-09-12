@@ -7,6 +7,14 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- The URL now says where you are, so back, forward, reload and a pasted link all
+  work: `#/scenario/<path>/<tab>` for a scenario and its tab,
+  `#/folder/<path>` for the list with that folder open. Switching tabs replaces
+  the entry rather than pushing one, so Back still leaves the scenario instead
+  of walking through every tab you looked at.
+
 ### Fixed
 
 - The host agent's buttons (Restart, Apply new mounts, Update) failed on Windows
