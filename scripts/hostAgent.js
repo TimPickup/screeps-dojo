@@ -54,6 +54,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const hostChannel = require('../src/hostChannel');
+const winShell = require('../src/winShell');
 
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
@@ -184,7 +185,12 @@ function runSteps(action) {
 				// DETACHED agent that opens a console window over whatever the user is
 				// doing — blank, because the output is piped to us, so it reads as a
 				// hung program rather than as progress.
-				child = spawn(step[0], step[1], {
+				//
+				// And cmd.exe gets ONE joined string, not an argv, so the tokens are
+				// quoted first: process.execPath is a full path, and a Node installed
+				// under a directory with a space in it broke every action here.
+				const ready = winShell.argv(step[0], step[1]);
+				child = spawn(ready[0], ready[1], {
 					shell: isWin, cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
 				});
 			} catch (e) {

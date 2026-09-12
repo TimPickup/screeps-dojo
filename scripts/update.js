@@ -15,18 +15,23 @@
 // normal case.
 const { spawnSync } = require('child_process');
 const path = require('path');
+const winShell = require('../src/winShell');
 
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
 
 // windowsHide: shell:true means cmd.exe, and when the host agent runs this
 // detached each step would otherwise flash up its own console window.
+// winShell.argv: cmd.exe is handed one joined string, so a token with a space
+// in it has to arrive already quoted (see src/winShell.js).
 function run(cmd, args, opts) {
-	return spawnSync(cmd, args, Object.assign(
+	const ready = winShell.argv(cmd, args);
+	return spawnSync(ready[0], ready[1], Object.assign(
 		{ stdio: 'inherit', shell: isWin, windowsHide: true, cwd: ROOT }, opts || {}));
 }
 function out(cmd, args) {
-	const r = spawnSync(cmd, args, { encoding: 'utf8', shell: isWin, windowsHide: true, cwd: ROOT });
+	const ready = winShell.argv(cmd, args);
+	const r = spawnSync(ready[0], ready[1], { encoding: 'utf8', shell: isWin, windowsHide: true, cwd: ROOT });
 	return ((r.stdout || '') + (r.stderr || '')).trim();
 }
 function say(msg) { console.log('[dojo-update] ' + msg); }

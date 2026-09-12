@@ -15,6 +15,7 @@ const { spawnSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const winShell = require('../src/winShell');
 
 const ROOT = path.join(__dirname, '..');
 const isWin = process.platform === 'win32';
@@ -31,11 +32,15 @@ const NO_BUILD = ARGS.includes('--no-build');
 const PORT = Number(process.env.DOJO_UI_PORT) || 8787;
 const URL = 'http://localhost:' + PORT + '/';
 
+// winShell.argv: with shell:true, cmd.exe gets one joined string rather than an
+// argv, so tokens with spaces have to arrive quoted (see src/winShell.js).
 function run(cmd, args, opts) {
-	return spawnSync(cmd, args, Object.assign({ stdio: 'inherit', shell: isWin, cwd: ROOT }, opts || {}));
+	const ready = winShell.argv(cmd, args);
+	return spawnSync(ready[0], ready[1], Object.assign({ stdio: 'inherit', shell: isWin, cwd: ROOT }, opts || {}));
 }
 function out(cmd, args) {
-	const r = spawnSync(cmd, args, { encoding: 'utf8', shell: isWin, cwd: ROOT });
+	const ready = winShell.argv(cmd, args);
+	const r = spawnSync(ready[0], ready[1], { encoding: 'utf8', shell: isWin, cwd: ROOT });
 	return (r.stdout || '') + (r.stderr || '');
 }
 function fail(msg) { console.error('\n[dojo-ui] ' + msg); process.exit(1); }
@@ -185,5 +190,8 @@ const timer = setInterval(function () {
 function openBrowser(url) {
 	const cmd = isWin ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
 	const args = isWin ? ['', url] : [url];
-	try { spawnSync(cmd, args, { shell: true, stdio: 'ignore' }); } catch (e) { /* user can open manually */ }
+	// The empty first argument is `start`'s window title; quoting keeps it a
+	// real empty pair, so the URL is not swallowed as the title.
+	const ready = winShell.argv(cmd, args);
+	try { spawnSync(ready[0], ready[1], { shell: true, stdio: 'ignore' }); } catch (e) { /* user can open manually */ }
 }

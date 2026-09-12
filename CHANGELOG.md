@@ -5,6 +5,18 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+### Fixed
+
+- The host agent's buttons (Restart, Apply new mounts, Update) failed on Windows
+  whenever Node was installed under a path containing a space — the whole thing
+  died at `'C:\Users\…\AppData\Local\Author' is not recognized as an internal or
+  external command`. With `shell: true`, Windows hands cmd.exe one joined string
+  rather than an argv, so the path split at its space. Tokens are now quoted
+  before that join (`src/winShell.js`), in the agent and in `npm run ui` /
+  `npm run update` alike.
+
 ## [0.13.0] — 2026-09-12
 
 The scenario list becomes a workspace you can organise. Scenarios live in
