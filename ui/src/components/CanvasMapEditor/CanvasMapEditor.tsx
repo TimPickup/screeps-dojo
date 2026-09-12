@@ -27,7 +27,8 @@ interface Props {
 
 const OBJECTS = [
   'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory',
-  'container', 'road', 'rampart', 'constructedWall', 'source', 'controller', 'mineral', 'flag',
+  'container', 'road', 'rampart', 'constructedWall', 'source', 'controller', 'mineral',
+  'powerBank', 'flag',
 ];
 // What each mod adds to the palette. A map keeps its seasonal objects whatever
 // is selected — this only decides what can be PLACED, so unticking a mod never
@@ -316,6 +317,15 @@ export function CanvasMapEditor({ value, onChange, mods }: Props) {
               }} /></label>
             <div className={usedStore > capacity ? styles.over : styles.muted}>{usedStore.toLocaleString()} / {capacity.toLocaleString()}{usedStore > capacity ? ' ⚠ over capacity' : ''}</div>
           </>}
+          {/* A power bank's power is its whole point, and it lives in store.power.
+              Its own field rather than the raw-store box because there is exactly
+              one resource, and no capacity hint: season banks routinely hold more
+              than vanilla's POWER_BANK_CAPACITY_MAX. */}
+          {selectedObject?.type === 'powerBank' && <label className={styles.property}>power<input className={styles.input} type="number" min={0} step={100}
+            value={selectedObject.store?.power ?? 0}
+            onChange={(event) => updateStructure(selection!.index, (object) => ({
+              ...object, store: { ...object.store, power: Math.max(0, Number(event.target.value) || 0) },
+            }))} /></label>}
           {selectedObject?.type === 'controller' && isClaimed(selectedObject.owner) && <label className={styles.property}>level<input className={styles.input} type="number" min={0} max={8} value={selectedObject.level || 1}
             onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, level: Number(event.target.value) }))} /></label>}
           {selectedObject?.type === 'mineral' && <>

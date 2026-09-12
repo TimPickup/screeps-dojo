@@ -7,6 +7,17 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- **Power banks.** The map editor places them, the inspector reads them, and an
+  import brings a live one across. A bank's power IS its store — the engine's
+  `.power` getter is literally `store.power` — so one placed without a store
+  crashed any bot creep that looked at it, and one without hits died to the
+  first point of damage rather than taking the 2,000,000 that are the point of
+  a bank. A map-defined bank now defaults to a full vanilla one (5,000 power),
+  and a map's own `store` still wins, so an imported season bank keeps its real
+  haul.
+
 ### Fixed
 
 - **A Windows clone builds again, however it was taken.** 0.11.0 held patch
@@ -29,6 +40,19 @@ behaviour changes, patch = fixes).
     replacing. Attributes only apply at checkout, and `git pull` does not
     re-check-out a file that did not otherwise change, so without this an
     existing clone stays broken.
+- **A power bank was dropped on import.** It was not in the importer's known
+  structure list, so it fell through to the unknown-type branch and the one
+  room it stood in imported without it.
+- **An imported power bank never decayed.** `decayTime` is an absolute tick on
+  the SOURCE server (~264k on season, tens of millions on shard0); copied
+  verbatim into a sim that starts near 0 it sits forever in the future, and a
+  bank's 5,000-tick clock is its whole mechanic. The importer now emits the
+  dojo's relative `ticksToDecay` and lets the loader turn it back into a
+  deadline, floored at one tick so a bank already past its deadline upstream
+  still arrives as something the bot can see rather than an object the loader
+  deletes on sight. `constructedWall` is deliberately excluded: its `decayTime`
+  marks a temporary newbie wall, not a decay clock, and rebasing it would make
+  every wall in an imported base expire.
 
 ## [0.11.0] — 2026-09-09
 

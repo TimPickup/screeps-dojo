@@ -36,7 +36,11 @@ describe('map structures[] defaults', function () {
 			structures: [
 				{ type: 'controller', x: 22, y: 22, owner: 'me' },
 				{ type: 'source', x: 6, y: 28 },
-				{ type: 'spawn', x: 30, y: 30, owner: 'me' }
+				{ type: 'spawn', x: 30, y: 30, owner: 'me' },
+				// An editor-placed power bank: type/x/y only, everything else defaulted.
+				{ type: 'powerBank', x: 12, y: 12 },
+				// An IMPORTED one: its own haul and its remaining lifetime.
+				{ type: 'powerBank', x: 14, y: 14, store: { power: 8727 }, ticksToDecay: 232 }
 			],
 			flags: []
 		};
@@ -74,5 +78,32 @@ describe('map structures[] defaults', function () {
 		assert.strictEqual(mapSpawn.store.energy, 300);
 		assert.strictEqual(mapSpawn.hits, 5000);
 		assert.strictEqual(mapSpawn.user, world.botUserId);
+	});
+
+	// The engine's `.power` getter is `o.store.power`, and a bank with no hits is
+	// destroyed by the first point of damage — so an editor-placed bank needs both
+	// filled in or it is useless as a target.
+	it('gives a map-defined power bank a store, full hits and a decay clock', async function () {
+		const { db } = await world.world.load();
+		const gameTime = await world.world.gameTime;
+		const bank = await db['rooms.objects'].findOne({ room: 'W0N0', type: 'powerBank', x: 12 });
+		assert.ok(bank, 'the power bank was placed');
+		assert.strictEqual(bank.store.power, 5000);            // POWER_BANK_CAPACITY_MAX
+		assert.strictEqual(bank.hits, 2000000);                // POWER_BANK_HITS
+		assert.strictEqual(bank.hitsMax, 2000000);
+		// Absolute deadline, in `decayTime` (not nextDecayTime) — a null one would
+		// have the engine delete the bank on its first processed tick.
+		assert.ok(bank.decayTime > gameTime, 'seeded a live decay deadline');
+		assert.strictEqual(bank.nextDecayTime, undefined);
+	});
+
+	it("keeps an imported power bank's own power and remaining lifetime", async function () {
+		const { db } = await world.world.load();
+		const bank = await db['rooms.objects'].findOne({ room: 'W0N0', type: 'powerBank', x: 14 });
+		assert.strictEqual(bank.store.power, 8727, 'the map value beats the default');
+		assert.strictEqual(bank.hits, 2000000);
+		// ticksToDecay is relative on the way in and must not survive on the doc.
+		assert.strictEqual(bank.ticksToDecay, undefined);
+		assert.ok(bank.decayTime > 0 && bank.decayTime <= 232 + 5, 'rebased onto the sim clock');
 	});
 });
