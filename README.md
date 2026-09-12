@@ -433,6 +433,16 @@ room the scenario didn't load, so single-room scenarios don't trip pathfinding.
 Enemies can be scripted bots (deterministic, recommended for regressions) or
 real engine-driven invaders (user `'2'` objects — the engine AI works here).
 
+## Releasing
+
+    npm run release -- 0.14.0
+
+Never bump the version by hand or with a find/replace: `package-lock.json`
+carries a `"version"` for every dependency, and one of them will eventually
+match the project's. The script bumps with `npm version`, then refuses the
+result if the diff touched any line other than the project's own two `version`
+fields. Full process in [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Recording and rendering replays
 
 The GUI records and replays for you. From the CLI, add the `record` keyword to

@@ -27,7 +27,8 @@
 		"ui": "node scripts/ui.js",
 		"ui:stop": "node scripts/hostAgent.js --stop && docker compose stop ui",
 		"ui:down": "node scripts/hostAgent.js --stop && docker compose down",
-		"host-agent": "node scripts/hostAgent.js"
+		"host-agent": "node scripts/hostAgent.js",
+		"release": "node scripts/release.js"
 	},
 	"dependencies": {
 		"@napi-rs/canvas": "1.0.3",
