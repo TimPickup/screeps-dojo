@@ -7,6 +7,23 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-12
+
+Imported rooms stop being a copy of your own base and start being a copy of
+the room. Every other player in an import comes across under a label made
+from their username, and a scenario's `settings.json` can hand any of those
+labels a bot codebase — so a room copied off a live server can be run with
+its real occupants behind real code, without a line of `scenario.js`.
+
+Alongside it: power banks are supported end to end, from the map editor
+through the inspector to an import that keeps a live bank's haul and the
+remainder of its 5,000-tick clock; scenarios read their own maps with
+`world.loadMap()` / `world.loadAllMaps()` instead of hand-rolled `fs`/`path`;
+and the Windows clone fix of 0.11.0 is finished — it held the patch files
+byte for byte but missed the one copied file beside them, so a default git
+for Windows clone still could not build. The installer now repairs a CRLF
+checkout itself, which is the half that reaches clones already taken.
+
 ### Added
 
 - **Imported rooms keep every player, and a scenario can put a bot behind one.**
