@@ -5,7 +5,29 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
-## [Unreleased]
+## [0.13.0] — 2026-09-12
+
+The scenario list becomes a workspace you can organise. Scenarios live in
+folders now — nested as deep as you like, collapsed until you open them, moved
+by dragging or from a dialog — and every one of them can be renamed or deleted
+from the list itself, with a warning that names exactly what a non-empty folder
+is about to take with it.
+
+For that to be safe, a scenario's replays had to stop living somewhere else. A
+recording now sits inside the scenario that produced it, so it follows a rename
+or a move instead of being orphaned by one; the server migrates the old
+top-level `recordings/` on first start, and Settings reports what it could not
+move, with its size and a one-shot clear.
+
+The list also keeps itself up to date — the server pushes the tree over SSE and
+only touches the disk while the list is on screen — so the refresh button is
+gone, and so is Test All.
+
+Alongside it: New scenario asks where it goes and what to start from (the
+two-room Basic, a heavily commented Blank, any of the bundled examples, or a
+duplicate of one of your own); the examples themselves were brought onto the
+current map-loading API; and the tree answers to a right-click and to the
+keyboard as well as to the mouse.
 
 ### Added
 
@@ -924,6 +946,8 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.13.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.13.0
+[0.12.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.12.0
 [0.11.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.11.0
 [0.10.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.10.0
 [0.9.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.9.0
