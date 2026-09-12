@@ -2,15 +2,27 @@
 
 // Facade over screeps-server-mockup (spec §3): the only file that touches
 // mockup/server internals. Runner, loader, and (later) recorder use this API.
+const fs = require('fs');
+const path = require('path');
 const { createServer, TerrainMatrix } = require('./serverBoot');
 const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = require('./mapFormat');
 const warnings = require('./harnessWarnings');
+const botModules = require('./botModules');
 const modRegistry = require('./mods');
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
 // the engine's own constants at runtime — see engineConstant().
 const BODY_PART_HITS = 100;
+// Owner values on a map that are NOT another player: my bot, the two NPC users,
+// and the two spellings of an unowned controller. Anything else is a player
+// label from the importer (src/import/ownerLabels.js).
+const NON_PLAYER_OWNERS = new Set(['me', 'invader', 'sourceKeeper', 'neutral', 'unclaimed']);
+
+// Name of the throwaway spawn addBot forces into an imported player's room.
+// Distinctive so removing it can never match a spawn the map itself defines.
+const SEED_SPAWN_PREFIX = '__dojo_seed_';
+
 const NPC_USER_IDS = { invader: '2', sourceKeeper: '3' };
 // Types that are NOT rooms.objects docs — inserting one there is silently
 // inert, so addObject sends the caller to the method that knows better.
@@ -134,7 +146,14 @@ class DojoWorld {
 		this.server = createServer(options.modfile ? { modfile: options.modfile } : undefined);
 		this.bot = null;        // main bot User (set by addMainBot)
 		this.botUserId = null;
+		// Imported player label -> that player's real user id in this sim, filled
+		// in by bindMapPlayers for the labels settings.json assigned a bot to.
+		this.playerUserIds = {};
 		this.modules = null;    // set by the runner before setup() runs
+		// The scenario's own directory, so loadMap/loadMaps can find its
+		// map.*.json without every scenario.js repeating fs+path boilerplate.
+		// Null when a world is built directly (tests), which those two report.
+		this.scenarioDir = options.scenarioDir || null;
 	}
 
 	get world() {
@@ -431,6 +450,9 @@ class DojoWorld {
 			return this.botUserId;
 		}
 		if (NPC_USER_IDS[owner]) return NPC_USER_IDS[owner];
+		// An imported player the scenario assigned a bot to: the map's label
+		// resolves to the user bindMapPlayers created for them.
+		if (this.playerUserIds[owner]) return this.playerUserIds[owner];
 		// user ids are STRINGS in the engine DB ('2' = Invader, '3' = Source
 		// Keeper); normalize so a scenario writing `user: 2` still gets
 		// engine-driven NPC behavior instead of a silent unknown user
@@ -499,6 +521,82 @@ class DojoWorld {
 		}
 	}
 
+	// --- reading the scenario's own map files ----------------------------
+
+	// The scenario directory this world was built for, or a pointed error: a
+	// world constructed by hand (tests, tools) has no scenario to read from.
+	requireScenarioDir(method) {
+		if (!this.scenarioDir) {
+			throw new Error('world.' + method + ': this world has no scenarioDir — it is set by the '
+				+ 'scenario runner, so this only works from a scenario\'s setup(world). '
+				+ 'Pass one explicitly with new DojoWorld({ scenarioDir: __dirname }).');
+		}
+		return this.scenarioDir;
+	}
+
+	// One map by room name: the scenario's own map.<room>.json, parsed.
+	loadMap(room) {
+		const dir = this.requireScenarioDir('loadMap');
+		const file = 'map.' + room + '.json';
+		if (!fs.existsSync(path.join(dir, file))) {
+			const found = this.mapFileNames();
+			throw new Error('world.loadMap: no ' + file + ' in ' + dir + ' — this scenario has '
+				+ (found.length ? found.join(', ') : 'no map files'));
+		}
+		return this.readMapFile(file);
+	}
+
+	// EVERY map in the scenario directory, parsed, ordered by file name so a
+	// run is reproducible (loadScenarioMaps adopts the FIRST owner:'me' spawn
+	// it finds as the bot's home).
+	loadMaps() {
+		const dir = this.requireScenarioDir('loadMaps');
+		const files = this.mapFileNames();
+		if (files.length === 0) {
+			throw new Error('world.loadMaps: no map.*.json in ' + dir
+				+ ' — add a room in the Edit tab, or import one with npm run import-room');
+		}
+		const maps = files.map(this.readMapFile, this);
+		// A duplicate like `map.E27S23 (1).json` (an editor or download copy)
+		// would load the same room twice and build a subtly broken world; say so
+		// here, where the file name is still in hand.
+		const seen = {};
+		for (let i = 0; i < maps.length; i++) {
+			const room = maps[i].room;
+			if (!room) throw new Error('world.loadMaps: ' + files[i] + ' has no "room" field');
+			if (seen[room] !== undefined) {
+				throw new Error('world.loadMaps: two maps for room ' + room + ' ('
+					+ seen[room] + ' and ' + files[i] + ') — delete or rename one');
+			}
+			seen[room] = files[i];
+		}
+		return maps;
+	}
+
+	// Load the whole scenario directory into the world in one call: every
+	// map.*.json, then the usual loadScenarioMaps (bot, objects, controllers).
+	// Same arguments as loadScenarioMaps, minus the maps.
+	async loadAllMaps(botOptions, options) {
+		return this.loadScenarioMaps(this.loadMaps(), botOptions, options);
+	}
+
+	// map.json and map.<anything>.json, sorted; raw.*.json snapshots,
+	// memory.json, segments.json and settings.json are not maps.
+	mapFileNames() {
+		return fs.readdirSync(this.requireScenarioDir('loadMaps'))
+			.filter(function (f) { return /^map\.(.*\.)?json$/.test(f); })
+			.sort();
+	}
+
+	readMapFile(file) {
+		const full = path.join(this.scenarioDir, file);
+		try {
+			return JSON.parse(fs.readFileSync(full, 'utf8'));
+		} catch (e) {
+			throw new Error('world.loadMap: could not read ' + file + ' — ' + e.message);
+		}
+	}
+
 	// Convenience: rooms + terrain, then the main bot, then owned objects/flags
 	// (owner 'me' needs the bot's user id to exist first).
 	//
@@ -531,6 +629,10 @@ class DojoWorld {
 			const bootstrap = await db['rooms.objects'].findOne({ room: home.room, type: 'spawn', x: home.x, y: home.y });
 			bootstrapSpawnId = bootstrap ? bootstrap._id : null;
 		}
+		// Imported players become real users BEFORE their objects are placed, so
+		// placeMapObjects resolves their label straight to a user id — no
+		// after-the-fact reassignment pass.
+		await this.bindMapPlayers(maps);
 		if (options && options.memory !== undefined) await this.seedMemory(options.memory);
 		if (options && options.segments !== undefined) await this.seedSegments(options.segments);
 		await this.placeMapObjects(maps);
@@ -555,6 +657,92 @@ class DojoWorld {
 			}
 		}
 		return null;
+	}
+
+	// --- imported players -------------------------------------------------
+
+	// Every owner label across the maps that is another PLAYER — not my bot,
+	// not an NPC, not an unowned controller. Sorted, so a run binds them in the
+	// same order every time.
+	mapPlayerLabels(maps) {
+		const labels = new Set();
+		const consider = function (owner) {
+			if (typeof owner !== 'string' || !owner) return;
+			if (NON_PLAYER_OWNERS.has(owner)) return;
+			labels.add(owner);
+		};
+		for (const map of maps || []) {
+			for (const structure of map.structures || []) consider(structure.owner);
+			for (const creep of map.creeps || []) consider(creep.owner);
+			if (map.controller) consider(map.controller.owner);
+		}
+		return Array.from(labels).sort();
+	}
+
+	// Where to seed an imported player's bootstrap user. addBot demands a room
+	// with a controller and inserts a spawn there, so we prefer the player's own
+	// base and fall back to wherever else they have objects — the bootstrap
+	// spawn is removed immediately afterwards either way.
+	findPlayerHome(maps, label) {
+		const withController = (maps || []).filter(function (map) {
+			return map.controller || (map.structures || []).some(function (s) { return s.type === 'controller'; });
+		});
+		for (const map of withController) {
+			const spawn = (map.structures || []).find(function (s) {
+				return s.type === 'spawn' && s.owner === label;
+			});
+			if (spawn) return { room: map.room, x: spawn.x, y: spawn.y };
+		}
+		for (const map of withController) {
+			if (map.controller && map.controller.owner === label) {
+				return { room: map.room, x: map.controller.x, y: map.controller.y };
+			}
+		}
+		for (const map of withController) {
+			const owns = (map.structures || []).some(function (s) { return s.owner === label; })
+				|| (map.creeps || []).some(function (c) { return c.owner === label; });
+			if (owns) return { room: map.room, x: map.controller.x, y: map.controller.y };
+		}
+		return null;
+	}
+
+	// Turns each imported player label that settings.json assigned a bot to
+	// (`bots: { "<label>": "<profile>" }`) into a real user running that code.
+	// A label nobody assigned is left alone: its objects load under the raw
+	// label exactly as before, which is what scenarios that bind their own
+	// imported owners rely on.
+	async bindMapPlayers(maps) {
+		const sides = botModules.configuredSides();
+		const unassigned = [];
+		for (const label of this.mapPlayerLabels(maps)) {
+			const dir = label === 'main' ? null : sides[label];
+			if (!dir) { unassigned.push(label); continue; }
+			const home = this.findPlayerHome(maps, label);
+			if (!home) {
+				warnings.warn('imported player "' + label + '" has a bot assigned but no room with a '
+					+ 'controller to place them in — their objects load unbound');
+				continue;
+			}
+			const seedSpawnName = SEED_SPAWN_PREFIX + label;
+			const bot = await this.world.addBot({
+				username: label, room: home.room, x: home.x, y: home.y,
+				spawnName: seedSpawnName,
+				modules: botModules.allBotModules(null, dir)
+			});
+			this.playerUserIds[label] = bot.id;
+			// addBot bootstraps a spawn and a level-1 controller with a 20000-tick
+			// safe mode. The map carries the player's real spawn and RCL
+			// (applyMapControllers restores the controller), and an imported base
+			// nothing can attack would make a siege scenario meaningless.
+			await this.removeObject({ room: home.room, type: 'spawn', name: seedSpawnName });
+			await this.updateObject({ room: home.room, type: 'controller' }, { safeMode: 0 });
+		}
+		if (unassigned.length > 0) {
+			console.log('[dojo] imported players with no bot assigned (their objects load inert): '
+				+ unassigned.join(', ') + ' — assign one in settings.json, e.g. { "bots": { "'
+				+ unassigned[0] + '": "default" } }');
+		}
+		return this.playerUserIds;
 	}
 
 	// Applies each map controller's saved owner + level. Controllers are placed

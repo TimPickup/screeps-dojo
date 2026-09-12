@@ -18,6 +18,11 @@ const { loadEnvConfig } = require('./envConfig');
 let sides = null;
 
 function setSides(resolved) { sides = resolved || null; }
+
+// Every side the scenario's settings.json configured, as { name: containerDir }.
+// The loader reads this to decide which imported players it can bind to a real
+// bot; a label nobody assigned is not in here.
+function configuredSides() { return sides || {}; }
 function clearSides() { sides = null; }
 
 // Container directory for a named side. `main` is the scenario's own bot and is
@@ -72,5 +77,6 @@ module.exports = {
 	allBotModules: allBotModules,
 	botDir: botDir,
 	setSides: setSides,
+	configuredSides: configuredSides,
 	clearSides: clearSides
 };

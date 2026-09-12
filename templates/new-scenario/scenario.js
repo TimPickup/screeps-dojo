@@ -9,10 +9,6 @@ const fs = require('fs');
 const path = require('path');
 // const { allBotModules } = require('../../src/botModules');
 
-function loadMap(room) {
-	return JSON.parse(fs.readFileSync(path.join(__dirname, 'map.' + room + '.json'), 'utf8'));
-}
-
 module.exports = {
 	// Code uploaded into the game VM. Use a local main.js, OR pull your real
 	// modules with allBotModules() to run your whole bot. WHICH codebase that is
@@ -26,8 +22,12 @@ module.exports = {
 	maxTicks: 500,
 
 	setup: async function (world) {
-		// Load both rooms. The bot's spawn goes at { room, x, y }.
-		await world.loadScenarioMaps([loadMap('W1N1'), loadMap('W0N1')], { room: 'W1N1', x: 25, y: 25 });
+		// Load both rooms. world.loadMap(room) reads this directory's own
+		// map.<room>.json; the bot's spawn goes at { room, x, y }.
+		await world.loadScenarioMaps([world.loadMap('W1N1'), world.loadMap('W0N1')], { room: 'W1N1', x: 25, y: 25 });
+
+		// Or load EVERY map.*.json in this directory in one call:
+		// await world.loadAllMaps({ room: 'W1N1', x: 25, y: 25 });
 
 		// Make sure the starting spawn is full (300/300 energy):
 		await world.updateObject({ room: 'W1N1', type: 'spawn' },

@@ -59,6 +59,7 @@ function mapFileName(dir, roomName, overwrite) {
 	return overwrite ? 'map.' + roomName + '.json' : uniqueFileName(dir, 'map.' + roomName, '.json');
 }
 const { roomToMap } = require('../src/import/roomToMap');
+const ownerLabels = require('../src/import/ownerLabels');
 const screepsProfiles = require('../src/screepsProfiles');
 const scenarioSettings = require('../src/scenarioSettings');
 const modRegistry = require('../src/mods');
@@ -76,14 +77,35 @@ function loadEnv() {
 	return config;
 }
 
-// Build a synchronous classifier from the async resolver by pre-resolving every
-// distinct owner id present in the objects (roomToMap calls classifyOwner sync).
-async function buildSyncClassifier(objects, asyncClassify) {
-	const ids = {};
-	for (const object of objects) { if (object.user) ids[object.user] = true; }
-	const table = {};
-	for (const id of Object.keys(ids)) { table[id] = await asyncClassify(id); }
-	return function (userId) { return table[userId] !== undefined ? table[userId] : null; };
+// "almaravarion (spawn, 34 structures, 12 creeps), tigga (3 creeps)" — the line
+// that tells you which labels to assign a bot to in settings.json.
+function playerSummary(counts, map) {
+	const labels = Object.keys(counts).filter(function (label) {
+		return counts[label].structures > 0 || counts[label].creeps > 0;
+	});
+	if (labels.length === 0) return '';
+	const hasSpawn = {};
+	for (const structure of map.structures || []) {
+		if (structure.type === 'spawn' && structure.owner) hasSpawn[structure.owner] = true;
+	}
+	return '\n  players: ' + labels.sort().map(function (label) {
+		const parts = [];
+		if (hasSpawn[label]) parts.push('SPAWN');
+		parts.push(counts[label].structures + ' structures');
+		parts.push(counts[label].creeps + ' creeps');
+		return label + ' (' + parts.join(', ') + ')';
+	}).join(', ');
+}
+
+// Closing line of an import that found other players: what to type where, so
+// giving one of them a bot codebase needs nothing but a settings.json edit.
+function settingsHint(labels, scenario) {
+	const sorted = (labels || []).slice().sort();
+	if (sorted.length === 0) return '';
+	return 'players in this import: ' + sorted.join(', ') + '\n'
+		+ 'to give one a bot codebase, add it to '
+		+ path.join('scenarios', scenario, 'settings.json') + ':\n'
+		+ '  { "bots": { "' + sorted[0] + '": "default" } }';
 }
 
 async function main() {
@@ -119,12 +141,27 @@ async function main() {
 	const outDir = scenarioDir;
 	fs.mkdirSync(outDir, { recursive: true });
 
+	// Shared by every room in this batch so a player keeps ONE label across the
+	// whole import — the label a scenario's settings.json then assigns code to.
+	const ownerRegistry = { labels: {}, users: {} };
+	// Labels that actually own something somewhere in this batch.
+	const playersSeen = new Set();
+
 	for (const roomName of parsed.rooms) {
 		const room = await client.getRoom(roomName);
-		const classifyOwner = await buildSyncClassifier(room.objects, asyncClassify);
+		const owners = await ownerLabels.resolveOwners(room.objects, {
+			classifyTag: asyncClassify,
+			lookupUsername: function (id) { return client.lookupUsername(id); },
+			registry: ownerRegistry
+		});
 		const result = roomToMap({
 			roomName: roomName, objects: room.objects,
-			terrainRows: room.terrainRows, classifyOwner: classifyOwner,
+			terrainRows: room.terrainRows, classifyOwner: owners.classifyOwner,
+			// label -> { id, username }; roomToMap keeps the ones this room uses.
+			users: owners.users,
+			// The source server's tick, so absolute deadlines in the docs (a power
+			// bank's decayTime) become lifetimes this sim can use.
+			gameTime: room.gameTime,
 			includeMyCreeps: parsed.includeMyCreeps,
 			includeMyStructures: parsed.includeMyStructures,
 			// Whatever the scenario's mods add — a Season 5 room has a reactor,
@@ -140,8 +177,16 @@ async function main() {
 			: '';
 		console.log('wrote ' + path.join('scenarios', parsed.scenario, file)
 			+ ' — ' + result.map.structures.length + ' structures, '
-			+ result.map.creeps.length + ' creeps' + skippedSummary);
+			+ result.map.creeps.length + ' creeps' + skippedSummary
+			+ playerSummary(owners.counts, result.map));
+		for (const label of Object.keys(owners.counts)) {
+			const seen = owners.counts[label];
+			if (seen.structures > 0 || seen.creeps > 0) playersSeen.add(label);
+		}
 	}
+
+	const hint = settingsHint(Array.from(playersSeen), parsed.scenario);
+	if (hint) console.log(hint);
 
 	// Bot-wide data is deliberately opt-in rather than a side effect of
 	// importing room terrain.
@@ -172,4 +217,7 @@ if (require.main === module) {
 	});
 }
 
-module.exports = { parseArgs: parseArgs, mapFileName: mapFileName };
+module.exports = {
+	parseArgs: parseArgs, mapFileName: mapFileName,
+	playerSummary: playerSummary, settingsHint: settingsHint
+};

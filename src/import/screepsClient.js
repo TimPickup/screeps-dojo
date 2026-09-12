@@ -10,6 +10,14 @@ function maskToken(token) {
 	return token.slice(0, 4) + '…' + token.slice(-4);
 }
 
+// /api/user/find answers { ok: 1, user: { _id, username, ... } } for a known id
+// and omits `user` for one it cannot resolve. Pulled out so the shape this
+// depends on is pinned by a test rather than discovered mid-import.
+function usernameFromFindResult(result) {
+	const username = result && result.user && result.user.username;
+	return typeof username === 'string' && username ? username : null;
+}
+
 // Thin wrapper over screeps-api for the importer. Reads config from an env-like
 // object so the CLI can pass process.env.
 function createClient(config) {
@@ -47,6 +55,8 @@ function createClient(config) {
 		return apiPromise;
 	}
 
+	// Memoized source-server tick (see serverTime).
+	let timePromise = null;
 	// Cache of userId -> classification tag ('me'|'invader'|'sourceKeeper'|null).
 	let myId = null;
 	const ownerCache = {};
@@ -111,12 +121,40 @@ function createClient(config) {
 			return user;
 		},
 
-		// One full room snapshot: terrain rows + raw object docs.
+		// The SOURCE server's current tick. Every absolute clock in the object docs
+		// — a power bank's `decayTime`, a road's `nextDecayTime` — is measured
+		// against it, so it is the only way to turn one into a lifetime a fresh sim
+		// can use. The room snapshot does NOT carry it (checked against the live
+		// season server: the payload has `objects` and nothing else useful), hence
+		// the separate REST call.
+		//
+		// Fetched once per client and reused: a multi-room batch drifts by the few
+		// ticks it takes to run, which is noise against a 5000-tick decay, and one
+		// call keeps a 25-room import well inside the rate limit.
+		async serverTime() {
+			if (!timePromise) {
+				timePromise = getApi()
+					.then(function (api) { return api.gameTime(shard); })
+					.then(function (result) {
+						const time = result && result.time;
+						return typeof time === 'number' ? time : undefined;
+					})
+					// Never fail an import over the clock: without it the importer
+					// drops absolute deadlines rather than rebasing them, and the
+					// loader seeds a full fresh lifetime instead.
+					.catch(function () { return undefined; });
+			}
+			return timePromise;
+		},
+
+		// One full room snapshot: terrain rows + raw object docs + the source
+		// server's tick, which those docs' absolute clocks are relative to.
 		async getRoom(roomName) {
 			const api = await getApi();
 			const terrainResponse = await api.gameRoomTerrain(roomName, shard);
 			const encoded = terrainResponse.terrain[0].terrain;
 			const terrainRows = decodeTerrain(encoded);
+			const gameTime = await this.serverTime();
 
 			const objects = await new Promise(function (resolve, reject) {
 				const timer = setTimeout(function () { reject(new Error('room snapshot timed out for ' + roomName)); }, 15000);
@@ -130,7 +168,7 @@ function createClient(config) {
 					}));
 				}).catch(reject);
 			});
-			return { terrainRows: terrainRows, objects: objects };
+			return { terrainRows: terrainRows, objects: objects, gameTime: gameTime };
 		},
 
 		async getMemory() {
@@ -150,13 +188,23 @@ function createClient(config) {
 			return out;
 		},
 
-		// Returns classifyOwner(userId) for roomToMap. Resolves unknown ids to a
-		// username via the API and tags Invader / Source Keeper; real players -> null.
+		// A player id -> their in-game username, or null if the server will not
+		// say. Callers de-duplicate ids before asking (see ownerLabels
+		// resolveOwners), so there is no cache here.
+		async lookupUsername(userId) {
+			const api = await getApi();
+			return usernameFromFindResult(await api.userFindById(userId));
+		},
+
+		// Returns classifyOwner(userId) for roomToMap: my tag, an NPC tag, or null
+		// for a real player — whom the importer then labels by username
+		// (src/import/ownerLabels.js).
 		ownerClassifier() {
 			// NPC users have FIXED ids on every Screeps server: '2' = Invader,
 			// '3' = Source Keeper (confirmed on the live season server). /api/user/find
 			// can't resolve these (it demands a 24-hex ObjectId), so map them directly.
-			// Anything that isn't me or an NPC is another player -> dropped (null).
+			// Anything that isn't me or an NPC is another player -> null, which
+			// resolveOwners turns into that player's username label.
 			return function classifyOwner(userId) {
 				if (myId && userId === myId) return 'me';
 				if (userId === '2') return 'invader';
@@ -177,4 +225,4 @@ function createClient(config) {
 	};
 }
 
-module.exports = { createClient: createClient };
+module.exports = { createClient: createClient, usernameFromFindResult: usernameFromFindResult };

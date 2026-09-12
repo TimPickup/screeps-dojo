@@ -5,11 +5,15 @@ const { roomToMap, KNOWN_STRUCTURES } = require('../../src/import/roomToMap');
 
 const terrainRows = Array.from({ length: 50 }, function () { return '.'.repeat(50); });
 
-// classifier: 'mine' is me, 'inv' is invader, 'sk' is source keeper, others null
+// classifier: 'mine' is me, 'inv' is invader, 'sk' is source keeper; a real
+// player resolves to their username label (see src/import/ownerLabels.js),
+// and an id we could not classify at all stays null.
 function classifyOwner(userId) {
 	if (userId === 'mine') return 'me';
 	if (userId === 'inv') return 'invader';
 	if (userId === 'sk') return 'sourceKeeper';
+	if (userId === 'p1') return 'almaravarion';
+	if (userId === 'p2') return 'tigga';
 	return null;
 }
 
@@ -35,13 +39,83 @@ describe('roomToMap', function () {
 		assert.deepStrictEqual(result.map.structures, [{ type: 'container', x: 5, y: 5, store: { energy: 200 } }]);
 	});
 
-	it('drops other players structures and creeps', function () {
-		const result = build([
-			{ type: 'tower', x: 1, y: 1, user: 'enemy' },
-			{ type: 'creep', x: 2, y: 2, user: 'enemy', name: 'badguy', body: [{ type: 'move' }] }
+	it('keeps another players structures under their username label', function () {
+		const result = build([{ type: 'tower', x: 1, y: 1, user: 'p1', hits: 3000, hitsMax: 3000 }]);
+		assert.deepStrictEqual(result.map.structures, [
+			{ type: 'tower', x: 1, y: 1, owner: 'almaravarion', hits: 3000, hitsMax: 3000 }
 		]);
-		assert.deepStrictEqual(result.map.structures, []);
+	});
+
+	it('keeps another players creeps under their username label', function () {
+		const result = build([{
+			type: 'creep', x: 2, y: 2, user: 'p1', name: 'badguy',
+			body: [{ type: 'attack' }, { type: 'move' }], hits: 200, hitsMax: 200
+		}]);
+		assert.deepStrictEqual(result.map.creeps, [
+			{ name: 'badguy', x: 2, y: 2, owner: 'almaravarion', body: ['attack', 'move'],
+			  hits: 200, hitsMax: 200 }
+		]);
+	});
+
+	it('keeps invader creeps, which are not mine but are not another player either', function () {
+		const result = build([{
+			type: 'creep', x: 7, y: 7, user: 'inv', name: 'invader_1',
+			body: [{ type: 'ranged_attack' }, { type: 'move' }], hits: 300, hitsMax: 300
+		}]);
+		assert.deepStrictEqual(result.map.creeps, [
+			{ name: 'invader_1', x: 7, y: 7, owner: 'invader',
+			  body: ['ranged_attack', 'move'], hits: 300, hitsMax: 300 }
+		]);
+	});
+
+	it('drops another players creep while it is still spawning', function () {
+		const result = build([{
+			type: 'creep', x: 3, y: 3, user: 'p1', name: 'theirNewborn', spawning: true,
+			body: [{ type: 'move' }], hits: 100, hitsMax: 100
+		}]);
 		assert.deepStrictEqual(result.map.creeps, []);
+	});
+
+	it('drops an object whose owner could not be classified at all', function () {
+		// classifyOwner returning null means we never resolved the id — placing
+		// the object would give it an owner that cannot exist in the sim.
+		const result = build([{ type: 'tower', x: 1, y: 1, user: 'whoIsThis' }]);
+		assert.deepStrictEqual(result.map.structures, []);
+	});
+
+	it('omitting MY creeps and structures leaves another players alone', function () {
+		const result = build([
+			{ type: 'tower', x: 4, y: 4, user: 'mine' },
+			{ type: 'creep', x: 3, y: 3, user: 'mine', name: 'worker', body: [{ type: 'move' }] },
+			{ type: 'tower', x: 1, y: 1, user: 'p1' },
+			{ type: 'creep', x: 2, y: 2, user: 'p1', name: 'badguy', body: [{ type: 'move' }] }
+		], { includeMyCreeps: false, includeMyStructures: false });
+		assert.deepStrictEqual(result.map.structures, [{ type: 'tower', x: 1, y: 1, owner: 'almaravarion' }]);
+		assert.deepStrictEqual(result.map.creeps.map(function (c) { return c.owner; }), ['almaravarion']);
+	});
+
+	it('writes a users table for the labels the room actually uses', function () {
+		const users = {
+			almaravarion: { id: 'p1', username: 'Almaravarion' },
+			tigga: { id: 'p2', username: 'Tigga' }
+		};
+		const result = build([{ type: 'tower', x: 1, y: 1, user: 'p1' }], { users: users });
+		// tigga owns nothing here, so this room's map does not name them: the
+		// label -> id mapping is what survives a username change on the live
+		// server, and it is only meaningful for owners present in the file.
+		assert.deepStrictEqual(result.map.users, { almaravarion: { id: 'p1', username: 'Almaravarion' } });
+	});
+
+	it('omits the users table when no other player owns anything', function () {
+		const result = build([{ type: 'tower', x: 1, y: 1, user: 'mine' }], {
+			users: { almaravarion: { id: 'p1', username: 'Almaravarion' } }
+		});
+		assert.strictEqual(result.map.users, undefined);
+	});
+
+	it('names another players controller with their label at its real RCL', function () {
+		const result = build([{ type: 'controller', x: 20, y: 20, user: 'p1', level: 6 }]);
+		assert.deepStrictEqual(result.map.controller, { x: 20, y: 20, level: 6, owner: 'almaravarion' });
 	});
 
 	it('keeps only my creeps with body as type strings', function () {
@@ -102,9 +176,9 @@ describe('roomToMap', function () {
 		// An unowned controller carries no owner field.
 		const unowned = build([{ type: 'controller', x: 20, y: 20, level: 0 }]);
 		assert.deepStrictEqual(unowned.map.controller, { x: 20, y: 20, level: 0 });
-		// An enemy-owned controller (classifier returns null) is not tagged 'me'.
-		const enemy = build([{ type: 'controller', x: 20, y: 20, user: 'enemy', level: 6 }]);
-		assert.deepStrictEqual(enemy.map.controller, { x: 20, y: 20, level: 6 });
+		// An unclassifiable owner carries no owner field rather than becoming 'me'.
+		const unknown = build([{ type: 'controller', x: 20, y: 20, user: 'whoIsThis', level: 6 }]);
+		assert.deepStrictEqual(unknown.map.controller, { x: 20, y: 20, level: 6 });
 	});
 
 	it('records how much of a mineral is LEFT, not a fresh one', function () {

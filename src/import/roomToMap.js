@@ -3,6 +3,11 @@
 // Pure transform: raw engine room-object docs -> dojo map.json.
 // Classification/filtering rules live here; no network, no server deps.
 
+// Owner tags that are NOT another player: my bot and the two NPC users. Every
+// other non-null tag from the classifier is a player LABEL (see
+// src/import/ownerLabels.js), which a scenario's settings.json can assign a bot
+// codebase to. A null tag means the owner could not be resolved at all — those
+// objects are dropped rather than given an owner the sim cannot create.
 const OWNER_TAGS = { me: 'me', invader: 'invader', sourceKeeper: 'sourceKeeper' };
 
 // Structure types the dojo server can place (engine `type` values). Anything
@@ -57,11 +62,15 @@ function roomToMap(input) {
 	const known = new Set(KNOWN_STRUCTURES);
 	for (const type of input.extraStructureTypes || []) known.add(type);
 	const classifyOwner = input.classifyOwner;
-	const includeMyCreeps = input.includeMyCreeps !== false;
-	const includeMyStructures = input.includeMyStructures !== false;
 	// The source server's tick when the snapshot was taken; absent for callers
 	// that cannot supply one (see ABSOLUTE_DECAY_FIELDS).
 	const gameTime = input.gameTime;
+	const includeMyCreeps = input.includeMyCreeps !== false;
+	const includeMyStructures = input.includeMyStructures !== false;
+	// label -> { id, username } for every player seen across the import; only
+	// the labels this room actually uses are written into its map.
+	const knownUsers = input.users || {};
+	const usedLabels = new Set();
 	const map = {
 		room: input.roomName,
 		terrain: input.terrainRows,
@@ -80,7 +89,10 @@ function roomToMap(input) {
 			// and every structure — spawns included — goes inactive. Uses the same
 			// owner classifier as structures/creeps (me/invader/sourceKeeper).
 			const controller = { x: object.x, y: object.y, level: object.level || 0 };
-			if (object.user && OWNER_TAGS[tag]) controller.owner = OWNER_TAGS[tag];
+			if (object.user && tag !== null) {
+				controller.owner = tag;
+				if (!OWNER_TAGS[tag]) usedLabels.add(tag);
+			}
 			map.controller = controller;
 			continue;
 		}
@@ -105,9 +117,11 @@ function roomToMap(input) {
 		if (object.type === 'creep') {
 			// A spawning creep is still represented by its spawn. Recreating it as
 			// an active map creep would duplicate it and skip the spawn process.
-			if (tag !== 'me' || !includeMyCreeps || object.spawning) continue;
+			if (object.spawning || tag === null) continue;
+			if (tag === 'me' && !includeMyCreeps) continue;
+			if (!OWNER_TAGS[tag]) usedLabels.add(tag);
 			const creep = {
-				name: object.name, x: object.x, y: object.y, owner: 'me',
+				name: object.name, x: object.x, y: object.y, owner: tag,
 				body: (object.body || []).map(function (part) { return part.type; }),
 				hits: object.hits, hitsMax: object.hitsMax
 			};
@@ -117,11 +131,15 @@ function roomToMap(input) {
 			continue;
 		}
 		if (known.has(object.type)) {
-			// Drop other players' structures; keep mine / npc / neutral.
+			// Keep mine / npc / neutral / another player's; drop only an owner we
+			// could not resolve to anything.
 			if (object.user && tag === null) continue;
 			if (tag === 'me' && !includeMyStructures) continue;
 			const entry = { type: object.type, x: object.x, y: object.y };
-			if (object.user && OWNER_TAGS[tag]) entry.owner = OWNER_TAGS[tag];
+			if (object.user && tag !== null) {
+				entry.owner = tag;
+				if (!OWNER_TAGS[tag]) usedLabels.add(tag);
+			}
 			const decayField = ABSOLUTE_DECAY_FIELDS[object.type];
 			for (const key of Object.keys(object)) {
 				if (STRUCTURE_OMIT.has(key) || key === 'store') continue;
@@ -147,6 +165,15 @@ function roomToMap(input) {
 		// Unknown custom type (e.g. Season 'score'): drop + count.
 		skipped[object.type] = (skipped[object.type] || 0) + 1;
 	}
+
+	// The label -> { id, username } table for this room's players. Labels are
+	// derived from usernames, which can change on the live server; the id is
+	// what a re-import can still match on.
+	const users = {};
+	for (const label of usedLabels) {
+		if (knownUsers[label]) users[label] = knownUsers[label];
+	}
+	if (Object.keys(users).length > 0) map.users = users;
 
 	return { map: map, skipped: skipped };
 }

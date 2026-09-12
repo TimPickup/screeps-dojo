@@ -9,6 +9,25 @@ behaviour changes, patch = fixes).
 
 ### Added
 
+- **Imported rooms keep every player, and a scenario can put a bot behind one.**
+  An import used to drop other players' structures and creeps on the floor; they
+  now come across under a label made from the player's username, which the
+  import prints as it goes. Assign that label a bot profile in the scenario's
+  `settings.json` — `{ "bots": { "almaravarion": "default" } }` — and the loader
+  turns them into a real user at load time: their imported base, creeps and RCL,
+  driven by that codebase, with nothing added to `scenario.js`. A label nobody
+  assigns loads exactly as before, inert, so scenarios that bind their own
+  imported owners are unaffected.
+- Each imported map carries a `users` block (label → the player's live user id
+  and username), so a rename on the server does not orphan what `settings.json`
+  assigned.
+- **A scenario reads its own maps.** `world.loadMap('W1N1')` parses this
+  scenario's `map.W1N1.json`, and `world.loadAllMaps(botOptions)` loads every
+  `map.*.json` in the directory in one call — ordered by file name so a run is
+  reproducible, and rejecting two maps for the same room rather than building a
+  subtly broken world out of an editor's `map.E27S23 (1).json`. Scenarios no
+  longer repeat the `fs`/`path` boilerplate the template used to carry; use
+  `world.loadMap(...)` when you want only some of the rooms.
 - **Power banks.** The map editor places them, the inspector reads them, and an
   import brings a live one across. A bank's power IS its store — the engine's
   `.power` getter is literally `store.power` — so one placed without a store
@@ -53,6 +72,9 @@ behaviour changes, patch = fixes).
   deletes on sight. `constructedWall` is deliberately excluded: its `decayTime`
   marks a temporary newbie wall, not a decay clock, and rebasing it would make
   every wall in an imported base expire.
+- Invader creeps are no longer dropped on import. The filter that removed other
+  players' creeps took the NPC ones with it, so an imported room arrived without
+  the invaders that were standing in it.
 
 ## [0.11.0] — 2026-09-09
 
