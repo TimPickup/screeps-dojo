@@ -7,6 +7,34 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- **Imported rooms keep every player, and a scenario can put a bot behind one.**
+  An import used to drop other players' structures and creeps on the floor; they
+  now come across under a label made from the player's username, which the
+  import prints as it goes. Assign that label a bot profile in the scenario's
+  `settings.json` — `{ "bots": { "almaravarion": "default" } }` — and the loader
+  turns them into a real user at load time: their imported base, creeps and RCL,
+  driven by that codebase, with nothing added to `scenario.js`. A label nobody
+  assigns loads exactly as before, inert, so scenarios that bind their own
+  imported owners are unaffected.
+- Each imported map carries a `users` block (label → the player's live user id
+  and username), so a rename on the server does not orphan what `settings.json`
+  assigned.
+- **A scenario reads its own maps.** `world.loadMap('W1N1')` parses this
+  scenario's `map.W1N1.json`, and `world.loadAllMaps(botOptions)` loads every
+  `map.*.json` in the directory in one call — ordered by file name so a run is
+  reproducible, and rejecting two maps for the same room rather than building a
+  subtly broken world out of an editor's `map.E27S23 (1).json`. Scenarios no
+  longer repeat the `fs`/`path` boilerplate the template used to carry; use
+  `world.loadMap(...)` when you want only some of the rooms.
+
+### Fixed
+
+- Invader creeps are no longer dropped on import. The filter that removed other
+  players' creeps took the NPC ones with it, so an imported room arrived without
+  the invaders that were standing in it.
+
 ## [0.11.0] — 2026-09-09
 
 Scenarios can run under real Screeps season rules. Add `"mods": ["season5"]` to

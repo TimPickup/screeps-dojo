@@ -191,6 +191,9 @@ Any scenario may carry an optional `settings.json`:
   up with no code change). It is shorthand for `bots.main`.
 - `bots` — any other side, so you can pit two versions of your bot against each
   other: `world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) })`.
+  A side named after an **imported player's label** needs no scenario code at
+  all — the loader binds it (see
+  [Other players in an imported room](#other-players-in-an-imported-room)).
 - `server` — which Screeps server profile **Import a room** talks to.
 - `mods` — which **game mods** this scenario runs under (see below). Absent or
   `[]` is vanilla Screeps.
@@ -368,6 +371,13 @@ See `examples/README.md` for a guided tour. A scenario is a directory
   argument: `world.loadScenarioMaps([map], botOptions, { memory:
   require('./memory.json'), segments: require('./segments.json') })`.
 
+  The maps themselves come from the scenario's own directory, so there is no
+  need to hand-roll `fs`/`path` reading: `world.loadMap('W1N1')` parses this
+  scenario's `map.W1N1.json`, and `world.loadAllMaps(botOptions, options)`
+  loads EVERY `map.*.json` in the directory in one call — same arguments as
+  `loadScenarioMaps`, minus the maps. Use `loadScenarioMaps` with
+  `world.loadMap(...)` when you want only some of the rooms.
+
   Anything else goes in with `world.addObject(room, type, x, y, attributes)`,
   which fills in the engine-required fields for the type, resolves `owner`
   (`'me'`, `'invader'`, `'sourceKeeper'`, or a user id) to `user`, turns the
@@ -454,7 +464,9 @@ partial output.
 ## Importing a room from a live server
 
 Pull a room (or several) straight from a Screeps server into a scenario — no
-console pasting, works for any room you have vision of. The GUI's **Import room**
+console pasting. Vision is not required: the snapshot comes off the same
+spectator feed the official client uses, so an enemy base you have never scouted
+imports in full. The GUI's **Import room**
 button does this interactively; from the CLI:
 
 1. Authenticate one of two ways in `.env`:
@@ -481,8 +493,9 @@ when selected they write `memory.json` and `segments.json`. It captures terrain,
 your structures and creeps by default; either can be unchecked in the GUI or
 disabled with the CLI flags above. Spawning creeps are never exported. Neutral
 structures, sources, mineral, and controller remain part of the room. Other
-players' objects and unknown custom objects (e.g. Season `score`)
-are dropped — skipped types are reported.
+players' structures and creeps come across too, under a label of their own (see
+below). Unknown custom objects (e.g. Season `score`) are dropped — skipped types
+are reported.
 
 Token calls are rate-limited unless you activate the 2-hour unlimited window: the
 tool (and the GUI popup) prints the activation URL if the window is inactive.
@@ -492,6 +505,31 @@ normal limit is fine.)
 Owners are stored as the loader's tags (`me` / `invader` / `sourceKeeper`) so the
 map loads on any dojo server. Memory and segments are seeded into the bot when
 the scenario's `setup` passes them to `loadScenarioMaps`.
+
+### Other players in an imported room
+
+Every other player in the rooms you import is kept, under a **label** made from
+their in-game username (`Almaravarion` → `almaravarion`). The import names them
+as it goes, and finishes by telling you what to do with them:
+
+    wrote scenarios/season-block/map.W29N1.json — 41 structures, 12 creeps
+      players: almaravarion (SPAWN, 34 structures, 9 creeps), tigga (0 structures, 3 creeps)
+    players in this import: almaravarion, tigga
+    to give one a bot codebase, add it to scenarios/season-block/settings.json:
+      { "bots": { "almaravarion": "default" } }
+
+Make that one edit — through the scenario's ⚙ or by hand — and the next run
+turns that player into a real user: their imported spawn, structures, creeps and
+controller RCL are theirs, and the profile you named runs as their code, every
+tick, against yours. Nothing goes in `scenario.js`.
+
+A label nobody assigns is left inert: its objects still load, still block
+movement and can still be shot, but no code drives them. The loader lists those
+labels at load time so you know what is assignable.
+
+Labels are derived from usernames, which can change on the live server, so each
+map also carries a `users` block mapping the label back to that player's real
+user id and username at import time.
 
 ## Updating dojo
 

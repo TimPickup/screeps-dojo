@@ -126,7 +126,12 @@ async function runScenario(scenarioDir, options) {
 	// scripts/runScenarioChild.js for why every scenario gets its own process.
 	const modIds = settings.mods;
 	const modFile = modRegistry.createModFile(modIds);
-	const world = new DojoWorld({ mods: modIds, modfile: modFile && modFile.path });
+	const world = new DojoWorld({
+		mods: modIds,
+		modfile: modFile && modFile.path,
+		// lets setup() call world.loadMap('W1N1') / world.loadAllMaps()
+		scenarioDir: scenarioDir
+	});
 	const consoleLines = [];
 	let lastConsoleLen = 0;
 	const recordingEnabled = options.record === true || scenario.record === true || process.env.DOJO_RECORD === '1';

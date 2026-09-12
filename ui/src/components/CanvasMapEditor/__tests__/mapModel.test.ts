@@ -28,6 +28,22 @@ describe('canvas map editor model', () => {
     expect(output.minerals[0].id).toMatch(/^[a-f0-9]{24}$/);
   });
 
+  // An imported map carries a `users` block (label -> live id/username) and the
+  // creeps of every player in the room. The editor models neither, so opening
+  // and saving a map must not be what quietly strips them.
+  it('round-trips an imported map users block and creeps through the editor', () => {
+    const parsed = parseEditableMap({
+      room: 'W1N1', terrain,
+      structures: [{ type: 'tower', x: 10, y: 10, owner: 'almaravarion' }],
+      creeps: [{ name: 'theirs', x: 11, y: 10, owner: 'almaravarion', body: ['move'] }],
+      users: { almaravarion: { id: '54d0a5691234', username: 'Almaravarion' } },
+    });
+    const output = JSON.parse(serializeEditableMap(parsed.map!));
+    expect(output.users).toEqual({ almaravarion: { id: '54d0a5691234', username: 'Almaravarion' } });
+    expect(output.creeps).toEqual([{ name: 'theirs', x: 11, y: 10, owner: 'almaravarion', body: ['move'] }]);
+    expect(output.structures[0].owner).toBe('almaravarion');
+  });
+
   it('rejects malformed terrain without producing a partial model', () => {
     const parsed = parseEditableMap({ room: 'W1N1', terrain: ['.'], structures: [] });
     expect(parsed.map).toBeNull();
