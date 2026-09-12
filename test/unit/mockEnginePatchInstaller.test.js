@@ -79,7 +79,7 @@ describe('mock engine patch installer', function () {
 		current = fixture();
 		installer.run('apply', current.options);
 		const result = installer.run('check', current.options);
-		assert.deepStrictEqual(result, { mode: 'check', changed: 0, verified: 2, snapshotRegenerated: false });
+		assert.deepStrictEqual(result, { mode: 'check', changed: 0, verified: 2, snapshotRegenerated: false, normalised: [] });
 	});
 
 	it('rejects an unknown hash before changing any target', function () {
@@ -128,5 +128,84 @@ describe('mock engine patch installer', function () {
 			fs.readFileSync(path.join(current.packageRoot, 'lib/value.js'), 'utf8'),
 			"module.exports = 'new';\n"
 		);
+	});
+});
+
+// The manifest pins a sha256 over the RAW BYTES of every file it applies or
+// copies, so a checkout that rewrote line endings breaks the install — and
+// core.autocrlf=true is the git for Windows default, so that is a normal clone
+// there, not an exotic one. LF is what the manifest hashed and what the Linux
+// container needs, so normalising CRLF back out is a repair the pinned hash
+// then proves correct. Anything else is a real difference and must still stop.
+describe('mock engine patch installer line endings', function () {
+	let current;
+	afterEach(function () {
+		if (current) fs.rmSync(current.root, { recursive: true, force: true });
+		current = null;
+	});
+
+	function toCrlf(filename) {
+		fs.writeFileSync(filename, fs.readFileSync(filename, 'utf8').replace(/\n/g, '\r\n'));
+	}
+
+	it('installs a copy source that was checked out with CRLF', function () {
+		current = fixture();
+		toCrlf(path.join(current.root, 'assets/copied.js'));
+
+		const result = installer.run('apply', current.options);
+
+		assert.strictEqual(result.changed, 2);
+		assert.deepStrictEqual(result.normalised, ['assets/copied.js']);
+		assert.strictEqual(
+			fs.readFileSync(path.join(current.packageRoot, 'lib/copied.js'), 'utf8'),
+			"module.exports = 'copied';\n"
+		);
+		assert.deepStrictEqual(installer.run('check', current.options).verified, 2);
+	});
+
+	it('applies a patch file that was checked out with CRLF', function () {
+		current = fixture();
+		toCrlf(path.join(current.root, 'patches/value.patch'));
+
+		const result = installer.run('apply', current.options);
+
+		assert.strictEqual(result.changed, 2);
+		assert.deepStrictEqual(result.normalised, ['patches/value.patch']);
+		assert.strictEqual(
+			fs.readFileSync(path.join(current.packageRoot, 'lib/value.js'), 'utf8'),
+			"module.exports = 'new';\n"
+		);
+	});
+
+	it('reports nothing normalised for an ordinary LF checkout', function () {
+		current = fixture();
+		assert.deepStrictEqual(installer.run('apply', current.options).normalised, []);
+	});
+
+	it('still refuses a copy source whose content really differs', function () {
+		current = fixture();
+		fs.writeFileSync(path.join(current.root, 'assets/copied.js'), "module.exports = 'tampered';\r\n");
+
+		assert.throws(function () { installer.run('apply', current.options); }, /Copy source hash mismatch/);
+		assert.strictEqual(fs.existsSync(path.join(current.packageRoot, 'lib/copied.js')), false);
+	});
+});
+
+// .gitattributes is the only fix that needs nothing of the person cloning. It
+// has to cover every byte-hashed file, not just *.patch: lib/dojo-features.js
+// was missed for two releases and broke every default Windows clone.
+describe('mock engine patch sources survive a Windows checkout', function () {
+	it('marks every byte-hashed manifest source -text in .gitattributes', function () {
+		const repoRoot = path.resolve(__dirname, '../..');
+		const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'server-mock-patches/manifest.json'), 'utf8'));
+		const sources = manifest.operations.map(function (operation) { return operation.patch || operation.source; });
+		assert.ok(sources.length > 1, 'manifest should list sources to check');
+		for (const source of sources) {
+			const attr = childProcess.execFileSync('git', ['check-attr', 'text', '--', source], {
+				cwd: repoRoot,
+				encoding: 'utf8'
+			}).trim();
+			assert.ok(/: text: unset$/.test(attr), source + ' is not held byte-exact by .gitattributes: ' + attr);
+		}
 	});
 });
