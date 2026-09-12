@@ -9,6 +9,8 @@
 //   npm run test:internal                 -> run all tests except user scenarios
 //   npm run test:integration              -> run only integration tests
 //   npm run test:scenarios -- scout-flee  -> run one matching scenario
+//   npm test -- Benches/defence-bench     -> a scenario inside a folder
+//   npm test -- scenarios\Benches\rampart -> a tab-completed path, also fine
 //   npm test -- scout-flee record         -> same, with replay recording enabled
 //   npm run test:internal -- local        -> run mocha here, without Docker
 //
@@ -34,6 +36,26 @@ const SUITES = Object.freeze({
 	integration: ['test/integration/**/*.test.js'],
 	scenarios: ['test/scenarios.test.js']
 });
+
+// A scenario now lives at a PATH under scenarios/, and the mocha test title
+// is that path in posix form. Three spellings of the same thing have to reach
+// the same --grep, because all three are what people actually type:
+//
+//   Benches/defence-bench            what the GUI shows
+//   Benches\defence-bench            the Windows separator
+//   scenarios\Benches\rampart\       tab completion: prefix and trailing slash
+//
+// Backslashes become '/', a leading scenarios/ is dropped, and trailing
+// separators are trimmed. Other regex metacharacters are left alone — --grep
+// is a regex and filtering with one is a feature worth keeping.
+function normalizeFilter(filter) {
+	if (!filter) return filter;
+	let out = filter.split('\\').join('/');
+	out = out.replace(/^\.?\/*/, '');
+	if (out.slice(0, 10).toLowerCase() === 'scenarios/') out = out.slice(10);
+	out = out.replace(/\/+$/, '');
+	return out;
+}
 
 function parseArgs(args) {
 	let suite = 'all';
@@ -63,7 +85,7 @@ function parseArgs(args) {
 			+ Object.keys(SUITES).join(', ') + ')');
 	}
 
-	return { suite: suite, record: record, local: local, filter: filter };
+	return { suite: suite, record: record, local: local, filter: normalizeFilter(filter) };
 }
 
 function buildMochaArgs(options) {
@@ -103,7 +125,7 @@ function main(args) {
 	}
 
 	if (options.record) {
-		console.log('[dojo] recording enabled -> recordings/<scenario>/<timestamp>/');
+		console.log('[dojo] recording enabled -> scenarios/<scenario>/recordings/<timestamp>/');
 	}
 
 	// Scenarios may select a bot profile in settings.json, and a profile is only
@@ -128,6 +150,7 @@ function main(args) {
 }
 
 module.exports = {
+	normalizeFilter: normalizeFilter,
 	SUITES: SUITES,
 	parseArgs: parseArgs,
 	buildMochaArgs: buildMochaArgs,

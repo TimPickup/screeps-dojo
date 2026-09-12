@@ -28,14 +28,25 @@ codebase and let each scenario pick between them.
 
 From the UI you can:
 
-- **Browse scenarios** on the left and drill into one.
-- **+ New scenario** — scaffolds a working two-room starter (spawn, sources, a
-  controller to grow to RCL 2, and a bundled example bot) and drops you into its
-  editor. Run it immediately.
+- **Browse scenarios** on the left and drill into one. The list is a tree and
+  keeps itself up to date — no refresh button. Group scenarios into **folders**
+  (nested as deep as you like, collapsed until you open them), drag a scenario
+  or folder onto another folder to move it, and rename, move or delete anything
+  from the ✎ / 🗑 icons, a right-click menu, or the keyboard (↑/↓ to move,
+  →/← to open and close a folder, F2 to rename, Delete to remove). A scenario's replays live inside it, so they move
+  with it; deleting a folder that still holds something warns you first.
+- **+ New scenario** — asks where it goes (defaulting to the folder you last
+  worked in) and what to start from: **Basic**, a working two-room starter
+  (spawn, sources, a controller to grow to RCL 2, a bundled example bot) that
+  runs immediately; **Blank**, just a heavily commented `scenario.js`; a copy of
+  anything in `examples/`; or a duplicate of one of your own scenarios. Then it
+  drops you into the editor.
+- **Breadcrumbs** in the header show which folders the open scenario is in;
+  click one to go back to the list with that folder opened.
 - **Run** live with a streamed preview + console (showing attacks, harvesting,
   upgrading, etc.), and **Abort** mid-run. Leave the tab and come back — it
   reconnects to the run in progress.
-- **Test** headlessly for a pass/fail verdict; or **Test All** from the landing.
+- **Test** headlessly for a pass/fail verdict.
 - **Replays** — every recording listed with a PASS/FAIL badge; scrub/play with
   speed control + smooth animation, click any creep/structure to inspect it, and
   export **GIF/MP4**.
@@ -422,6 +433,16 @@ room the scenario didn't load, so single-room scenarios don't trip pathfinding.
 Enemies can be scripted bots (deterministic, recommended for regressions) or
 real engine-driven invaders (user `'2'` objects — the engine AI works here).
 
+## Releasing
+
+    npm run release -- 0.14.0
+
+Never bump the version by hand or with a find/replace: `package-lock.json`
+carries a `"version"` for every dependency, and one of them will eventually
+match the project's. The script bumps with `npm version`, then refuses the
+result if the diff touched any line other than the project's own two `version`
+fields. Full process in [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Recording and rendering replays
 
 The GUI records and replays for you. From the CLI, add the `record` keyword to
@@ -434,14 +455,21 @@ then swallows `--flags`. Bare words survive every shell.) The recording path is
 printed with the scenario result — including for FAILED scenarios, which are
 exactly the runs worth replaying.
 
-Recordings land in `recordings/<scenario>/<timestamp>/recording.json` (positions,
-hits, stores, say text, attack/heal events — re-renderable without re-running).
-A scenario can also set `record: true` in scenario.js.
+Recordings land **inside the scenario that produced them**, at
+`scenarios/<scenario>/recordings/<timestamp>/recording.json` (positions, hits,
+stores, say text, attack/heal events — re-renderable without re-running). They
+live there so they follow the scenario when you rename it or move it into a
+folder. The GUI hides that directory from the Edit tab's file list. A scenario
+can also set `record: true` in scenario.js.
+
+Recordings made before v0.13 lived in a top-level `recordings/<scenario>/`; the
+GUI server moves those into their scenario the first time it starts. Any whose
+scenario no longer exists is left in `recordings/` untouched.
 
 Render a recording to video (the GUI's GIF/MP4 buttons do this too):
 
-    npm run render -- recordings/walk-to-flag/<timestamp>          # MP4
-    npm run render -- recordings/walk-to-flag/<timestamp> gif      # GIF
+    npm run render -- scenarios/walk-to-flag/recordings/<timestamp>          # MP4
+    npm run render -- scenarios/walk-to-flag/recordings/<timestamp> gif      # GIF
 
 Export speed uses the same multiplier as replay playback: at `1x` one recorded
 tick takes one second, at `2x` it takes half a second, and high speeds skip ticks

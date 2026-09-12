@@ -1,8 +1,47 @@
 export interface Scenario {
+  // Leaf name, for display.
   name: string;
+  // Posix path relative to scenarios/ — 'Test1' at the top level,
+  // 'Benches/defence-bench' inside a folder. THIS is the scenario's id:
+  // every API call and every piece of component state keys off it.
+  path: string;
   hasMap: boolean;
   files: string[];
 }
+
+export interface ScenarioFolder {
+  name: string;
+  path: string;
+}
+
+export interface ScenarioTree {
+  folders: ScenarioFolder[];
+  scenarios: Scenario[];
+}
+
+// A starting point the New-scenario dialog offers: the built-in Basic/Blank,
+// or a copy of something in examples/. `group` is the optgroup heading; the
+// server owns this list so the UI never keeps a second copy of it.
+export interface ScenarioTemplate {
+  id: string;
+  name: string;
+  group: string;
+  description: string;
+}
+
+// One of the user's own scenarios, offered as "duplicate this". `group` is
+// the folder it lives in ('' = top level) and becomes the optgroup heading.
+export interface CopyableScenario {
+  id: string;
+  name: string;
+  group: string;
+  path: string;
+}
+
+// What a delete would take with it, asked for before the confirm dialog.
+export type ScenarioEntryInfo =
+  | { kind: 'scenario'; path: string; recordings: number }
+  | { kind: 'folder'; path: string; folders: number; scenarios: number };
 
 // A registered bot codebase, mounted read-only at /bots/<name>. `mounted` is
 // probed on the server: a profile can be declared in .env but not yet mounted,

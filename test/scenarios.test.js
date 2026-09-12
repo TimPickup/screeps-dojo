@@ -9,16 +9,17 @@
 // reactors into every scenario after it. The child also runs the scenario's
 // own expect(), and reports the verdict here.
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { forkScenario } = require('../src/scenarioChild');
+const { listScenarioDirs } = require('../src/scenarioTree');
 
 const scenariosRoot = path.join(__dirname, '..', 'scenarios');
 // scenarios/ is the user's git-ignored workspace and is empty on a fresh
-// checkout — tolerate it being absent or holding no scenario.js dirs.
-const scenarioDirs = (fs.existsSync(scenariosRoot) ? fs.readdirSync(scenariosRoot) : []).filter(function (entry) {
-	return fs.existsSync(path.join(scenariosRoot, entry, 'scenario.js'));
-});
+// checkout — listScenarioDirs tolerates it being absent. It walks the whole
+// tree, so a scenario filed inside a folder still runs; the test title is its
+// path ('Benches/defence-bench'), which keeps --grep filters working on the
+// leaf name.
+const scenarioDirs = listScenarioDirs(scenariosRoot);
 
 describe('scenarios', function () {
 	if (scenarioDirs.length === 0) {
@@ -30,9 +31,10 @@ describe('scenarios', function () {
 	// no wall-clock limit: maxTicks bounds each run and the runner's per-tick
 	// watchdog catches a stalled server (see scenarioRunner.js)
 	this.timeout(0);
-	for (const dir of scenarioDirs) {
+	for (const entry of scenarioDirs) {
+		const dir = entry.path;
 		it(dir, async function () {
-			const scenarioDir = path.join(scenariosRoot, dir);
+			const scenarioDir = entry.dir;
 			const consoleLines = [];
 			const run = forkScenario(scenarioDir, {
 				// frames would be the bulk of the IPC traffic and nothing here reads

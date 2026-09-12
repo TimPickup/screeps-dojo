@@ -26,13 +26,26 @@ took.
    is *for*, then `Added` / `Changed` / `Fixed`. Prefer the concrete: what it
    used to do, what it does now, and the number if there is one.
 
-3. **Bump the version.**
+3. **Bump the version — with the script, never by hand.**
 
-       npm version <x.y.z> --no-git-tag-version
+       npm run release -- <x.y.z>
 
-   This updates `package.json` **and both version fields in
-   `package-lock.json`**. Editing `package.json` by hand leaves the lock stale —
-   the diff should always show `package-lock.json | 4 ++--`.
+   It runs `npm version <x.y.z> --no-git-tag-version`, which updates
+   `package.json` **and both project-level version fields in
+   `package-lock.json`**, then checks the resulting diff and refuses anything
+   that touched another line. The diff should always be `package.json | 2 +-`
+   and `package-lock.json | 4 ++--`.
+
+   **Do not do this with a find/replace of the old version string, in any
+   tool.** `package-lock.json` holds a `"version"` for every dependency, and
+   sooner or later one of them equals the project's — cutting 0.13.0 caught
+   `node_modules/caseless`, rewritten to a version that does not exist while
+   its `resolved` URL and `integrity` hash still pointed at the real one. It
+   breaks silently: nothing fails until somebody else runs `npm ci`, after the
+   release has shipped. Editing `package.json` by hand is the milder version of
+   the same mistake — it leaves the lock stale.
+
+   `test/unit/releaseBump.test.js` covers the check.
 
 4. **Commit** as `chore(release): vX.Y.Z`, with a prose body saying what the
    release is about. The commit touches three files and nothing else:

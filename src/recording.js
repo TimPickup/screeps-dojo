@@ -1,8 +1,11 @@
 'use strict';
 
-// Recording files (spec §7): one JSON per run under
-// recordings/<scenario>/<timestamp>/recording.json. Re-renderable without
-// re-running the sim.
+// Recording files: one JSON per run under
+// scenarios/<scenario path>/recordings/<timestamp>/recording.json — INSIDE the
+// scenario, so replays follow it through a rename or a move into a folder.
+// (They used to live in a separate top-level recordings/ keyed by scenario
+// name, which a rename silently orphaned; migrateLegacyRecordings below moves
+// those across on first boot.) Re-renderable without re-running the sim.
 //
 // Crash safety: createRecorder() journals every frame to frames.ndjson as it
 // is captured (append-only, nothing retained in memory), writes meta.json up
@@ -14,7 +17,18 @@
 const fs = require('fs');
 const path = require('path');
 
-const RECORDINGS_ROOT = path.join(__dirname, '..', 'recordings');
+const { RECORDINGS_DIR_NAME, resolveScenarioPath, listScenarioDirs, isDirEntry } = require('./scenarioTree');
+
+// Where recordings lived before they moved inside their scenario. Still read
+// for the one-time migration, and still the home of runs whose scenario no
+// longer exists (nothing to move them to).
+const LEGACY_RECORDINGS_ROOT = path.join(__dirname, '..', 'recordings');
+const SCENARIOS_ROOT = path.join(__dirname, '..', 'scenarios');
+
+// A scenario's replay directory. Created on demand by the recorder.
+function recordingsDirFor(scenarioDir) {
+	return path.join(scenarioDir, RECORDINGS_DIR_NAME);
+}
 const ASSEMBLY_CHUNK_BYTES = 8 * 1024 * 1024;
 
 function timestampDirName(date) {
@@ -23,8 +37,8 @@ function timestampDirName(date) {
 		+ '-' + pad(date.getHours()) + pad(date.getMinutes()) + pad(date.getSeconds());
 }
 
-function writeRecording(scenarioName, recording) {
-	const dir = path.join(RECORDINGS_ROOT, scenarioName, timestampDirName(new Date()));
+function writeRecording(scenarioDir, recording) {
+	const dir = path.join(recordingsDirFor(scenarioDir), timestampDirName(new Date()));
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, 'recording.json');
 	fs.writeFileSync(file, JSON.stringify(recording));
@@ -100,7 +114,8 @@ function assembleRecording(dir) {
 	} else {
 		const frameCount = countJournalFrames(journalFile);
 		metaJson = JSON.stringify({
-			scenario: path.basename(path.dirname(dir)),
+			// dir is <scenario>/recordings/<timestamp>, so the scenario is two up
+			scenario: path.basename(path.dirname(path.dirname(dir))),
 			endReason: 'killed',
 			ticks: frameCount - 1
 		});
@@ -115,8 +130,8 @@ function assembleRecording(dir) {
 // Streaming recorder: frames go straight to disk, so RAM stays flat no matter
 // how long the run is. Everything here is synchronous on purpose — finalize()
 // must be callable from a process signal handler.
-function createRecorder(scenarioName) {
-	const dir = path.join(RECORDINGS_ROOT, scenarioName, timestampDirName(new Date()));
+function createRecorder(scenarioDir) {
+	const dir = path.join(recordingsDirFor(scenarioDir), timestampDirName(new Date()));
 	fs.mkdirSync(dir, { recursive: true });
 	const journalFile = path.join(dir, 'frames.ndjson');
 	let frames = 0;
@@ -211,15 +226,6 @@ function deriveStatus(dir, meta, hasRecording, hasJournal) {
 	return { status: (Date.now() - mtimeMs) < IN_PROGRESS_STALE_MS ? 'running' : 'interrupted', ticks: null };
 }
 
-// A directory read reports a symlink as a link, whereas the statSync this
-// replaced followed it. Recordings are bulky enough that pointing a scenario's
-// folder at another disk is reasonable, so keep following — only symlinks pay.
-function isDirEntry(entry, full) {
-	if (entry.isDirectory()) return true;
-	if (!entry.isSymbolicLink()) return false;
-	try { return fs.statSync(full).isDirectory(); } catch (e) { return false; }
-}
-
 // Reads one run directory. A single readdir answers "is this a recording?" and
 // "does it have meta?" at once — the old shape cost a statSync plus three
 // existsSync calls to learn the same thing.
@@ -253,37 +259,12 @@ function scanRunDir(scenario, timestamp, dir) {
 	};
 }
 
-// Resolves the scenario filter to a directory.
+// Lists recordings for the whole workspace, or for one scenario.
 //
-// This names a directory that ALREADY EXISTS, so it has to accept whatever the
-// scenario list is willing to show — which is any directory holding a
-// scenario.js, including names with spaces, dots or a leading underscore. The
-// check is therefore structural rather than a character allowlist: exactly one
-// path segment, resolving directly inside the root. Containment is what stops
-// traversal; a character filter was only ever a shortcut to it.
-//
-// (The stricter pattern in routes/scenarios.js governs names the GUI will
-// CREATE, which is a different question and must not be applied here.)
-function resolveScenarioDir(base, scenario) {
-	const reject = function () {
-		const err = new Error('invalid scenario name: ' + scenario);
-		err.statusCode = 400;
-		throw err;
-	};
-	if (!scenario || scenario.indexOf('\0') !== -1) reject();
-	if (scenario === '.' || scenario === '..') reject();
-	if (scenario.indexOf('/') !== -1 || scenario.indexOf('\\') !== -1) reject();
-	if (path.isAbsolute(scenario)) reject();
-	const baseResolved = path.resolve(base);
-	const dir = path.resolve(baseResolved, scenario);
-	// a single segment directly under the root — not merely somewhere beneath it
-	if (path.dirname(dir) !== baseResolved) reject();
-	return dir;
-}
-
-// Lists recordings under root (default the repo recordings/), newest first.
-// options.scenario restricts the walk to one scenario directory — the GUI's
-// Replays tab only ever shows one scenario, and filtering here instead of in
+// `root` is the SCENARIOS root: each scenario keeps its runs in its own
+// recordings/ subdirectory. options.scenario restricts the walk to one
+// scenario (a posix path relative to the root, e.g. 'Benches/defence-bench') —
+// the GUI's Replays tab only ever shows one, and filtering here instead of in
 // the browser is the difference between touching one directory and all of them.
 //
 // Ordering comes from the timestamp directory name (YYYYMMDD-HHMMSS, fixed
@@ -292,40 +273,42 @@ function resolveScenarioDir(base, scenario) {
 // Each entry carries the parsed meta plus a derived status/ticks so the GUI can
 // render badges without loading frames.
 function listRecordings(root, options) {
-	const base = root || RECORDINGS_ROOT;
+	const base = root || SCENARIOS_ROOT;
 	options = options || {};
 	const wantScenario = options.scenario !== undefined && options.scenario !== null;
 
 	let scenarioDirs;
 	if (wantScenario) {
-		const scenario = String(options.scenario);
-		const dir = resolveScenarioDir(base, scenario);
-		scenarioDirs = [{ name: scenario, dir: dir }];
+		const scenarioPath = String(options.scenario);
+		let dir;
+		try { dir = resolveScenarioPath(base, scenarioPath); }
+		catch (e) {
+			// keep the wording the API (and its tests) have always used
+			const err = new Error('invalid scenario name: ' + scenarioPath);
+			err.statusCode = 400;
+			throw err;
+		}
+		scenarioDirs = [{ name: scenarioPath, dir: dir }];
 	} else {
-		let top;
-		try {
-			top = fs.readdirSync(base, { withFileTypes: true });
-		} catch (e) {
-			// No recordings root yet is normal — nothing has been recorded. Any
-			// other failure (permissions, I/O) is real and must not masquerade as
-			// "no recordings"; the route turns it into a 500 carrying the message.
+		// A missing scenarios root is a legitimate empty state; a permissions or
+		// I/O failure is not, and must not masquerade as "no recordings".
+		try { fs.readdirSync(base); }
+		catch (e) {
 			if (e && e.code === 'ENOENT') return [];
 			throw e;
 		}
-		scenarioDirs = [];
-		for (const entry of top) {
-			const dir = path.join(base, entry.name);
-			if (!isDirEntry(entry, dir)) continue;
-			scenarioDirs.push({ name: entry.name, dir: dir });
-		}
+		scenarioDirs = listScenarioDirs(base).map(function (s) {
+			return { name: s.path, dir: s.dir };
+		});
 	}
 
 	const out = [];
 	for (const scenarioDir of scenarioDirs) {
 		let runs;
-		try { runs = fs.readdirSync(scenarioDir.dir, { withFileTypes: true }); } catch (e) { continue; }
+		try { runs = fs.readdirSync(recordingsDirFor(scenarioDir.dir), { withFileTypes: true }); }
+		catch (e) { continue; }
 		for (const run of runs) {
-			const dir = path.join(scenarioDir.dir, run.name);
+			const dir = path.join(recordingsDirFor(scenarioDir.dir), run.name);
 			if (!isDirEntry(run, dir)) continue;
 			const cached = finalizedCache.get(dir);
 			if (cached) { out.push(Object.assign({}, cached)); continue; }
@@ -345,6 +328,134 @@ function listRecordings(root, options) {
 	return out;
 }
 
+// One-time move of the old top-level recordings/<name>/ into
+// scenarios/<name>/recordings/. Only runs for a legacy directory whose name
+// still matches a TOP-LEVEL scenario; anything else (a scenario since deleted,
+// or one already moved into a folder under a different path) is left exactly
+// where it is rather than guessed at. Idempotent, and never overwrites: a
+// timestamp that already exists on the scenario side is skipped.
+//
+// Returns { scenarios, runs, skipped } for the boot log.
+function migrateLegacyRecordings(scenariosRoot, legacyRoot) {
+	const scenariosBase = path.resolve(scenariosRoot || SCENARIOS_ROOT);
+	const legacyBase = path.resolve(legacyRoot || LEGACY_RECORDINGS_ROOT);
+	const result = { scenarios: 0, runs: 0, skipped: 0 };
+	let legacyEntries;
+	try { legacyEntries = fs.readdirSync(legacyBase, { withFileTypes: true }); }
+	catch (e) { return result; }
+
+	for (const entry of legacyEntries) {
+		const from = path.join(legacyBase, entry.name);
+		if (!isDirEntry(entry, from)) continue;
+		const scenarioDir = path.join(scenariosBase, entry.name);
+		// path.join would happily accept '..' as a directory name on disk
+		if (path.dirname(scenarioDir) !== scenariosBase) continue;
+		let hasScenario;
+		try { hasScenario = fs.statSync(path.join(scenarioDir, 'scenario.js')).isFile(); }
+		catch (e) { hasScenario = false; }
+		if (!hasScenario) { result.skipped += 1; continue; }
+
+		let runs;
+		try { runs = fs.readdirSync(from, { withFileTypes: true }); } catch (e) { continue; }
+		const target = recordingsDirFor(scenarioDir);
+		let moved = 0;
+		for (const run of runs) {
+			const runFrom = path.join(from, run.name);
+			if (!isDirEntry(run, runFrom)) continue;
+			const runTo = path.join(target, run.name);
+			if (fs.existsSync(runTo)) continue;
+			try {
+				fs.mkdirSync(target, { recursive: true });
+				fs.renameSync(runFrom, runTo);
+				moved += 1;
+			} catch (e) {
+				// EXDEV (different filesystems) or a locked file: copy instead, and
+				// leave the original in place rather than risk losing a recording.
+				try {
+					fs.cpSync(runFrom, runTo, { recursive: true });
+					fs.rmSync(runFrom, { recursive: true, force: true });
+					moved += 1;
+				} catch (e2) { /* leave it where it is */ }
+			}
+		}
+		if (moved) { result.scenarios += 1; result.runs += moved; }
+		// drop the now-empty legacy directory so the migration doesn't re-walk it
+		try { if (fs.readdirSync(from).length === 0) fs.rmdirSync(from); } catch (e) { /* not empty */ }
+	}
+	return result;
+}
+
+// Bytes held by a directory tree. One stat per file — only ever called for the
+// legacy recordings directory, on demand from Settings, so a walk is fine; it
+// is never on the path of a run or a listing.
+function directorySize(dir) {
+	let total = 0;
+	let entries;
+	try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return 0; }
+	for (const entry of entries) {
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) { total += directorySize(full); continue; }
+		if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+		try { total += fs.statSync(full).size; } catch (e) { /* vanished mid-walk */ }
+	}
+	return total;
+}
+
+// What migrateLegacyRecordings could not move: a top-level recordings/<name>/
+// with no scenario of that name to move it into. After a migration this is
+// everything still in the directory — runs from scenarios long since deleted,
+// plus the throwaway directories the abort test leaves behind.
+//
+// Reported rather than deleted: they are the only copy of those runs, so
+// clearing them is an explicit choice made in Settings.
+function listOrphanedRecordings(scenariosRoot, legacyRoot) {
+	const scenariosBase = path.resolve(scenariosRoot || SCENARIOS_ROOT);
+	const legacyBase = path.resolve(legacyRoot || LEGACY_RECORDINGS_ROOT);
+	const out = { root: legacyBase, entries: [], runs: 0, bytes: 0 };
+	let entries;
+	try { entries = fs.readdirSync(legacyBase, { withFileTypes: true }); } catch (e) { return out; }
+
+	for (const entry of entries) {
+		const dir = path.join(legacyBase, entry.name);
+		if (!isDirEntry(entry, dir)) continue;
+		const scenarioDir = path.join(scenariosBase, entry.name);
+		let hasScenario = false;
+		if (path.dirname(scenarioDir) === scenariosBase) {
+			try { hasScenario = fs.statSync(path.join(scenarioDir, 'scenario.js')).isFile(); }
+			catch (e) { hasScenario = false; }
+		}
+		if (hasScenario) continue; // migrateLegacyRecordings owns this one
+		let runs = 0;
+		try {
+			runs = fs.readdirSync(dir, { withFileTypes: true })
+				.filter(function (run) { return isDirEntry(run, path.join(dir, run.name)); }).length;
+		} catch (e) { runs = 0; }
+		const bytes = directorySize(dir);
+		out.entries.push({ name: entry.name, runs: runs, bytes: bytes });
+		out.runs += runs;
+		out.bytes += bytes;
+	}
+	out.entries.sort(function (a, b) { return b.bytes - a.bytes; });
+	return out;
+}
+
+// Deletes every orphan listOrphanedRecordings would report, and the legacy
+// directory itself once it is empty. Returns what went.
+function clearOrphanedRecordings(scenariosRoot, legacyRoot) {
+	const found = listOrphanedRecordings(scenariosRoot, legacyRoot);
+	let removed = 0;
+	let bytes = 0;
+	for (const entry of found.entries) {
+		try {
+			fs.rmSync(path.join(found.root, entry.name), { recursive: true, force: true });
+			removed += 1;
+			bytes += entry.bytes;
+		} catch (e) { /* leave what will not go */ }
+	}
+	try { if (fs.readdirSync(found.root).length === 0) fs.rmdirSync(found.root); } catch (e) { /* not empty */ }
+	return { removed: removed, bytes: bytes };
+}
+
 module.exports = {
 	writeRecording: writeRecording,
 	loadRecording: loadRecording,
@@ -353,5 +464,10 @@ module.exports = {
 	readRecordingMeta: readRecordingMeta,
 	_clearRecordingCache: _clearRecordingCache,
 	IN_PROGRESS_STALE_MS: IN_PROGRESS_STALE_MS,
-	RECORDINGS_ROOT: RECORDINGS_ROOT
+	recordingsDirFor: recordingsDirFor,
+	migrateLegacyRecordings: migrateLegacyRecordings,
+	listOrphanedRecordings: listOrphanedRecordings,
+	clearOrphanedRecordings: clearOrphanedRecordings,
+	LEGACY_RECORDINGS_ROOT: LEGACY_RECORDINGS_ROOT,
+	SCENARIOS_ROOT: SCENARIOS_ROOT
 };

@@ -35,7 +35,7 @@ function startJob(kind, scenarioDir, options) {
 	counter += 1;
 	const jobId = 'job-' + Date.now() + '-' + counter;
 	const job = {
-		jobId: jobId, kind: kind, scenario: path.basename(scenarioDir),
+		jobId: jobId, kind: kind, scenario: options.scenario || path.basename(scenarioDir),
 		child: null, history: [], lastFrame: null, subscribers: new Set(), done: false
 	};
 	active = job;

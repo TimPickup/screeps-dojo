@@ -12,8 +12,22 @@ const {
 	IN_PROGRESS_STALE_MS
 } = require('../../src/recording');
 
+// `root` is the SCENARIOS root: a run lives at
+// <root>/<scenario path>/recordings/<timestamp>/, and the scenario is only
+// discovered by the unfiltered walk if it really holds a scenario.js.
+function makeScenario(root, scenario) {
+	const dir = path.join(root, scenario.split('/').join(path.sep));
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, 'scenario.js'), '// scenario');
+	return dir;
+}
+
+function runDir(root, scenario, ts) {
+	return path.join(makeScenario(root, scenario), 'recordings', ts);
+}
+
 function makeRecording(root, scenario, ts, meta) {
-	const dir = path.join(root, scenario, ts);
+	const dir = runDir(root, scenario, ts);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
 	fs.writeFileSync(path.join(dir, 'recording.json'), JSON.stringify({ meta: meta, terrain: {}, frames: [] }));
@@ -24,7 +38,7 @@ function makeRecording(root, scenario, ts, meta) {
 // (recording.json is written by finalize). ageMs backdates the journal so the
 // staleness check can be exercised without waiting.
 function makeInProgress(root, scenario, ts, ageMs) {
-	const dir = path.join(root, scenario, ts);
+	const dir = runDir(root, scenario, ts);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ scenario: scenario, endReason: 'in-progress', ticks: 0 }));
 	const journal = path.join(dir, 'frames.ndjson');
@@ -91,9 +105,10 @@ describe('listRecordings / readRecordingMeta', function () {
 		});
 
 		// The filter names a directory, so a traversal attempt must not be able to
-		// walk out of the recordings root (defence in depth — the route validates too).
+		// walk out of the scenarios root (defence in depth — the route validates
+		// too). A bare '/' is legitimate now: it separates folders.
 		it('refuses to escape the root via a traversal scenario name', function () {
-			for (const evil of ['../../etc', '..', '.', 'a/b', 'a\\b', '/etc/passwd', '', '\0', 'a\0b']) {
+			for (const evil of ['../../etc', '..', '.', 'a/../../b', 'a\\b', '/etc/passwd', '', '\0', 'a\0b', 'x/recordings']) {
 				assert.throws(
 					function () { listRecordings(root, { scenario: evil }); },
 					/invalid scenario name/,
@@ -106,8 +121,8 @@ describe('listRecordings / readRecordingMeta', function () {
 		// filter has to accept those names too — otherwise a scenario stays
 		// runnable while its Replays tab 400s.
 		it('accepts any name the scenario list would show', function () {
-			for (const odd of ['my scenario', 'v1.2', '_scratch', '-tmp', '.hidden', 'ünïcode']) {
-				const dir = path.join(root, odd, '20260101-000000');
+			for (const odd of ['my scenario', 'v1.2', '_scratch', '-tmp', '.hidden', 'ünïcode', 'Benches/deep/nested']) {
+				const dir = runDir(root, odd, '20260101-000000');
 				fs.mkdirSync(dir, { recursive: true });
 				fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ scenario: odd, endReason: 'until', ticks: 3 }));
 				fs.writeFileSync(path.join(dir, 'recording.json'), '{}');
@@ -145,7 +160,7 @@ describe('listRecordings / readRecordingMeta', function () {
 		});
 
 		it('reports unknown when meta.json is absent', function () {
-			const dir = path.join(root, 'nometa', '20260620-120000');
+			const dir = runDir(root, 'nometa', '20260620-120000');
 			fs.mkdirSync(dir, { recursive: true });
 			fs.writeFileSync(path.join(dir, 'recording.json'), '{}');
 			const list = listRecordings(root, { scenario: 'nometa' });
@@ -160,7 +175,7 @@ describe('listRecordings / readRecordingMeta', function () {
 			assert.strictEqual(first[0].meta.ticks, 40);
 			// A finalised recording is immutable, so the cached copy stands even
 			// though meta.json is now gone.
-			fs.rmSync(path.join(root, 'combat', '20260619-130000', 'meta.json'));
+			fs.rmSync(path.join(root, 'combat', 'recordings', '20260619-130000', 'meta.json'));
 			const second = listRecordings(root, { scenario: 'combat' });
 			assert.strictEqual(second[0].meta.ticks, 40, 'served from cache');
 

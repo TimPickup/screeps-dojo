@@ -1,5 +1,7 @@
 'use strict';
 
+// The smallest complete scenario: one room, one creep, one goal flag. Every
+// required piece of the scenario.js contract and nothing else.
 const fs = require('fs');
 const path = require('path');
 
@@ -9,8 +11,9 @@ module.exports = {
 	},
 	maxTicks: 100,
 	setup: async function (world) {
-		const map = JSON.parse(fs.readFileSync(path.join(__dirname, 'map.json'), 'utf8'));
-		await world.loadScenarioMaps([map], { room: 'W0N0', x: 5, y: 2 });
+		// Loads every map.*.json in this directory and puts the bot's spawn at
+		// { room, x, y }. One room here, but the call is the same for fifty.
+		await world.loadAllMaps({ room: 'W0N0', x: 5, y: 2 });
 		await world.addCreep({ room: 'W0N0', x: 5, y: 25, name: 'T', body: ['move'] });
 	},
 	until: function (state) {

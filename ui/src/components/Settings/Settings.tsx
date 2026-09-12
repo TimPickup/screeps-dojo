@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { BotProfiles } from './BotProfiles';
 import { ServerProfiles } from './ServerProfiles';
 import { HostAgentAction } from './HostAgentAction';
+import { OrphanedRecordings } from './OrphanedRecordings';
 import type { EnvPatch } from './profileEnv';
 import { botKeysChanged } from './profileEnv';
 import { useHostAction } from '../../state/hostAction';
@@ -132,6 +133,9 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
         <div ref={serversRef}>
           <ServerProfiles values={env} onPatch={applyPatch} refreshKey={refreshKey} dirty={dirty} onExternalChange={reload} />
         </div>
+
+        {/* Renders nothing at all when there is nothing left behind. */}
+        <OrphanedRecordings />
 
         {saved && <div className={styles.note}>Saved. Default and server changes apply immediately.</div>}
         {/* Only a MOUNT change needs the container recreated, and the server

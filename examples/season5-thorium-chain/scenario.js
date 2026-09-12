@@ -19,8 +19,8 @@ module.exports = {
 	},
 	maxTicks: 300,
 	setup: async function (world) {
-		const map = JSON.parse(fs.readFileSync(path.join(__dirname, 'map.json'), 'utf8'));
-		await world.loadScenarioMaps([map]);
+		// The map's own owner:'me' spawn is adopted as the bot's home.
+		await world.loadAllMaps();
 		await world.addCreep({
 			room: 'W0N0', x: 11, y: 11, name: 'miner',
 			body: ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'carry', 'carry', 'move', 'move']

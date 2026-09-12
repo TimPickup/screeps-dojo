@@ -7,6 +7,77 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- The scenario list is a **tree with folders**. Create folders from the
+  sidebar, nest them as deep as you like, and drag a scenario or folder onto
+  another folder to move it (or onto the sidebar to bring it back to the top
+  level). Folders start collapsed and remember what you opened. Folders show a
+  yellow folder mark, scenarios a green play mark.
+- **Rename and delete** for every scenario and folder, from icons on the row.
+  Both confirm first, and deleting a folder that still holds scenarios or other
+  folders says exactly what it holds before it will go ahead.
+- **New scenario** now asks where and what from. A folder picker (defaulting
+  to the folder you last worked in, so opening a folder and pressing + New puts
+  it there) and a **Start from** picker: **Basic** (the two-room starter),
+  **Blank** (scenario.js alone, commented through — add a room before it runs),
+  a copy of any scenario in `examples/`, or **Duplicate one of mine…**, which
+  reveals a second picker of your own scenarios grouped by folder (files only —
+  the duplicate starts with no replay history). The list comes from the server,
+  so a new example directory appears in the picker with no UI change.
+- **+ Folder** takes a folder too, so a folder can be made inside another one
+  without dragging it there afterwards.
+- **Breadcrumbs** in the header when a scenario is open: the folders holding
+  it, then its name. Each folder crumb goes back to the list with that folder
+  opened and scrolled to.
+- **Right-click** any row (or the empty space below the tree) for Open, New
+  scenario here, New folder here, Rename or move, Delete.
+- **Keyboard navigation** in the tree: ↑/↓ move, →/← open and close a folder or
+  step in and out, Home/End jump, Enter opens, **F2** renames, **Delete**
+  deletes. One row is in the tab order, so Tab still steps past the list.
+- **Rename and move are one dialog** — a name and a folder picker. Nothing has
+  to be dragged.
+- A row whose name is **not unique** in the tree shows its folder beside it, so
+  two scenarios called `rampart` in different folders are told apart.
+- **Settings reports orphaned recordings** — runs left in the old
+  `recordings/` whose scenario no longer exists — with their size and the
+  biggest offenders, and offers a one-shot clear. The section is absent when
+  there is nothing there.
+- The list **refreshes itself**. The server pushes the tree over SSE and only
+  polls the disk while the list is actually on screen, so the refresh button is
+  gone.
+
+### Changed
+
+- **Recordings now live inside their scenario**, at
+  `scenarios/<scenario>/recordings/<timestamp>/`, instead of a top-level
+  `recordings/<name>/` keyed by name. Replays therefore survive a rename or a
+  move. The GUI server migrates existing recordings on first start; any whose
+  scenario no longer exists stays in `recordings/` untouched. The Edit tab does
+  not show the directory.
+- A scenario is now identified by its **path** under `scenarios/`
+  (`Benches/defence-bench`), not just its name, throughout the API and the GUI.
+  `npm run test:scenarios -- <name>` still matches on the leaf name.
+- Scenario and folder names created from the GUI may contain spaces.
+- `npm test -- <name>` accepts a scenario **path** in any spelling people
+  actually type: `Benches/defence-bench`, the Windows `Benches\defence-bench`,
+  or a tab-completed `scenarios\Benches\rampart\`. Other regex
+  characters are still passed through to `--grep` untouched.
+- The bundled examples use the current map-loading API: `world.loadAllMaps()`
+  instead of reading `map.json` by hand, and `walk-to-flag` gained the header
+  comment the GUI's template picker shows as its description.
+
+### Fixed
+
+- The recording tests clean up after themselves. Each aborted-run test used to
+  leave a `dojo-abort-*` directory of frames behind; now that a recording lives
+  inside its scenario, an uncleaned one is not an empty directory but a whole
+  run's worth of data.
+
+### Removed
+
+- **Test All** on the landing screen.
+
 ## [0.12.0] — 2026-09-12
 
 Imported rooms stop being a copy of your own base and start being a copy of
@@ -600,6 +671,13 @@ move, rampart overlays, and an icon for every deposit type.
 - Room visuals, fonts and draw order moved behind the canvas modules, which the
   UI suite now covers at 106 tests across 23 files — each asserting the exact
   sequence of draw calls against a recording mock context.
+
+### Fixed
+
+- The recording tests clean up after themselves. Each aborted-run test used to
+  leave a `dojo-abort-*` directory of frames behind; now that a recording lives
+  inside its scenario, an uncleaned one is not an empty directory but a whole
+  run's worth of data.
 
 ### Removed
 

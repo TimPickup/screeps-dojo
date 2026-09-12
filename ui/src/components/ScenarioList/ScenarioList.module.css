@@ -1,25 +1,182 @@
 .wrap { display: flex; flex: 1; min-height: 0; }
-.list { width: 220px; flex: none; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
-.listHead { display: flex; align-items: center; justify-content: space-between; color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 1px; padding: 4px 2px; }
-.testAll { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 2px 6px; font-size: 10px; }
-.testAll:disabled { opacity: 0.4; cursor: default; }
-.row { display: flex; align-items: center; gap: 8px; background: var(--panel2); border: 1px solid var(--line2); border-radius: var(--radius); padding: 7px 9px; color: var(--text-dim); text-align: left; }
-.row:hover { border-color: var(--accent); color: var(--text); }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
-.name { flex: 1; }
-.pass { color: var(--accent); font-size: 11px; }
-.fail { color: var(--hostile); font-size: 11px; }
-.refresh { margin-top: 6px; background: transparent; border: none; color: var(--muted); font-size: 11px; text-align: left; padding: 4px 2px; }
-.refresh:hover { color: var(--text); }
-.refresh:disabled, .refresh:disabled:hover { opacity: 0.45; color: var(--muted); cursor: default; }
+
+.list {
+  width: 250px;
+  flex: none;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Dropping onto the sidebar itself means "move to the top level". */
+.listDropping {
+  composes: list;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.listHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 4px 2px 6px;
+}
+.headActions { display: flex; gap: 4px; }
+.headButton {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.headButton:hover { background: #34532f; }
+
+/* ---- tree rows -------------------------------------------------------- */
+
+/* The row is the drag handle and the hover surface; the button inside it is
+   the click target, so the action icons can sit outside that button without
+   nesting interactive elements. */
+.row {
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding-right: 4px;
+  min-height: 27px;
+}
+.row:hover { background: var(--panel2); border-color: var(--line2); }
+.scenarioRow:hover { border-color: var(--accent); }
+.dragging { opacity: 0.4; }
+/* The folder a drop would land in. Filled, not just outlined — at this row
+   height an outline alone is easy to miss mid-drag. */
+.dropTarget, .dropTarget:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  text-align: left;
+  padding: 5px 2px;
+  font: inherit;
+}
+.row:hover .main { color: var(--text); }
+
+.chevron, .chevronEmpty {
+  width: 10px;
+  flex: none;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1;
+}
+.folderIcon { color: var(--warn); flex: none; }
+.playIcon { color: var(--accent); flex: none; }
+.folderRow .main { color: var(--text); }
+
+.name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Hidden until the row is hovered or something inside it has focus, so the
+   list reads as names rather than as a wall of icons — but still reachable by
+   keyboard, which display:none would break. */
+.rowActions { display: flex; gap: 1px; opacity: 0; flex: none; }
+.row:hover .rowActions, .rowActions:focus-within { opacity: 1; }
+
+.iconButton, .iconButtonDanger {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 5px;
+  border-radius: var(--radius);
+}
+.iconButton:hover { color: var(--text); background: #2b2f39; }
+.iconButtonDanger:hover { color: var(--hostile); background: #2b2f39; }
+.iconButton:focus-visible, .iconButtonDanger:focus-visible { outline: 1px solid var(--accent); }
+
+/* Grows to fill the leftover sidebar height so there is always somewhere to
+   drop, and only says so while a drag is in progress. */
+.rootZone {
+  flex: 1;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  padding: 8px 4px;
+}
+
 .empty { color: var(--muted); font-size: 12px; padding: 8px 2px; line-height: 1.6; }
+.listError { color: var(--hostile); font-size: 12px; padding: 8px 2px; line-height: 1.6; }
+.retry { display: block; margin-top: 4px; background: transparent; border: none; color: var(--muted); font-size: 11px; padding: 0; }
+.retry:hover { color: var(--text); }
+
+/* ---- welcome pane ----------------------------------------------------- */
+
 .welcome { flex: 1; display: flex; align-items: center; justify-content: center; }
 .welcomeInner { max-width: 480px; text-align: center; }
 .welcomeLogo { width: 132px; height: 132px; object-fit: contain; margin-bottom: 16px; }
-/* Red, not the theme's green: this is the one banner that wants to read as
-   "act on me" rather than as decoration. */
 .welcomeInner h2 { color: var(--text); margin-bottom: 12px; font-weight: normal; }
 .dim { color: var(--muted); line-height: 1.8; }
-.results { margin: 14px auto 0; border-collapse: collapse; }
-.results td { padding: 3px 12px; text-align: left; border-bottom: 1px solid var(--line2); }
 code { color: var(--accent); }
+
+/* Dim folder shown beside a row whose leaf name is not unique in the tree. */
+.qualifier {
+  color: var(--muted);
+  font-size: 10px;
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- right-click menu -------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 172px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.menu:focus { outline: none; }
+
+.menuItem, .menuItemDanger {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.menuItemDanger { color: var(--hostile); }
+.menuItem:hover, .menuItemDanger:hover { background: #2b2f39; }
+/* Keyboard highlight, so arrowing through the menu looks the same as hovering. */
+.menuItemActive { background: #2b2f39; color: var(--text); }
