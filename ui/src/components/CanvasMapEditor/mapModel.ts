@@ -158,6 +158,11 @@ export function makeEditableObject(type: string, x: number, y: number): Editable
   // A reactor's store is where its Thorium goes, and the mod's processor reads
   // it every tick — an editor-placed one without a store would be a crash.
   if (['storage', 'terminal', 'container', 'reactor'].includes(type)) object.store = {};
+  // A power bank's power IS its store — the engine reads `.power` as
+  // `store.power`, so an empty one would crash any bot creep that inspects the
+  // bank. Starts as a full vanilla bank (POWER_BANK_CAPACITY_MAX); edit the
+  // amount in the properties panel.
+  if (type === 'powerBank') object.store = { power: 5000 };
   if (type === 'controller') object.level = 0;
   if (type === 'mineral') { object.mineralType = 'H'; object.density = 3; }
   if (type === 'source' || type === 'mineral') object.id = randomObjectId();

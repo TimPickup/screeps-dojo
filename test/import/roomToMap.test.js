@@ -145,6 +145,63 @@ describe('roomToMap', function () {
 		assert.strictEqual(result.map.structures[0].launchTime, undefined);
 	});
 
+	// A power bank is a neutral, unowned structure the live API reports like any
+	// other. Before it was listed as known it fell through to the unknown-type
+	// branch, so importing the one room it was in produced a map without it.
+	it('keeps a power bank with its power, hits and remaining lifetime', function () {
+		// Shape taken verbatim from a live season E30S21 snapshot.
+		const result = build([{
+			_id: '6aa08296cb612e298351a872', type: 'powerBank', x: 36, y: 26, room: 'E30S21',
+			store: { power: 8727 }, hits: 2000000, hitsMax: 2000000, decayTime: 264175
+		}], { gameTime: 263943 });
+		assert.deepStrictEqual(result.skipped, {});
+		assert.deepStrictEqual(result.map.structures, [{
+			type: 'powerBank', x: 36, y: 26, hits: 2000000, hitsMax: 2000000,
+			ticksToDecay: 232, store: { power: 8727 }
+		}]);
+	});
+
+	// decayTime is an absolute tick on the SOURCE server (~264k on season). Copied
+	// as-is into a sim that starts near 0 it sits millions of ticks away, so the
+	// bank never decays — and its 5000-tick clock is the whole mechanic.
+	it('rebases an absolute decay deadline onto the sim clock', function () {
+		const result = build([
+			{ type: 'powerBank', x: 20, y: 20, store: { power: 3000 }, decayTime: 500000 }
+		], { gameTime: 499100 });
+		assert.strictEqual(result.map.structures[0].decayTime, undefined);
+		assert.strictEqual(result.map.structures[0].ticksToDecay, 900);
+	});
+
+	// A bank on its last tick must still import as a live object, not one the
+	// loader deletes on sight (a non-positive lifetime does exactly that).
+	it('floors a rebased lifetime at one tick', function () {
+		const result = build([
+			{ type: 'powerBank', x: 20, y: 20, store: { power: 10 }, decayTime: 1000 }
+		], { gameTime: 1200 });
+		assert.strictEqual(result.map.structures[0].ticksToDecay, 1);
+	});
+
+	// No source tick means no reference point, so an absolute deadline is
+	// meaningless — drop it and let the loader seed a full fresh lifetime.
+	it('drops an absolute decay deadline when the source tick is unknown', function () {
+		const result = build([
+			{ type: 'powerBank', x: 20, y: 20, store: { power: 3000 }, decayTime: 500000 }
+		]);
+		assert.strictEqual(result.map.structures[0].decayTime, undefined);
+		assert.strictEqual(result.map.structures[0].ticksToDecay, undefined);
+	});
+
+	// A constructedWall's decayTime means a temporary newbie/respawn wall, NOT a
+	// decay clock — rebasing it would turn every wall in an imported base into
+	// something that expires.
+	it('leaves a constructed wall decayTime alone', function () {
+		const result = build([
+			{ type: 'constructedWall', x: 20, y: 20, hits: 100, hitsMax: 100, decayTime: 500000 }
+		], { gameTime: 499100 });
+		assert.strictEqual(result.map.structures[0].decayTime, 500000);
+		assert.strictEqual(result.map.structures[0].ticksToDecay, undefined);
+	});
+
 	it('preserves source and mineral ids when present', function () {
 		const result = build([
 			{ type: 'source', x: 10, y: 10, _id: 'src123' },

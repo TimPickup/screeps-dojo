@@ -109,6 +109,14 @@ function structureDefaults(type, spawnIndex) {
 			return { store: {}, storeCapacityResource: { energy: 5000, power: 100 }, hits: 5000, hitsMax: 5000, notifyWhenAttacked: true };
 		case 'nuker':
 			return { store: {}, storeCapacityResource: { energy: 300000, G: 5000 }, hits: 1000, hitsMax: 1000, notifyWhenAttacked: true };
+		// The engine's `.power` getter is literally `o.store.power` (game/structures.js),
+		// so a bank with no store crashes any bot creep that looks at one; and with
+		// no hits it is destroyed by the first point of damage instead of taking
+		// POWER_BANK_HITS (2,000,000) worth, which is the whole point of a bank.
+		// A default bank is a FULL vanilla one (POWER_BANK_CAPACITY_MAX 5000) — a
+		// map's own `store` wins, so an imported season bank keeps its real haul.
+		case 'powerBank':
+			return { store: { power: 5000 }, hits: 2000000, hitsMax: 2000000 };
 		case 'mineral':
 			return { mineralType: 'H', density: 3 };
 		default:

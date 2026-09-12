@@ -94,6 +94,24 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
       } },
     ],
   },
+  // A bank is two numbers: how much power is in it, and how long you have. The
+  // deadline is `decayTime` here, not the `nextDecayTime` most decaying
+  // structures use — the engine keeps two different field names.
+  powerBank: {
+    showStore: false,
+    stats: [
+      { label: 'power', keys: ['store'], value: (o) => {
+        const store = o.store as Record<string, number> | undefined;
+        const power = store && typeof store.power === 'number' ? store.power : undefined;
+        return power === undefined ? null : power.toLocaleString();
+      } },
+      { label: 'decays in', keys: ['decayTime', 'ticksToDecay'], value: (o, gt) => {
+        const relative = num(o, 'ticksToDecay');
+        if (relative !== undefined) return relative + ' ticks';
+        return ticksUntil(o, 'decayTime', gt);
+      } },
+    ],
+  },
   keeperLair: {
     stats: [{ label: 'spawns in', keys: ['nextSpawnTime'], value: (o, gt) => ticksUntil(o, 'nextSpawnTime', gt) }],
   },

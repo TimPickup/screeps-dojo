@@ -14,8 +14,24 @@ const OWNER_TAGS = { me: 'me', invader: 'invader', sourceKeeper: 'sourceKeeper' 
 const KNOWN_STRUCTURES = new Set([
 	'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
 	'factory', 'observer', 'powerSpawn', 'nuker', 'rampart', 'constructedWall',
-	'road', 'container', 'extractor', 'keeperLair', 'invaderCore'
+	'road', 'container', 'extractor', 'keeperLair', 'invaderCore', 'powerBank'
 ]);
+
+// Absolute-tick decay deadlines that have to be REBASED onto the sim clock,
+// per type and field name. A live doc's deadline is counted from the source
+// server's own tick (~264k on season, tens of millions on shard0); copied
+// verbatim into a sim that starts near 0 it sits forever in the future, so the
+// object simply never decays — and for a power bank the 5000-tick clock is the
+// whole mechanic. We emit the dojo's relative `ticksToDecay` instead and let
+// the loader turn it back into an absolute deadline (dojoWorld applyClocks).
+//
+// constructedWall is deliberately ABSENT even though it carries a `decayTime`:
+// there the field means a temporary newbie/respawn wall, not a decay clock, and
+// rebasing it would make every wall in an imported base expire.
+const ABSOLUTE_DECAY_FIELDS = {
+	powerBank: 'decayTime',
+	deposit: 'decayTime'
+};
 
 // Engine object fields we never copy onto a structure entry (positional/identity
 // or engine-internal); everything else passes through (hits, store, level, etc.).
@@ -43,6 +59,9 @@ function roomToMap(input) {
 	const classifyOwner = input.classifyOwner;
 	const includeMyCreeps = input.includeMyCreeps !== false;
 	const includeMyStructures = input.includeMyStructures !== false;
+	// The source server's tick when the snapshot was taken; absent for callers
+	// that cannot supply one (see ABSOLUTE_DECAY_FIELDS).
+	const gameTime = input.gameTime;
 	const map = {
 		room: input.roomName,
 		terrain: input.terrainRows,
@@ -103,9 +122,22 @@ function roomToMap(input) {
 			if (tag === 'me' && !includeMyStructures) continue;
 			const entry = { type: object.type, x: object.x, y: object.y };
 			if (object.user && OWNER_TAGS[tag]) entry.owner = OWNER_TAGS[tag];
+			const decayField = ABSOLUTE_DECAY_FIELDS[object.type];
 			for (const key of Object.keys(object)) {
 				if (STRUCTURE_OMIT.has(key) || key === 'store') continue;
+				if (key === decayField) continue;   // rebased below, never copied raw
 				entry[key] = object[key];
+			}
+			if (decayField && typeof object[decayField] === 'number') {
+				// Only rebasable against the source server's own clock. Without it
+				// (an older map, a server that would not answer) the deadline means
+				// nothing here, so drop it and let the loader seed a full lifetime.
+				if (typeof gameTime === 'number') {
+					// Floor at 1: the engine deletes these on `gameTime >= deadline-1`,
+					// so a bank already past its deadline upstream would otherwise
+					// import as an object the sim removes before the bot ever sees it.
+					entry.ticksToDecay = Math.max(1, object[decayField] - gameTime);
+				}
 			}
 			const store = cleanStore(object.store);
 			if (store) entry.store = store;
