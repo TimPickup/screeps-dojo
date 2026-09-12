@@ -237,7 +237,7 @@ async function runScenario(scenarioDir, options) {
 		let terrain = null;
 		if (recordingEnabled || streamFrames) terrain = await world.captureTerrain();
 		if (recordingEnabled) {
-			recorder = createRecorder(path.basename(scenarioDir));
+			recorder = createRecorder(scenarioDir);
 			recorder.writeMeta(recordingMeta('in-progress', null)); // even SIGKILL leaves identifiable metadata
 			recorder.setTerrain(terrain);
 			process.once('SIGTERM', onKillSignal);

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { pathSafe } = require('../pathSafe');
+const { resolveScenarioPath } = require('../../scenarioTree');
 
 function kindOf(name) {
 	// settings.json opens in its own form editor, the way map*.json opens in the
@@ -16,7 +17,9 @@ function kindOf(name) {
 }
 
 module.exports = function registerFileRoutes(router, ctx) {
-	function scenarioDir(name) { return pathSafe(ctx.scenariosRoot, name); }
+	// `name` is a scenario's posix path relative to scenarios/ — a plain name at
+	// the top level, 'Folder/Sub/Name' inside folders.
+	function scenarioDir(name) { return resolveScenarioPath(ctx.scenariosRoot, name); }
 	const MAP_CACHE_LIMIT = 4;
 	const mapCache = new Map(); // scenario -> { etag, body }
 	const mapWatchers = new Map();
@@ -193,6 +196,7 @@ module.exports = function registerFileRoutes(router, ctx) {
 		fs.mkdirSync(path.dirname(abs), { recursive: true });
 		fs.writeFileSync(abs, body.content, 'utf8');
 		invalidateScenarioMaps(req.params.name);
+		if (ctx.scenarioWatch) ctx.scenarioWatch.touch();
 		ctx.sendJson(res, 200, { ok: true });
 	});
 };

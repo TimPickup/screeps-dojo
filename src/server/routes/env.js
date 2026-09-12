@@ -8,6 +8,7 @@ const screepsProfiles = require('../../screepsProfiles');
 const scenarioSettings = require('../../scenarioSettings');
 const modRegistry = require('../../mods');
 const { pathSafe } = require('../pathSafe');
+const { resolveScenarioPath } = require('../../scenarioTree');
 
 // Keys the Settings screen may read back. Bot/screeps profile keys are matched
 // by shape rather than listed, since their names are user-chosen.
@@ -210,7 +211,7 @@ module.exports = function registerEnvRoutes(router, ctx) {
 	// resolves to once profiles and defaults are applied. One readFile.
 	router.get('/api/scenarios/:name/settings', function (req, res) {
 		let dir;
-		try { dir = pathSafe(ctx.scenariosRoot, req.params.name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
+		try { dir = resolveScenarioPath(ctx.scenariosRoot, req.params.name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
 		const env = effectiveEnv();
 		try {
 			const loaded = scenarioSettings.load(dir);

@@ -349,10 +349,19 @@ describe('GET /api/scenarios/:name/maps', function () {
 
 describe('GET /api/recordings', function () {
 	this.timeout(0);
-	let server, port, recordingsRoot;
+	let server, port, scenariosRoot;
 
-	function makeRecording(scenario, ts, meta) {
-		const dir = path.join(recordingsRoot, scenario, ts);
+	// Recordings live inside the scenario that produced them, so the fixture
+	// has to be a real scenario directory with a recordings/ inside it.
+	function makeScenario(relPath) {
+		const dir = path.join(scenariosRoot, relPath.split('/').join(path.sep));
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'scenario.js'), '// scenario');
+		return dir;
+	}
+
+	function makeRecording(relPath, ts, meta) {
+		const dir = path.join(makeScenario(relPath), 'recordings', ts);
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
 		fs.writeFileSync(path.join(dir, 'recording.json'), JSON.stringify({ meta: meta, terrain: {}, frames: [] }));
@@ -360,15 +369,15 @@ describe('GET /api/recordings', function () {
 
 	before(function (done) {
 		_clearRecordingCache();
-		recordingsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-srv-rec-'));
+		scenariosRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-srv-rec-'));
 		makeRecording('alpha', '20260619-120000', { scenario: 'alpha', endReason: 'until', ticks: 12 });
 		makeRecording('beta', '20260619-130000', { scenario: 'beta', endReason: 'botDied', ticks: 40 });
 		makeRecording('beta', '20260619-140000', { scenario: 'beta', endReason: 'maxTicks', ticks: 99 });
-		server = createServer({ scenariosRoot: FIXTURES_ROOT, recordingsRoot: recordingsRoot });
+		server = createServer({ scenariosRoot: scenariosRoot });
 		server.listen(0, '127.0.0.1', function () { port = server.address().port; done(); });
 	});
 	after(function (done) {
-		fs.rmSync(recordingsRoot, { recursive: true, force: true });
+		fs.rmSync(scenariosRoot, { recursive: true, force: true });
 		_clearRecordingCache();
 		server.close(function () { done(); });
 	});
@@ -393,7 +402,21 @@ describe('GET /api/recordings', function () {
 		const list = JSON.parse((await get(port, '/api/recordings?scenario=alpha')).body);
 		assert.strictEqual(list[0].status, 'until');
 		assert.strictEqual(list[0].ticks, 12);
-		assert.strictEqual(list[0].relPath, 'alpha/20260619-120000/recording.json');
+		assert.strictEqual(list[0].relPath, 'alpha/recordings/20260619-120000/recording.json');
+	});
+
+	// A scenario filed inside folders keeps its replays with it, and is
+	// addressed by its path.
+	it('finds recordings for a scenario nested in folders', async function () {
+		makeRecording('Benches/deep/gamma', '20260620-090000', { scenario: 'gamma', endReason: 'until', ticks: 3 });
+		const r = await get(port, '/api/recordings?scenario=' + encodeURIComponent('Benches/deep/gamma'));
+		assert.strictEqual(r.status, 200);
+		const list = JSON.parse(r.body);
+		assert.strictEqual(list.length, 1);
+		assert.strictEqual(list[0].relPath, 'Benches/deep/gamma/recordings/20260620-090000/recording.json');
+		// ...and the unfiltered walk reaches into folders too
+		const all = JSON.parse((await get(port, '/api/recordings')).body);
+		assert.ok(all.some(function (e) { return e.scenario === 'Benches/deep/gamma'; }));
 	});
 
 	it('returns [] for a scenario with no recordings', async function () {
@@ -403,11 +426,12 @@ describe('GET /api/recordings', function () {
 	});
 
 	// The filter names a directory, so every traversal shape must be refused
-	// before it reaches the filesystem.
+	// before it reaches the filesystem. A '/' is now legitimate — it separates
+	// folders — so containment, not the character, is what does the rejecting.
 	it('rejects a traversal or otherwise invalid scenario filter', async function () {
-		// note: a literal '\0' here, so the query really carries a null byte —
+		// note: a literal NUL here, so the query really carries a null byte —
 		// the string 'a%00b' would arrive as five harmless characters.
-		const evil = ['../../etc', '..', '.', 'a/b', 'a\\b', '/etc/passwd', '', 'a\0b'];
+		const evil = ['../../etc', '..', '.', 'a/../../b', 'a\\b', '/etc/passwd', '', 'a\0b', 'alpha/recordings'];
 		for (const s of evil) {
 			const r = await get(port, '/api/recordings?scenario=' + encodeURIComponent(s));
 			assert.strictEqual(r.status, 400, 'must reject ' + JSON.stringify(s) + ', got ' + r.status);
@@ -440,10 +464,10 @@ describe('GET /api/recordings', function () {
 		// The UI picks its JSON parser from this header — the engine's own parser
 		// below the string limit, a streaming one above it. Piping the file without
 		// it made every recording, however small, take the slow path.
-		const rel = 'alpha/20260619-120000/recording.json';
+		const rel = 'alpha/recordings/20260619-120000/recording.json';
 		const r = await get(port, '/api/recordings/file?path=' + encodeURIComponent(rel));
 		assert.strictEqual(r.status, 200);
-		const onDisk = fs.statSync(path.join(recordingsRoot, 'alpha', '20260619-120000', 'recording.json')).size;
+		const onDisk = fs.statSync(path.join(scenariosRoot, 'alpha', 'recordings', '20260619-120000', 'recording.json')).size;
 		assert.strictEqual(Number(r.headers['content-length']), onDisk);
 		assert.strictEqual(r.headers['transfer-encoding'], undefined);
 		assert.strictEqual(Buffer.byteLength(r.body), onDisk, 'body matches the length promised');
@@ -453,9 +477,10 @@ describe('GET /api/recordings', function () {
 	it('does not leak recordings from outside the root', async function () {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-outside-'));
 		try {
-			fs.mkdirSync(path.join(outside, 'secret', '20260619-000000'), { recursive: true });
-			fs.writeFileSync(path.join(outside, 'secret', '20260619-000000', 'recording.json'), '{}');
-			const rel = path.relative(recordingsRoot, path.join(outside)).split(path.sep).join('/') + '/secret';
+			fs.mkdirSync(path.join(outside, 'secret', 'recordings', '20260619-000000'), { recursive: true });
+			fs.writeFileSync(path.join(outside, 'secret', 'scenario.js'), '//');
+			fs.writeFileSync(path.join(outside, 'secret', 'recordings', '20260619-000000', 'recording.json'), '{}');
+			const rel = path.relative(scenariosRoot, outside).split(path.sep).join('/') + '/secret';
 			const r = await get(port, '/api/recordings?scenario=' + encodeURIComponent(rel));
 			assert.strictEqual(r.status, 400);
 		} finally {

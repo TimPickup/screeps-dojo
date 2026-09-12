@@ -7,7 +7,8 @@ const http = require('http');
 const path = require('path');
 const { createRouter } = require('./router');
 const { createStatic } = require('./static');
-const { RECORDINGS_ROOT } = require('../recording');
+const { migrateLegacyRecordings, LEGACY_RECORDINGS_ROOT } = require('../recording');
+const { createScenarioWatch } = require('./scenarioWatch');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 
@@ -30,12 +31,41 @@ function sendJson(res, code, obj) {
 function createServer(opts) {
 	opts = opts || {};
 	const scenariosRoot = opts.scenariosRoot || path.join(REPO_ROOT, 'scenarios');
-	const recordingsRoot = opts.recordingsRoot || RECORDINGS_ROOT;
+	// Recordings live INSIDE their scenario (scenarios/<path>/recordings/), so
+	// every recordings-relative path the API hands out is rooted here too.
+	const recordingsRoot = scenariosRoot;
 	const distDir = opts.distDir || path.join(REPO_ROOT, 'ui', 'dist');
+
+	// One-time move of the pre-0.13 top-level recordings/ into the scenarios
+	// that own them. Cheap and idempotent once done (one readdir of a directory
+	// that ends up empty), and skipped entirely by tests that point elsewhere.
+	// Only for the real workspace: a test pointing scenariosRoot at a temp dir
+	// has nothing to migrate, and should not be reading the repo's recordings/.
+	if (!opts.scenariosRoot && opts.migrateRecordings !== false) {
+		try {
+			const moved = migrateLegacyRecordings(scenariosRoot, opts.legacyRecordingsRoot || LEGACY_RECORDINGS_ROOT);
+			if (moved.runs) {
+				console.log('[dojo] moved ' + moved.runs + ' recording(s) from recordings/ into '
+					+ moved.scenarios + ' scenario folder(s)');
+			}
+		} catch (e) {
+			console.log('[dojo] could not migrate old recordings: ' + String((e && e.message) || e));
+		}
+	}
 
 	const router = createRouter();
 	const staticServer = createStatic(distDir);
-	const ctx = { sendJson: sendJson, scenariosRoot: scenariosRoot, recordingsRoot: recordingsRoot, repoRoot: REPO_ROOT };
+	const ctx = {
+		sendJson: sendJson, scenariosRoot: scenariosRoot, recordingsRoot: recordingsRoot,
+		// Only still read to report and clear what the migration could not move.
+		legacyRecordingsRoot: opts.legacyRecordingsRoot || LEGACY_RECORDINGS_ROOT,
+		repoRoot: REPO_ROOT
+	};
+
+	// Live scenario-tree updates (replaces the GUI's manual refresh button).
+	const scenarioWatch = createScenarioWatch(scenariosRoot);
+	ctx.scenarioWatch = scenarioWatch;
+	router.get('/api/scenario-tree/stream', scenarioWatch.handler);
 
 	// readiness (Phase 5 bootstrap fills this in); default ready
 	let ready = opts.ready !== undefined ? opts.ready : true;

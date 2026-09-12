@@ -59,6 +59,26 @@ describe('test launcher', function () {
 		assert.strictEqual(parseArgs([]).local, false);
 	});
 
+	// A scenario is a PATH under scenarios/ now, and the mocha title is that
+	// path in posix form — so every spelling of it people actually type has to
+	// land on the same --grep.
+	it('accepts a scenario path however it was typed', function () {
+		assert.strictEqual(parseArgs(['Benches/defence-bench']).filter, 'Benches/defence-bench');
+		assert.strictEqual(parseArgs(['Benches\\defence-bench']).filter, 'Benches/defence-bench',
+			'the Windows separator');
+		assert.strictEqual(parseArgs(['scenarios\\Benches\\rampart\\']).filter, 'Benches/rampart',
+			'a tab-completed path: prefix and trailing separator');
+		assert.strictEqual(parseArgs(['scenarios/Benches/x']).filter, 'Benches/x');
+		assert.strictEqual(parseArgs(['./scout-flee/']).filter, 'scout-flee');
+	});
+
+	// --grep is a regex and filtering with one is worth keeping, so nothing
+	// but the separators and the prefix is touched.
+	it('leaves a plain name and other regex characters alone', function () {
+		assert.strictEqual(parseArgs(['scout-flee']).filter, 'scout-flee');
+		assert.strictEqual(parseArgs(['season5-.*']).filter, 'season5-.*');
+	});
+
 	it('does not mistake the local keyword for a name filter', function () {
 		assert.strictEqual(parseArgs(['local']).filter, undefined);
 		assert.strictEqual(parseArgs(['local', 'walk-to-flag']).filter, 'walk-to-flag');

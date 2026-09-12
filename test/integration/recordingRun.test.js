@@ -7,12 +7,22 @@ process.env.DOJO_MOCK_ENGINE_PROCESS_ISOLATED = '1';
 
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runScenario } = require('../../src/scenarioRunner');
 const { loadRecording, createRecorder } = require('../../src/recording');
 
 describe('recording a scenario run', function () {
 	this.timeout(600000);
+
+	// Temp scenario directories made by the tests below. A scenario's
+	// recordings live inside it now, so an uncleaned one is not an empty
+	// directory — it is every frame of that run.
+	const cleanup = [];
+	after(function () {
+		for (const dir of cleanup) fs.rmSync(dir, { recursive: true, force: true });
+		cleanup.length = 0;
+	});
 
 	it('writes a loadable recording with frames when DOJO_RECORD=1', async function () {
 		process.env.DOJO_RECORD = '1';
@@ -23,6 +33,9 @@ describe('recording a scenario run', function () {
 			delete process.env.DOJO_RECORD;
 		}
 		assert.ok(result.recordingPath, 'result.recordingPath set');
+		// The recording lands in examples/walk-to-flag/recordings/ — a committed
+		// directory — so this run's own copy goes at the end of the file.
+		cleanup.push(path.dirname(result.recordingPath));
 		assert.ok(fs.existsSync(result.recordingPath), 'recording file exists');
 		const recording = loadRecording(result.recordingPath);
 		assert.strictEqual(recording.meta.scenario, 'walk-to-flag');
@@ -48,20 +61,19 @@ describe('recording a scenario run', function () {
 	it('saves a partial recording when the run aborts mid-way', async function () {
 		// temp scenario whose until() blows up at tick 3 — the recording up to
 		// that point must still be written and surfaced on the error
-		const os = require('os');
 		const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-abort-'));
+		// The recording now lands INSIDE tempDir, so clean it up rather than
+		// leaving a dojo-abort-* directory (and its frames) behind on every run.
+		cleanup.push(tempDir);
 		const mapSource = path.join(__dirname, '..', '..', 'examples', 'walk-to-flag', 'map.json');
 		fs.copyFileSync(mapSource, path.join(tempDir, 'map.json'));
 		fs.writeFileSync(path.join(tempDir, 'scenario.js'), [
 			"'use strict';",
-			"const fs = require('fs');",
-			"const path = require('path');",
 			'module.exports = {',
 			"	modules: { main: 'module.exports.loop = function () {};' },",
 			'	maxTicks: 50,',
 			'	setup: async function (world) {',
-			"		const map = JSON.parse(fs.readFileSync(path.join(__dirname, 'map.json'), 'utf8'));",
-			"		await world.loadScenarioMaps([map], { room: 'W0N0', x: 5, y: 2 });",
+			"		await world.loadAllMaps({ room: 'W0N0', x: 5, y: 2 });",
 			'	},',
 			'	until: function (state) {',
 			"		if (state.gameTime >= 4) throw new Error('boom at tick 3');",
@@ -92,11 +104,17 @@ describe('recording a scenario run', function () {
 });
 
 describe('crash-safe recording journal', function () {
+	// createRecorder takes the SCENARIO directory and writes into its
+	// recordings/ — so these use a throwaway scenario dir rather than a name.
+	let scratch;
+	beforeEach(function () { scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-rec-scratch-')); });
+	afterEach(function () { fs.rmSync(scratch, { recursive: true, force: true }); });
+
 	it('salvages an unfinalized journal when loading the recording dir', function () {
 		// Simulates a hard kill (SIGKILL/OOM): the journal exists on disk but
 		// finalize never ran. loadRecording must assemble recording.json from
 		// the journal and load it.
-		const recorder = createRecorder('dojo-test-salvage');
+		const recorder = createRecorder(path.join(scratch, 'dojo-test-salvage'));
 		recorder.writeMeta({ scenario: 'dojo-test-salvage', endReason: 'in-progress', ticks: 0 });
 		recorder.setTerrain({ W0N0: '0'.repeat(2500) });
 		for (let i = 0; i < 3; i++) {
@@ -109,11 +127,10 @@ describe('crash-safe recording journal', function () {
 		assert.strictEqual(recording.meta.scenario, 'dojo-test-salvage');
 		assert.strictEqual(recording.frames[2].objects[0].x, 2, 'frame content intact');
 		assert.ok(fs.existsSync(path.join(recorder.dir, 'recording.json')), 'salvage assembled recording.json');
-		fs.rmSync(path.dirname(recorder.dir), { recursive: true, force: true });
 	});
 
 	it('finalize is idempotent: second call no-ops and returns the same path', function () {
-		const recorder = createRecorder('dojo-test-idempotent');
+		const recorder = createRecorder(path.join(scratch, 'dojo-test-idempotent'));
 		recorder.writeMeta({ scenario: 'dojo-test-idempotent', endReason: 'in-progress', ticks: 0 });
 		recorder.setTerrain({ W0N0: '0'.repeat(2500) });
 		recorder.addFrame({ gameTime: 0, objects: [] });
@@ -126,6 +143,5 @@ describe('crash-safe recording journal', function () {
 		assert.strictEqual(recording.meta.endReason, 'until');
 		assert.strictEqual(recording.frames.length, 2);
 		assert.ok(recording.terrain.W0N0);
-		fs.rmSync(path.dirname(recorder.dir), { recursive: true, force: true });
 	});
 });

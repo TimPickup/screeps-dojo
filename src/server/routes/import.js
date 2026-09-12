@@ -3,6 +3,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { pathSafe } = require('../pathSafe');
+const { resolveScenarioPath } = require('../../scenarioTree');
 const { loadEnvConfig } = require('../../envConfig');
 const { openSse } = require('../sse');
 const screepsProfiles = require('../../screepsProfiles');
@@ -26,7 +27,7 @@ module.exports = function registerImportRoutes(router, ctx) {
 		const scenario = (req.query.get('scenario') || '').trim();
 		if (!scenario) return screepsProfiles.resolve(undefined, env);
 		let dir;
-		try { dir = pathSafe(ctx.scenariosRoot, scenario); } catch (e) { return screepsProfiles.resolve(undefined, env); }
+		try { dir = resolveScenarioPath(ctx.scenariosRoot, scenario); } catch (e) { return screepsProfiles.resolve(undefined, env); }
 		const settings = scenarioSettings.load(dir).settings;
 		return screepsProfiles.resolve(settings.server, env,
 			settings.server ? scenario + '/' + scenarioSettings.FILE_NAME : null);
@@ -69,7 +70,7 @@ module.exports = function registerImportRoutes(router, ctx) {
 		if (!ctx.isReady()) { ctx.sendJson(res, 503, { error: 'starting up' }); return; }
 		const name = req.params.name;
 		let dir;
-		try { dir = pathSafe(ctx.scenariosRoot, name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
+		try { dir = resolveScenarioPath(ctx.scenariosRoot, name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
 		let rooms;
 		try { rooms = expandRoomSpecs((req.body && req.body.rooms) || []); }
 		catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }

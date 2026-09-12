@@ -6,6 +6,10 @@ up tracked in your repo.
 
 ## Try it
 
+In the GUI, **+ New** and pick one of these under "Copy an example" — it copies
+the example into a scenario of your own (in whichever folder you choose) and
+opens it. From a shell:
+
     cp -r examples/walk-to-flag scenarios/walk-to-flag   # PowerShell: Copy-Item -Recurse examples\walk-to-flag scenarios\walk-to-flag
     npm test -- walk-to-flag
 
@@ -31,8 +35,9 @@ every required piece of the `scenario.js` contract.
       { "bot": "speedrun", "bots": { "enemy": "default" }, "server": "season" }
 - **`scenario.js`** — wires it together:
   - `modules` — code to run in the VM.
-  - `setup(world)` — `loadScenarioMaps([map], spawnOpts)`, then `addCreep`,
-    `addEnemyBot`, `addFlag`, etc.
+  - `setup(world)` — `loadAllMaps(spawnOpts)` loads every `map.*.json` beside
+    it (leave `spawnOpts` off and a map's own `owner: 'me'` spawn is adopted as
+    the bot's home); then `addCreep`, `addEnemyBot`, `addFlag`, etc.
   - `maxTicks` — required safety cap.
   - `until(state)` — optional early-stop predicate, checked after each tick.
   - `expect(result, assert)` — pass/fail assertions on the finished run.

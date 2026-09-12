@@ -1,5 +1,5 @@
 import type {
-  Scenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
+  Scenario, ScenarioTree, ScenarioEntryInfo, ScenarioTemplate, CopyableScenario, ScenarioMapsResponse, RecordingEntry, Recording, ActiveJob,
   BotProfilesResponse, ScreepsProfilesResponse, ScenarioSettingsResponse, HostAgentStatus,
   ModsResponse
 } from './types';
@@ -68,11 +68,43 @@ export const api = {
   health: () => jget<{ ok: boolean; ready: boolean }>('/api/health'),
   version: () => jget<{ current: string; latest: string | null; updateAvailable: boolean; repoUrl: string }>('/api/version'),
   scenarios: () => jget<Scenario[]>('/api/scenarios'),
+  scenarioTree: () => jget<ScenarioTree>('/api/scenario-tree'),
+  // SSE: pushes the whole tree whenever it changes on disk. Replaces the old
+  // manual refresh button; the server only polls while someone is listening.
+  scenarioTreeStreamUrl: () => '/api/scenario-tree/stream',
+  scenarioEntry: (p: string) => jget<ScenarioEntryInfo>('/api/scenario-entry?path=' + encodeURIComponent(p)),
+  createFolder: (name: string, parent?: string) =>
+    jpost<{ name: string; path: string }>('/api/scenario-folders', { name, parent: parent || '' }),
+  renameEntry: (p: string, name: string) =>
+    jpost<{ ok: boolean; path: string }>('/api/scenario-entry/rename', { path: p, name }),
+  moveEntry: (p: string, parent: string) =>
+    jpost<{ ok: boolean; path: string }>('/api/scenario-entry/move', { path: p, parent }),
+  // `force` is how the GUI says the user saw the "folder is not empty" warning;
+  // without it the server refuses to delete a non-empty folder.
+  deleteEntry: async (p: string, force = false) => {
+    const res = await fetch('/api/scenario-entry?path=' + encodeURIComponent(p) + (force ? '&force=1' : ''), { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || res.statusText) as Error & { status?: number; folders?: number; scenarios?: number };
+      err.status = res.status; err.folders = data.folders; err.scenarios = data.scenarios;
+      throw err;
+    }
+    return data as { ok: boolean };
+  },
   // Always pass a scenario when you have one: the server then walks a single
   // directory instead of every recording on disk.
   recordings: (scenario?: string) =>
     jget<RecordingEntry[]>('/api/recordings'
       + (scenario ? '?scenario=' + encodeURIComponent(scenario) : '')),
+  // Runs left in the old top-level recordings/ that no scenario owns any more.
+  orphanedRecordings: () =>
+    jget<{ root: string; entries: { name: string; runs: number; bytes: number }[]; runs: number; bytes: number }>(
+      '/api/recordings/orphans'),
+  clearOrphanedRecordings: async () => {
+    const res = await fetch('/api/recordings/orphans', { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    return res.json() as Promise<{ removed: number; bytes: number }>;
+  },
   recording: (relPath: string) =>
     jget<Recording>('/api/recordings/file?path=' + encodeURIComponent(relPath)),
   run: (scenario: string, record = false) =>
@@ -88,7 +120,12 @@ export const api = {
   renderStreamUrl: (id: string) => '/api/render/' + id + '/stream',
   renderFileUrl: (relPath: string) => '/api/render/file?path=' + encodeURIComponent(relPath),
 
-  createScenario: (name: string, room?: string) => jpost<{ name: string }>('/api/scenarios', { name, room }),
+  scenarioTemplates: () =>
+    jget<{ templates: ScenarioTemplate[]; scenarios: CopyableScenario[] }>('/api/scenario-templates'),
+  createScenario: (name: string, parent?: string, template?: string) =>
+    jpost<{ name: string; path: string }>('/api/scenarios', {
+      name, parent: parent || '', template: template || 'basic'
+    }),
   deleteFile: async (scenario: string, path: string) => {
     const res = await fetch('/api/scenarios/' + encodeURIComponent(scenario) + '/file?path=' + encodeURIComponent(path), { method: 'DELETE' });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);

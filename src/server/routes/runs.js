@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { pathSafe } = require('../pathSafe');
+const { resolveScenarioPath } = require('../../scenarioTree');
 const jobManager = require('../jobManager');
 const { openSse } = require('../sse');
 
@@ -14,10 +14,13 @@ module.exports = function registerRunRoutes(router, ctx) {
 			const name = body.scenario;
 			if (!name) { ctx.sendJson(res, 400, { error: 'scenario required' }); return; }
 			let dir;
-			try { dir = pathSafe(ctx.scenariosRoot, name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
+			try { dir = resolveScenarioPath(ctx.scenariosRoot, name); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
 			if (!fs.existsSync(path.join(dir, 'scenario.js'))) { ctx.sendJson(res, 404, { error: 'no such scenario: ' + name }); return; }
 			try {
-				const out = jobManager.startJob(kind, dir, { record: body.record === true });
+				// Pass the full path as the job's scenario id: the GUI matches an
+				// in-progress run against the scenario it has open, and two
+				// scenarios in different folders may share a leaf name.
+				const out = jobManager.startJob(kind, dir, { record: body.record === true, scenario: name });
 				ctx.sendJson(res, 200, out);
 			} catch (e) {
 				ctx.sendJson(res, e.statusCode || 500, { error: String((e && e.message) || e) });

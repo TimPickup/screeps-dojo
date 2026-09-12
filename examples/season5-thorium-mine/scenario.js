@@ -14,10 +14,10 @@ module.exports = {
 	},
 	maxTicks: 120,
 	setup: async function (world) {
-		const map = JSON.parse(fs.readFileSync(path.join(__dirname, 'map.json'), 'utf8'));
 		// The controller is RCL 6 in the map on purpose: below that the engine
 		// zeroes an extractor, and the mineral simply cannot be harvested.
-		await world.loadScenarioMaps([map]);
+		// The map's own owner:'me' spawn is adopted as the bot's home.
+		await world.loadAllMaps();
 		await world.addCreep({
 			room: 'W0N0', x: 11, y: 11, name: 'miner',
 			body: ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'carry', 'carry', 'move', 'move']

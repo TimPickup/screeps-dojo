@@ -1,6 +1,6 @@
 'use strict';
 
-// Host-side render launcher: npm run render -- recordings/scout-flee/<ts> [options]
+// Host-side render launcher: npm run render -- scenarios/scout-flee/recordings/<ts> [options]
 // Paths are repo-relative (they resolve inside the container at /dojo).
 //
 // Options may be written as bare keywords (gif, fps 30, speed 2,
@@ -16,7 +16,7 @@ const args = process.argv.slice(2).map(function (arg) {
 	return OPTION_WORDS.indexOf(arg) !== -1 ? '--' + arg : arg;
 });
 if (args.length === 0) {
-	console.error('usage: npm run render -- <recordings/...path> [gif] [fps N] [speed N] [pixels N] [rooms A,B] [out file]');
+	console.error('usage: npm run render -- scenarios/NAME/recordings/TIMESTAMP [gif] [fps N] [speed N] [pixels N] [rooms A,B] [out file]');
 	process.exit(2);
 }
 

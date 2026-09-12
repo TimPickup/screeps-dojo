@@ -1,10 +1,55 @@
 .app { display: flex; flex-direction: column; height: 100%; }
 .header { display: flex; align-items: center; gap: 14px; background: #111; border-bottom: 1px solid var(--line); padding: 8px 14px; }
-.brand { color: var(--accent); font-weight: bold; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 8px; }
+.brand {
+  color: var(--accent);
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: var(--radius);
+}
+.brand:hover { background: #1d1d1d; }
+.brand:focus-visible { outline: 1px solid var(--accent); }
 .logo { height: 26px; width: 26px; object-fit: contain; display: block; }
 .version { color: var(--muted); font-size: 11px; font-weight: normal; letter-spacing: 0; }
 .back { background: transparent; border: 1px solid var(--line); color: var(--text-dim); padding: 3px 10px; border-radius: var(--radius); }
 .back:hover { background: #1d1d1d; color: var(--text); }
+
+/* Where you are, as the path under scenarios/. The folder crumbs are links
+   back to the list with that folder opened; the last one is the scenario you
+   are already looking at, so it is a label, not a button. */
+.breadcrumbs { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.crumbWrap { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.crumbSep { color: var(--line); padding: 0 1px; }
+.crumb {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 3px 5px;
+  border-radius: var(--radius);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crumb:hover { background: #1d1d1d; color: var(--text); }
+.crumb:focus-visible { outline: 1px solid var(--accent); }
+.crumbCurrent {
+  color: var(--text);
+  padding: 3px 4px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .spacer { margin-left: auto; }
 .cog { background: transparent; border: none; color: var(--text); font-size: 18px; }
 .cog:hover { color: var(--accent); }

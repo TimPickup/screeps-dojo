@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { listRecordings, loadRecording } = require('../../recording');
+const { listRecordings, loadRecording, listOrphanedRecordings, clearOrphanedRecordings } = require('../../recording');
 const { pathSafe } = require('../pathSafe');
 
 function toPosix(p) { return p.split(path.sep).join('/'); }
@@ -28,6 +28,27 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 				meta: r.meta
 			};
 		}));
+	});
+
+	// Recordings left in the old top-level recordings/ with no scenario to
+	// move them into — what Settings reports, and offers to clear. The size is
+	// a directory walk, so this is only ever read on demand.
+	router.get('/api/recordings/orphans', function (req, res) {
+		try {
+			ctx.sendJson(res, 200, listOrphanedRecordings(ctx.scenariosRoot, ctx.legacyRecordingsRoot));
+		} catch (e) {
+			ctx.sendJson(res, e.statusCode || 500, { error: String((e && e.message) || e) });
+		}
+	});
+
+	// Deletes all of them. The GUI confirms first with the count and the size;
+	// there is no undo, and these are the only copy of those runs.
+	router.del('/api/recordings/orphans', function (req, res) {
+		try {
+			ctx.sendJson(res, 200, clearOrphanedRecordings(ctx.scenariosRoot, ctx.legacyRecordingsRoot));
+		} catch (e) {
+			ctx.sendJson(res, e.statusCode || 500, { error: String((e && e.message) || e) });
+		}
 	});
 
 	// Returns the assembled recording JSON ({meta,terrain,frames}). path is the

@@ -2,7 +2,7 @@
 
 // Scenario: __SCENARIO_NAME__
 // A two-room sandbox: room W1N1 has our spawn + level-1 controller + 2 sources,
-// room W2N1 (just west) has an unclaimed controller + 2 sources, connected by
+// room W0N1 (just west) has an unclaimed controller + 2 sources, connected by
 // an exit on their shared edge. Edit the maps in the Edit tab, then Run / Test.
 
 const fs = require('fs');

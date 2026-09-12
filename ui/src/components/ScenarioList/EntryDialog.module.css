@@ -1,0 +1,59 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 24px;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  padding: 18px 20px 16px;
+}
+
+.title { color: var(--text); font-size: 14px; font-weight: normal; margin: 0 0 12px; }
+.label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+
+.input {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  padding: 7px 9px;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+
+.body { color: var(--text-dim); font-size: 12px; line-height: 1.7; margin: 0; }
+/* The line that says this is more than it looks — a folder with things in it,
+   a scenario with replays. Deliberately louder than the body text. */
+.warning { color: var(--warn); font-size: 12px; line-height: 1.7; margin: 10px 0 0; }
+.error { color: var(--hostile); font-size: 12px; line-height: 1.6; margin: 10px 0 0; }
+
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.actions button { border-radius: var(--radius); padding: 5px 14px; font: inherit; font-size: 12px; }
+
+.cancel { background: transparent; border: 1px solid var(--line); color: var(--text-dim); }
+.cancel:hover:not(:disabled) { background: #1d1d1d; color: var(--text); }
+
+.primary { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); }
+.primary:hover:not(:disabled) { background: #34532f; }
+
+.danger { background: #3a2323; border: 1px solid var(--hostile); color: var(--hostile); }
+.danger:hover:not(:disabled) { background: #4a2a2a; }
+
+.actions button:disabled { opacity: 0.45; cursor: default; }
+
+/* One-line explanation under a picker — what the chosen template gives you. */
+.hint { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 7px 0 0; }
+/* The dialog stacks several fields now, so they need space between them. */
+.label:not(:first-of-type) { margin-top: 12px; }

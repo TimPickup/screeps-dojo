@@ -15,8 +15,10 @@ module.exports = {
 	},
 	maxTicks: 120,
 	setup: async function (world) {
-		const map = JSON.parse(fs.readFileSync(path.join(__dirname, 'map.json'), 'utf8'));
-		await world.loadScenarioMaps([map]);
+		// No { room, x, y }: the map carries a spawn with owner 'me', and
+		// loadAllMaps adopts it as the bot's home rather than making us restate
+		// coordinates the map already has.
+		await world.loadAllMaps();
 		// One CLAIM creep to take the reactor, one hauler to keep it fed. Both
 		// start next to the work so the run is short enough to watch.
 		await world.addCreep({ room: 'W0N0', x: 21, y: 25, name: 'claimer', body: ['claim', 'move'] });
