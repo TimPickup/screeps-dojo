@@ -4,6 +4,7 @@ import { ScenarioList } from './components/ScenarioList/ScenarioList';
 import { ScenarioWorkspace } from './components/ScenarioWorkspace/ScenarioWorkspace';
 import { Settings } from './components/Settings/Settings';
 import { openSettings, closeSettings, useSettingsOverlay } from './state/settingsOverlay';
+import { navigate, useRoute } from './state/route';
 import { HostActionOverlay } from './components/HostActionOverlay/HostActionOverlay';
 import { Bootstrap } from './components/Bootstrap/Bootstrap';
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
@@ -20,11 +21,16 @@ function crumbsOf(path: string): { label: string; path: string }[] {
 }
 
 export function App() {
-  const [selected, setSelected] = useState<string | null>(null);
-  // A folder the list should open and scroll to when we go back — set by
-  // clicking a breadcrumb. Cleared once the list has consumed it.
-  const [reveal, setReveal] = useState<string | null>(null);
-  const [startTab, setStartTab] = useState<'Run' | 'Edit'>('Run');
+  // Which page and tab you are on is the URL: back, forward and reload all
+  // land where you were instead of on the scenario list.
+  const route = useRoute();
+  const selected = route.view === 'scenario' ? route.scenario : null;
+  const folder = route.view === 'list' ? route.folder : null;
+  // A folder the list should open and scroll to when we go back. The URL keeps
+  // saying which folder we came back to; this is the one-shot act of revealing
+  // it, cleared once the list has done it so a later collapse isn't undone.
+  const [reveal, setReveal] = useState<string | null>(folder);
+  useEffect(() => { if (folder) setReveal(folder); }, [folder]);
   // Owned by a tiny store rather than local state: the scenario settings form
   // opens this too, and would otherwise need a callback threaded through the
   // workspace and the edit tab to reach it.
@@ -39,10 +45,7 @@ export function App() {
     api.version().then(setVersion).catch(() => {});
   }, []);
 
-  const home = (revealFolder?: string) => {
-    setReveal(revealFolder || null);
-    setSelected(null);
-  };
+  const home = (revealFolder?: string) => navigate({ view: 'list', folder: revealFolder || null });
 
   // The logo is the way back to the start in every app that has one, so it is
   // a button here too rather than decoration next to the ← that already does it.
@@ -96,17 +99,23 @@ export function App() {
 
       <main className={styles.main}>
         <ErrorBoundary key={selected || 'list'}>
-          {selected === null ? (
+          {route.view === 'list' ? (
             <ScenarioList
               enabled={ready === true}
               version={version}
               reveal={reveal}
               onRevealed={() => setReveal(null)}
-              onSelect={(path) => { setStartTab('Run'); setSelected(path); }}
-              onCreated={(path) => { setStartTab('Edit'); setSelected(path); }}
+              onSelect={(path) => navigate({ view: 'scenario', scenario: path, tab: 'Run' })}
+              onCreated={(path) => navigate({ view: 'scenario', scenario: path, tab: 'Edit' })}
             />
           ) : (
-            <ScenarioWorkspace scenario={selected} initialTab={startTab} />
+            <ScenarioWorkspace
+              scenario={route.scenario}
+              tab={route.tab}
+              // Replace rather than push: a tab is where you are in a scenario,
+              // not somewhere you came from, so Back still leaves the scenario.
+              onTab={(tab) => navigate({ view: 'scenario', scenario: route.scenario, tab }, { replace: true })}
+            />
           )}
         </ErrorBoundary>
       </main>
