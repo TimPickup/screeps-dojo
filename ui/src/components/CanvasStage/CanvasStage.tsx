@@ -7,6 +7,7 @@ import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { useModImages } from '../../hooks/useModImages';
 import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
+import { SMOOTH_TURN_MAX_SPEED } from '../../render/geometry';
 import styles from './CanvasStage.module.css';
 
 // Friendly names for the multi-object picker (when several objects share one tile).
@@ -145,7 +146,10 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       if (c) {
         const f0 = activeRecording.frames[Math.min(drawTick, count - 1)];
         c.layers.sync(f0);
-        drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, { sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, modImages: modImagesRef.current });
+        drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, {
+          sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals,
+          modImages: modImagesRef.current, smoothTurns: st.speed <= SMOOTH_TURN_MAX_SPEED,
+        });
       }
 
       // selection ring

@@ -2,9 +2,11 @@ import type { Recording, Frame, FrameObject, StageLayout } from '../api/types.ts
 import {
 	creepFacing,
 	lerp,
+	lerpAngle,
 	nextLocal as nextLocalPosition,
 	tFx as effectProgressAt,
 	tPos as movementProgressAt,
+	tTurn as turnProgressAt,
 } from '../render/geometry.ts';
 import { StaticLayers } from './caches.ts';
 import { CreepRenderer } from './creeps.ts';
@@ -25,6 +27,10 @@ interface DrawOptions {
 	layers: StaticLayers;
 	layout: StageLayout;
 	showVisuals: boolean;
+	// Sweep creeps into a new heading over the first part of the tick instead of
+	// snapping them round. The caller decides: worth it at ordinary replay
+	// speeds, a flicker beyond SMOOTH_TURN_MAX_SPEED.
+	smoothTurns?: boolean;
 	// Artwork a loaded mod brings (see modImages.ts). Optional everywhere: every
 	// drawing routine falls back to vectors, so a recording still renders if the
 	// images never loaded.
@@ -39,7 +45,7 @@ interface ActionTarget {
 interface RenderActionLog {
 	attack?: ActionTarget;
 	harvest?: ActionTarget;
-	say?: { message?: unknown };
+	say?: { message?: unknown; isPublic?: boolean };
 	transferEnergy?: ActionTarget;
 }
 
@@ -58,6 +64,16 @@ export function drawFrame(
 	const frameIndex = Math.max(0, Math.min(frames.length - 1, tick));
 	const baseFrame = frames[frameIndex];
 	const nextFrame = subFrame !== null && frameIndex + 1 < frames.length ? frames[frameIndex + 1] : null;
+	// The frame that closes the tick STARTING here. A bot says and draws at the
+	// start of a tick, from the world as it stood then, but the recorder stamps
+	// both onto the frame captured after that tick ran — so frame N+1 carries
+	// the speech, RoomVisuals and actionLog of the transition that leaves frame
+	// N, and they belong on screen with the state they were computed from. The
+	// action effects already read the next frame while animating; reading them
+	// here as well means a paused frame looks exactly like the instant playback
+	// resumes. The last frame has nothing after it — and the live view is always
+	// on the last frame — so it falls back to its own.
+	const tickFrame = frames[frameIndex + 1] || baseFrame;
 	options.layers.prepare(baseFrame);
 	if (nextFrame) options.layers.prepare(nextFrame);
 	const offsets = layout.offsets;
@@ -79,10 +95,11 @@ export function drawFrame(
 			: null;
 	};
 
-	const nextObjectsById = nextFrame ? indexById(nextFrame.objects) : null;
 	const baseObjectsById = indexById(baseFrame.objects);
+	const tickObjectsById = tickFrame === baseFrame ? baseObjectsById : indexById(tickFrame.objects);
+	const nextObjectsById = nextFrame ? tickObjectsById : null;
 	// tiles each creep transferred/withdrew with this tick, for the nod (below)
-	const nodTargets = nextFrame ? transferNods(nextFrame, nextObjectsById!) : {};
+	const nodTargets = nextFrame ? transferNods(tickFrame, tickObjectsById) : {};
 
 	// 2) creeps (interpolated) + HP + effects
 	for (const object of baseObjectsInDrawOrder) {
@@ -99,11 +116,12 @@ export function drawFrame(
 			);
 			if (!position) continue;
 			creepRenderer.draw(ctx, nextCreep || object, position.worldX, position.worldY,
-				nextCreep ? creepFacing(frames, frameIndex, object._id, layout) : 0, 1);
+				nextCreep ? turnedFacing(frames, frameIndex, object._id, layout, subFrame, options.smoothTurns) : 0, 1);
 			continue;
 		}
 		let x = object.x, y = object.y, opacity = 1;
-		let actionSource: FrameObject = object;
+		// Everything this creep did in the tick that leaves this frame (tickFrame).
+		const actionSource: FrameObject = tickObjectsById[object._id] || object;
 		if (nextFrame) {
 			const nextObject = nextObjectsById![object._id];
 			if (nextObject && (nextObject.room === object.room || offsets[nextObject.room])) {
@@ -111,10 +129,9 @@ export function drawFrame(
 				const movementProgress = movementProgressAt(subFrame as number);
 				x = lerp(object.x, nextPosition.x, movementProgress);
 				y = lerp(object.y, nextPosition.y, movementProgress);
-				actionSource = nextObject;
 				// work/attack bob during the action half; transfer/withdraw nod toward
 				// the tile the creep exchanged with (nodTargets — pickup isn't recorded)
-				const actionLog = nextObject.actionLog as RenderActionLog | undefined;
+				const actionLog = actionSource.actionLog as RenderActionLog | undefined;
 				const bobTarget = (actionLog && (actionLog.harvest || actionLog.attack)) || nodTargets[object._id];
 				if (bobTarget) {
 					const dx = bobTarget.x - x, dy = bobTarget.y - y;
@@ -131,12 +148,12 @@ export function drawFrame(
 		}
 		const position = worldPosition(object.room, x, y);
 		if (!position) continue;
-		const facing = creepFacing(frames, frameIndex, object._id, layout);
+		const facing = turnedFacing(frames, frameIndex, object._id, layout, subFrame, options.smoothTurns);
 		creepRenderer.draw(ctx, object, position.worldX, position.worldY, facing, opacity);
 		drawHitPointsBar(ctx, object, position.worldX, position.worldY, opacity);
-		const baseActionLog = object.actionLog as RenderActionLog | undefined;
-		if (baseActionLog?.say?.message) {
-			drawSpeechBubble(ctx, String(baseActionLog.say.message), position.worldX, position.worldY);
+		const speech = (actionSource.actionLog as RenderActionLog | undefined)?.say;
+		if (speech?.message) {
+			drawSpeechBubble(ctx, String(speech.message), position.worldX, position.worldY, speech.isPublic === true);
 		}
 		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
 	}
@@ -166,10 +183,9 @@ export function drawFrame(
 		if (object.type !== 'tower') continue;
 		const position = worldPosition(object.room, object.x, object.y);
 		if (!position) continue;
-		// actionLog lives on the structure doc; prefer the next frame's (the
-		// transition being animated), matching the link-beam approach.
-		const nextObject = nextObjectsById ? nextObjectsById[object._id] : null;
-		const actionSource = nextObject || object;
+		// actionLog lives on the structure doc; take the tick that leaves this
+		// frame (tickFrame), matching the link-beam approach.
+		const actionSource = tickObjectsById[object._id] || object;
 		// Energy belongs to the rotating turret assembly, but its amount comes
 		// from the base frame just like the other interpolated structure fills.
 		drawTowerTurret(
@@ -212,8 +228,7 @@ export function drawFrame(
 			case 'controller': drawControllerProgress(ctx, object, centerX, centerY); break;
 			case 'link': {
 				drawLinkFill(ctx, object, centerX, centerY);
-				const nextObject = nextObjectsById ? nextObjectsById[object._id] : null;
-				const actionLog = (nextObject || object).actionLog as RenderActionLog | undefined;
+				const actionLog = (tickObjectsById[object._id] || object).actionLog as RenderActionLog | undefined;
 				if (actionLog?.transferEnergy) {
 					const roomOffset = offsets[object.room];
 					const targetX = roomOffset.col * ROOM_SIZE_TILES + actionLog.transferEnergy.x + 0.5;
@@ -253,14 +268,14 @@ export function drawFrame(
 
 	// 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
 	//    command strings — no server round-trip; instant toggle)
-	if (options.showVisuals && baseFrame.visuals) {
-		for (const roomName of Object.keys(baseFrame.visuals)) {
+	if (options.showVisuals && tickFrame.visuals) {
+		for (const roomName of Object.keys(tickFrame.visuals)) {
 			const roomOffset = offsets[roomName];
 			if (!roomOffset) continue;
 			// +0.5 shifts tile-centred RoomVisual coordinates to the canvas grid.
 			drawUserVisuals(
 				ctx,
-				baseFrame.visuals[roomName],
+				tickFrame.visuals[roomName],
 				roomOffset.col * ROOM_SIZE_TILES + 0.5,
 				roomOffset.row * ROOM_SIZE_TILES + 0.5,
 			);
@@ -272,6 +287,25 @@ export function drawFrame(
 	if (options.layers.rampart) {
 		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
 	}
+}
+
+// Where a creep is pointing at `subFrame`. It sweeps from the heading it held
+// through the previous tick into this one's over the first TURN_FRACTION, then
+// holds — so the turn lands before the glide starts. A creep with no previous
+// heading (it just spawned, or the recording starts here) simply faces its new
+// one; nothing spins up from an angle it never held.
+function turnedFacing(
+	frames: Frame[],
+	frameIndex: number,
+	objectId: string,
+	layout: StageLayout,
+	subFrame: number | null,
+	smoothTurns?: boolean,
+): number {
+	const facing = creepFacing(frames, frameIndex, objectId, layout);
+	if (!smoothTurns || subFrame === null) return facing;
+	const previous = creepFacing(frames, frameIndex - 1, objectId, layout, facing);
+	return previous === facing ? facing : lerpAngle(previous, facing, turnProgressAt(subFrame));
 }
 
 function indexById(objects: FrameObject[]): Record<string, FrameObject> {

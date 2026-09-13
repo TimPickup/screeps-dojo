@@ -107,7 +107,16 @@ export const RENDER_COLORS = {
 		outline: WHITE,
 		mark: BLACK,
 	},
-	speechBackground: 'rgba(0,0,0,0.7)',
+	roomName: WHITE,
+	// say() bubble: a near-white panel with a black outline, so it reads against
+	// both terrain and creeps. A public say (say(msg, true)) swaps in a pink
+	// panel — the only way to tell the two apart on the map.
+	speech: {
+		background: '#f2f2ef',
+		publicBackground: '#f8c5cb',
+		border: BLACK,
+		text: BLACK,
+	},
 } as const;
 
 export const TERRAIN_COLORS: Readonly<Record<string, string>> = {
@@ -131,6 +140,10 @@ export const MINERAL_COLORS: Readonly<Record<string, string>> = {
 
 export const DEFAULT_MINERAL_COLOR = MINERAL_COLORS.H;
 export const ROOM_SIZE_TILES = 50;
+// Room name label, in tiles: small enough to sit inside the top-left corner
+// without standing as tall as the wall tile behind it.
+export const ROOM_NAME_STYLE = { fontSize: 0.65, x: 0.15, baseline: 0.75 } as const;
+
 export const STATIC_LAYER_RESOLUTION = 24;
 
 export const WALL_RENDER_STYLE = {

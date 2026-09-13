@@ -1,7 +1,6 @@
 import type { FrameObject, StageLayout } from '../api/types.ts';
 import { lerp, tFx as effectProgressAt } from '../render/geometry.ts';
 import { fillRenderText, parseRenderFont } from './renderFont.ts';
-import { roundedRectPath } from './primitives.ts';
 import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
 
 interface ActionTarget {
@@ -34,20 +33,71 @@ export function drawHitPointsBar(
 	ctx.restore();
 }
 
+// Speech bubble geometry, in tiles. The panel sits directly above the creep's
+// tile with a short tail angled down-right at it, close enough to read as that
+// creep's — the older, far higher box floated between the two rows.
+const SPEECH = {
+	fontSize: 0.42,
+	// Advance of one character of the render font, as a fraction of font size.
+	charWidth: 0.62,
+	paddingX: 0.24,
+	height: 0.72,
+	corner: 0.3,
+	// Gap between the tail's tip and the top of the creep's tile.
+	tipGap: 0.1,
+	tailLength: 0.3,
+	tailBaseLeft: -0.15,
+	tailBaseRight: 0.03,
+	tailTipX: 0.14,
+	border: 0.045,
+} as const;
+
 export function drawSpeechBubble(
 	ctx: CanvasRenderingContext2D,
 	message: string,
 	worldX: number,
 	worldY: number,
+	isPublic = false,
 ): void {
 	const content = String(message).slice(0, 10);
-	const width = Math.max(0.8, content.length * 0.32);
+	const width = Math.max(0.9, content.length * SPEECH.charWidth * SPEECH.fontSize + 2 * SPEECH.paddingX);
+	const centerX = worldX + 0.5;
+	const bottom = worldY - SPEECH.tipGap - SPEECH.tailLength;
+	const top = bottom - SPEECH.height;
+	const left = centerX - width / 2, right = centerX + width / 2;
+	const radius = Math.min(SPEECH.corner, SPEECH.height / 2, width / 2);
+	// The tail is part of the same path as the panel, so the outline runs round
+	// both without a seam where they meet.
+	const baseRight = Math.min(centerX + SPEECH.tailBaseRight, right - radius);
+	const baseLeft = Math.max(centerX + SPEECH.tailBaseLeft, left + radius);
+
 	ctx.save();
-	ctx.fillStyle = RENDER_COLORS.speechBackground;
-	roundedRectPath(ctx, worldX + 0.5 - width / 2, worldY - 1.5, width, 0.6, 0.1);
+	ctx.beginPath();
+	ctx.moveTo(left + radius, top);
+	ctx.lineTo(right - radius, top);
+	ctx.arcTo(right, top, right, top + radius, radius);
+	ctx.lineTo(right, bottom - radius);
+	ctx.arcTo(right, bottom, right - radius, bottom, radius);
+	ctx.lineTo(baseRight, bottom);
+	ctx.lineTo(centerX + SPEECH.tailTipX, bottom + SPEECH.tailLength);
+	ctx.lineTo(baseLeft, bottom);
+	ctx.lineTo(left + radius, bottom);
+	ctx.arcTo(left, bottom, left, bottom - radius, radius);
+	ctx.lineTo(left, top + radius);
+	ctx.arcTo(left, top, left + radius, top, radius);
+	ctx.closePath();
+	ctx.fillStyle = isPublic ? RENDER_COLORS.speech.publicBackground : RENDER_COLORS.speech.background;
 	ctx.fill();
-	ctx.fillStyle = RENDER_COLORS.defaultFill;
-	fillRenderText(ctx, content, worldX + 0.5, worldY - 1.05, parseRenderFont(0.5), 'center');
+	ctx.strokeStyle = RENDER_COLORS.speech.border;
+	ctx.lineWidth = SPEECH.border;
+	ctx.lineJoin = 'round';
+	ctx.stroke();
+
+	ctx.fillStyle = RENDER_COLORS.speech.text;
+	// Alphabetic baseline: drop it below the panel's centre by roughly a third of
+	// the font size so the glyphs sit optically centred between the two edges.
+	fillRenderText(ctx, content, centerX, (top + bottom) / 2 + SPEECH.fontSize * 0.35,
+		parseRenderFont(SPEECH.fontSize), 'center');
 	ctx.restore();
 }
 

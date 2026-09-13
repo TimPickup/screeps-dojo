@@ -32,6 +32,22 @@ export function computeStageLayout(rooms: string[], pixelsPerRoom = 600): StageL
 export function tPos(s: number): number { return Math.max(0, 2 * s - 1); }
 // actions/effects animate over the first half, gone by mid-tick
 export function tFx(s: number): number { return s < 0.5 ? s / 0.5 : 0; }
+// A creep turns into its new heading over the first part of a tick, so the turn
+// is finished before the glide (tPos) carries it off the tile.
+export const TURN_FRACTION = 0.45;
+export function tTurn(s: number): number { return s >= TURN_FRACTION ? 1 : Math.max(0, s) / TURN_FRACTION; }
+// Above this replay speed a tick is on screen too briefly for a turn to read as
+// anything but a flicker, so facings snap instead of sweeping.
+export const SMOOTH_TURN_MAX_SPEED = 4;
+
+// Interpolate a facing (degrees) along the SHORTER arc, so a creep turning from
+// 170 to -170 sweeps 20 degrees rather than spinning 340 the other way.
+export function lerpAngle(from: number, to: number, t: number): number {
+  let delta = (to - from) % 360;
+  if (delta > 180) delta -= 360;
+  else if (delta < -180) delta += 360;
+  return from + delta * t;
+}
 
 // next position expressed in the BASE room's local space (cross-room seam glide)
 export function nextLocal(base: FrameObject, next: FrameObject, layout: StageLayout): { x: number; y: number } {
@@ -63,7 +79,7 @@ class FacingCache {
   private layout: StageLayout;
   private indexed: Array<Record<string, FrameObject>> = [];
   private values: Array<Record<string, number | undefined>> = [];
-  private lastMovement: Record<string, number | undefined> = {};
+  private lastFacing: Record<string, number | undefined> = {};
 
   constructor(frames: Frame[], layout: StageLayout) {
     this.frames = frames;
@@ -90,9 +106,13 @@ class FacingCache {
         }
       }
       movement = facingDelta(curr, next, this.layout);
-      if (movement !== undefined) this.lastMovement[curr._id] = movement;
     }
-    return action ?? movement ?? this.lastMovement[curr._id];
+    // A creep that neither moves nor acts holds the heading it was last turned
+    // to, whichever gave it that heading. Remembering only movement would snap a
+    // creep that turned to harvest back to the way it last walked.
+    const facing = action ?? movement;
+    if (facing !== undefined) this.lastFacing[curr._id] = facing;
+    return facing ?? this.lastFacing[curr._id];
   }
 
   sync(): void {
@@ -102,7 +122,7 @@ class FacingCache {
       this.indexed.push(nextObjects);
       if (nextIndex === 0) {
         const first: Record<string, number | undefined> = {};
-        for (const id of Object.keys(nextObjects)) first[id] = this.lastMovement[id];
+        for (const id of Object.keys(nextObjects)) first[id] = this.lastFacing[id];
         this.values.push(first);
         continue;
       }
@@ -113,7 +133,7 @@ class FacingCache {
       this.values[nextIndex - 1] = previous;
 
       const final: Record<string, number | undefined> = {};
-      for (const id of Object.keys(nextObjects)) final[id] = this.lastMovement[id];
+      for (const id of Object.keys(nextObjects)) final[id] = this.lastFacing[id];
       this.values.push(final);
     }
   }

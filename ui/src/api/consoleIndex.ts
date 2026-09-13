@@ -58,7 +58,10 @@ export function buildConsoleIndex(frames: readonly Frame[] | undefined): Console
     const slot = i - (f > 0 ? endByFrame[f - 1] : 0);
     const text = frame.console ? frame.console[slot] : undefined;
     if (text === undefined) return '';
-    return '[' + (frame.gameTime ?? f) + '] ' + text;
+    // A frame's gameTime is the clock AFTER its tick ran, so a line printed at
+    // Game.time 1 lands on the frame stamped 2. Label it with the tick that
+    // printed it — which is also the tick number the scrubber shows.
+    return '[' + (typeof frame.gameTime === 'number' ? frame.gameTime - 1 : f) + '] ' + text;
   };
 
   return {

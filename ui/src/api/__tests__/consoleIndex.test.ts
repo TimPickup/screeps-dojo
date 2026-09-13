@@ -20,8 +20,10 @@ describe('buildConsoleIndex', () => {
     expect(idx.total).toBe(6);
   });
 
-  it('prefixes each line with its frame gameTime', () => {
-    expect(idx.slice(0, 6)).toEqual(['[100] a', '[100] b', '[102] c', '[104] d', '[104] e', '[104] f']);
+  // A frame is stamped with the clock AFTER its tick ran, so the label is one
+  // behind gameTime: the tick that actually printed the line.
+  it('prefixes each line with the tick that printed it', () => {
+    expect(idx.slice(0, 6)).toEqual(['[99] a', '[99] b', '[101] c', '[103] d', '[103] e', '[103] f']);
   });
 
   it('reports the line count at or before a tick', () => {
@@ -38,9 +40,9 @@ describe('buildConsoleIndex', () => {
   });
 
   it('slices a window without touching the rest of the log', () => {
-    expect(idx.slice(3, 5)).toEqual(['[104] d', '[104] e']);
-    expect(idx.slice(-2, 1)).toEqual(['[100] a']);
-    expect(idx.slice(4, 99)).toEqual(['[104] e', '[104] f']);
+    expect(idx.slice(3, 5)).toEqual(['[103] d', '[103] e']);
+    expect(idx.slice(-2, 1)).toEqual(['[99] a']);
+    expect(idx.slice(4, 99)).toEqual(['[103] e', '[103] f']);
     expect(idx.slice(6, 10)).toEqual([]);
   });
 
