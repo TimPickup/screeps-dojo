@@ -19,15 +19,17 @@ describe('creepFacing cache', () => {
     expect(creepFacing(frames, 3, 'c', layout)).toBe(0);
   });
 
-  it('uses an action for the current facing without replacing movement history', () => {
+  it('holds an action angle through the stationary ticks that follow it', () => {
     const frames = [
       frame(creep('c', 1, 1)),
       frame(creep('c', 2, 1)),
       frame(creep('c', 2, 1, { harvest: { x: 2, y: 0 } })),
       frame(creep('c', 2, 1)),
     ];
+    // Turns north to harvest on tick 2, then stands still: it keeps facing the
+    // source rather than snapping back to the east it last walked.
     expect(creepFacing(frames, 1, 'c', layout)).toBe(-90);
-    expect(creepFacing(frames, 3, 'c', layout)).toBe(0);
+    expect(creepFacing(frames, 3, 'c', layout)).toBe(-90);
   });
 
   it('updates the previous final frame when a live recording appends', () => {

@@ -19,7 +19,16 @@
 .canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
 .loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .scrub { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line2); }
-.play { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 3px 12px; }
+/* Fixed box: the pause glyph is taller than the play triangle, so a
+   content-sized button changed height (and shoved the scrub row) on every
+   press. */
+.play { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 40px; height: 24px; padding: 0; line-height: 1; font-size: 11px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); }
 .range { flex: 1; accent-color: var(--accent); cursor: pointer; }
-.tickLabel { color: var(--accent); font-size: 12px; min-width: 100px; }
+/* Label and the jump-to-tick editor share one width so the row never shifts
+   when it opens. */
+.tickLabel { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 12px; min-width: 116px; height: 24px; }
+.tickButton { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: text; border-bottom: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+.tickButton:hover { border-bottom-color: var(--accent); }
+.tickInput { width: 62px; background: var(--bg2); border: 1px solid var(--accent); color: var(--text); border-radius: var(--radius); padding: 1px 4px; font: inherit; }
+.tickGo { padding: 0 6px; height: 20px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); font-size: 11px; }
 .speed { background: var(--bg2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--radius); padding: 2px 5px; }

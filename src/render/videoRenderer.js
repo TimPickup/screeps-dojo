@@ -67,6 +67,7 @@ function loadSharedRenderer() {
 				StaticLayers: modules[1].StaticLayers,
 				CreepRenderer: modules[2].CreepRenderer,
 				computeStageLayout: modules[3].computeStageLayout,
+				smoothTurnMaxSpeed: modules[3].SMOOTH_TURN_MAX_SPEED,
 				renderFontFamily: modules[4].RENDER_FONT_FAMILY
 			};
 		});
@@ -217,7 +218,10 @@ async function renderRecording(recording, outFile, options) {
 			layers: layers,
 			layout: layout,
 			showVisuals: true,
-			modImages: modImages
+			modImages: modImages,
+			// Same rule as the browser: sweep turns at ordinary speeds, snap once
+			// a tick is too brief for the sweep to read.
+			smoothTurns: settings.speed <= shared.smoothTurnMaxSpeed
 		});
 		const raw = canvas.data();
 		if (raw.length !== expectedBytes) {

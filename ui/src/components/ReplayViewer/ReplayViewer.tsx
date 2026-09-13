@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Recording } from '../../api/types';
 import { api } from '../../api/client';
 import { usePrefs, REPLAY_SPEEDS } from '../../state/prefs';
@@ -46,6 +46,18 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [render, setRender] = useState<RenderState | null>(null);
   const [showVisuals, setShowVisuals] = useState(prefs.showUserVisuals);
+  // Jump-to-tick: the label doubles as the way in, so the scrub bar keeps its
+  // single row.
+  const [tickDraft, setTickDraft] = useState<string | null>(null);
+  const editingTick = tickDraft !== null;
+  const tickInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!editingTick) return;
+    const input = tickInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select(); // typing a new tick replaces the current one
+  }, [editingTick]);
   // Layout is computed client-side; CanvasStage owns its rAF playback clock.
   const canvasLayout = useMemo(() => computeStageLayout(Object.keys(recording.terrain || {})), [recording]);
 
@@ -117,6 +129,13 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   const test = recording.meta.test;
   const clampTick = Math.min(tick, count - 1);
 
+  const openTickInput = () => { setPlaying(false); setTickDraft(String(clampTick)); };
+  const commitTickInput = () => {
+    const wanted = Number.parseInt(tickDraft ?? '', 10);
+    if (Number.isFinite(wanted)) setTick(Math.max(0, Math.min(count - 1, wanted)));
+    setTickDraft(null);
+  };
+
   return (
     <div className={styles.viewer}>
       <div className={styles.toolbar}>
@@ -166,7 +185,24 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
       <div className={styles.scrub}>
         <button className={styles.play} onClick={() => setPlaying((p) => !p)}>{playing ? '❚❚' : '▶'}</button>
         <input className={styles.range} type="range" min={0} max={Math.max(0, count - 1)} value={clampTick} onChange={(e) => { setPlaying(false); setTick(Number(e.target.value)); }} />
-        <span className={styles.tickLabel}>tick {clampTick}/{count - 1}</span>
+        <span className={styles.tickLabel}>
+          {tickDraft === null
+            ? <button type="button" className={styles.tickButton} onClick={openTickInput}
+                title="Jump to a tick">tick {clampTick}/{count - 1}</button>
+            : <>
+                <input ref={tickInputRef} className={styles.tickInput} type="text" inputMode="numeric"
+                  value={tickDraft} aria-label={`Jump to a tick (0-${count - 1})`}
+                  onChange={(e) => setTickDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTickInput();
+                    else if (e.key === 'Escape') setTickDraft(null);
+                  }}
+                  // Clicking away accepts what was typed; OK commits it itself.
+                  onBlur={(e) => { if (!(e.relatedTarget instanceof HTMLElement) || !e.relatedTarget.hasAttribute('data-tick-go')) commitTickInput(); }} />
+                <button type="button" className={styles.tickGo} data-tick-go="" onClick={commitTickInput}>OK</button>
+                <span className={styles.dim}>/{count - 1}</span>
+              </>}
+        </span>
         <select className={styles.speed} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
           {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
         </select>

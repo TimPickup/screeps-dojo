@@ -9,6 +9,23 @@ behaviour changes, patch = fixes).
 
 ### Added
 
+- Every room in a replay, in the Run tab's live view and in the scenario preview
+  is labelled with its own name, small and white inside its top-left corner —
+  shorter than the wall tile behind it. Baked into the cached structure layer,
+  so it costs nothing per frame.
+- Click the `tick 247/500` label in a replay to type an exact tick and jump
+  there — Enter or OK to go, Escape to cancel, clicking away accepts.
+- Creeps sweep into a new heading over the first 45% of a tick instead of
+  snapping round, finishing the turn before the glide starts. Shortest arc, so a
+  creep turning past due west sweeps the short way. Applied at replay and export
+  speeds of 4x and under; above that a tick is too brief for the turn to read as
+  anything but a flicker, so it snaps as before.
+- A `say()` bubble is now a near-white rounded panel with a black outline and
+  black text, sitting just above the creep with a short tail angled down at it,
+  instead of a dark box floating a tile and a half up. A public say
+  (`say(msg, true)`) gets a pink panel, which is the only way to tell the two
+  apart on the map.
+
 - The URL now says where you are, so back, forward, reload and a pasted link all
   work: `#/scenario/<path>/<tab>` for a scenario and its tab,
   `#/folder/<path>` for the list with that folder open. Switching tabs replaces
@@ -16,6 +33,25 @@ behaviour changes, patch = fixes).
   of walking through every tab you looked at.
 
 ### Fixed
+
+- Replay console lines were labelled one tick ahead: a bot logging at
+  `Game.time 1` showed up under `[2]`. A frame is captured after its tick has
+  run, so it carries the clock the engine has already advanced to; the label now
+  names the tick that printed the line, which is also the tick the scrubber
+  shows. The frame's `gameTime` is left alone — the inspector does absolute-time
+  arithmetic against it for TTL, decay and spawn progress.
+- A bot's RoomVisual draws and `say()` bubbles appeared a tick late, over a world
+  that had already moved on: the bot draws at the start of a tick, from the state
+  as it stood then, but both are recorded with the frame captured after that tick
+  ran. Both now render on the frame they were computed from, as do actionLog
+  effects — which also means a paused frame shows what it will show the instant
+  playback resumes, rather than the previous tick's beams.
+- A creep that turned to harvest and then stood still snapped back to the
+  direction it last walked. It now holds whichever heading it was last turned to,
+  to move or to act.
+- The replay's pause glyph is taller than the play triangle, so the button — and
+  the whole scrub row with it — changed height on every press. It has a fixed box
+  now.
 
 - The host agent's buttons (Restart, Apply new mounts, Update) failed on Windows
   whenever Node was installed under a path containing a space — the whole thing

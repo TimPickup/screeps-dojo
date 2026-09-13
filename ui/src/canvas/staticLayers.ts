@@ -8,11 +8,13 @@ import { drawRamparts } from './ramparts.ts';
 import type { ModImages } from './modImages.ts';
 import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
+import { fillRenderText, parseRenderFont } from './renderFont.ts';
 import { drawDeposit } from './deposits.ts';
 import type { TerrainTextures } from './terrainTextures.ts';
 import {
 	DEFAULT_MINERAL_COLOR,
 	KNOWN_OBJECT_TYPES,
+	ROOM_NAME_STYLE,
 	MINERAL_COLORS,
 	RENDER_COLORS,
 	ROOM_SIZE_TILES,
@@ -70,6 +72,27 @@ export function drawTerrain(
 		if (rows[ROOM_SIZE_TILES - 1] && rows[ROOM_SIZE_TILES - 1][i] !== '#') chevron(i, ROOM_SIZE_TILES - 1, 0, 1);
 	}
 	ctx.stroke();
+	ctx.restore();
+}
+
+// The room's own name, small and white inside its top-left corner. Baked into
+// the structure layer, which sits above the walls the corner tile is made of, so
+// playback costs nothing per frame.
+export function drawRoomNames(ctx: CanvasRenderingContext2D, layout: StageLayout): void {
+	ctx.save();
+	ctx.fillStyle = RENDER_COLORS.roomName;
+	const font = parseRenderFont(ROOM_NAME_STYLE.fontSize);
+	for (const roomName of Object.keys(layout.offsets)) {
+		const roomOffset = layout.offsets[roomName];
+		fillRenderText(
+			ctx,
+			roomName,
+			roomOffset.col * ROOM_SIZE_TILES + ROOM_NAME_STYLE.x,
+			roomOffset.row * ROOM_SIZE_TILES + ROOM_NAME_STYLE.baseline,
+			font,
+			'left',
+		);
+	}
 	ctx.restore();
 }
 
@@ -278,6 +301,7 @@ export function drawStaticScene(
 		else if (!KNOWN_OBJECT_TYPES.has(object.type)) drawUnknownObject(ctx, object, cx, cy);
 	}
 	drawRamparts(ctx, scene.frame, scene.layout);
+	drawRoomNames(ctx, scene.layout);
 }
 
 export function buildStructureCanvas(
@@ -292,6 +316,7 @@ export function buildStructureCanvas(
 	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
 		drawMergedWalls(ctx, terrain, frame, layout, wallTexture);
 		drawStaticStructures(ctx, frame, layout, modImages);
+		drawRoomNames(ctx, layout);
 	});
 }
 
