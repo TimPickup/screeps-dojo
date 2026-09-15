@@ -483,10 +483,15 @@ class DojoWorld {
 				// object references the live server's game time, which never elapses in
 				// the sim, so the spawn jams forever and the colony can't replace creeps.
 				if (structure.type === 'spawn') attributes.spawning = null;
-				// Imported invader cores carry season effects (e.g. 1001 invulnerability)
-				// whose endTime is a far-future season tick — in the sim that leaves the
-				// core permanently invulnerable. Clear them so it can be attacked.
-				if (structure.type === 'invaderCore') attributes.effects = [];
+				// Imported invader cores carry season effects (e.g. 1001 invulnerability).
+				// An importer that knew the source tick rebased them to `ticksRemaining`
+				// (applied in applyClocks); an older map carries the raw far-future
+				// season endTime, which would leave the core permanently invulnerable.
+				if (structure.type === 'invaderCore' && Array.isArray(attributes.effects)) {
+					attributes.effects = attributes.effects.filter(function (effect) {
+						return effect && typeof effect.ticksRemaining === 'number';
+					});
+				}
 				// Imported keeper lairs carry nextSpawnTime: null, which makes the engine
 				// wait a full ENERGY_REGEN_TIME (300 ticks) before the FIRST keeper appears.
 				// Seed a near-term first spawn instead so keepers are present quickly. This
@@ -903,11 +908,33 @@ class DojoWorld {
 	async applyClocks(type, doc, seedDefaults) {
 		const decay = DECAY_CLOCKS[type];
 		const regen = REGEN_CLOCKS[type];
-		if (!decay && !regen) return;
 		const seed = seedDefaults !== false;
 		// One gameTime read at most, and only when a clock is actually in play.
 		let gameTime = null;
 		const now = async () => (gameTime === null ? (gameTime = await this.world.gameTime) : gameTime);
+		// Generic relative clocks from an import: `ticks: { cooldownTime: 12,
+		// deployTime: 300, ... }` becomes the absolute field the engine reads, and
+		// an effect's `ticksRemaining` becomes its `endTime`.
+		if (doc.ticks && typeof doc.ticks === 'object') {
+			for (const field of Object.keys(doc.ticks)) {
+				if (typeof doc.ticks[field] === 'number') doc[field] = (await now()) + doc.ticks[field];
+			}
+			delete doc.ticks;
+		}
+		if (Array.isArray(doc.effects)) {
+			const effects = [];
+			for (const effect of doc.effects) {
+				if (!effect || typeof effect !== 'object') continue;
+				const copy = Object.assign({}, effect);
+				if (typeof copy.ticksRemaining === 'number') {
+					copy.endTime = (await now()) + copy.ticksRemaining;
+					delete copy.ticksRemaining;
+				}
+				effects.push(copy);
+			}
+			doc.effects = effects;
+		}
+		if (!decay && !regen) return;
 		if (decay) {
 			if (doc.ticksToDecay !== undefined) {
 				doc[decay.field] = (await now()) + doc.ticksToDecay;
@@ -957,7 +984,7 @@ class DojoWorld {
 		if (!userId) throw new Error('addCreep: no user (add the main bot first or pass user)');
 		const bodyParts = this.buildCreepBody(creepOptions.body, creepOptions.boosts);
 		const fullHits = bodyParts.length * BODY_PART_HITS;
-		const result = await this.world.addRoomObjectUnchecked(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, {
+		const creepDoc = {
 			user: userId, name: creepOptions.name,
 			body: bodyParts,
 			hits: creepOptions.hits !== undefined ? creepOptions.hits : fullHits,
@@ -970,7 +997,10 @@ class DojoWorld {
 			storeCapacity: this.creepStoreCapacity(bodyParts),
 			ageTime: await this.creepAgeTime(bodyParts, creepOptions),
 			fatigue: 0, spawning: false, notifyWhenAttacked: false
-		});
+		};
+		// An imported creep keeps the live server's id, like every other object.
+		if (creepOptions.id !== undefined) creepDoc._id = creepOptions.id;
+		const result = await this.world.addRoomObjectUnchecked(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, creepDoc);
 		// The engine only simulates rooms in ACTIVE_ROOMS, so a creep dropped
 		// into a room nothing else keeps hot would sit frozen until that room's
 		// next force update.

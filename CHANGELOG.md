@@ -9,6 +9,20 @@ behaviour changes, patch = fixes).
 
 ### Added
 
+- Room import keeps the special effects on structures (a Season stronghold's
+  invulnerability, power effects) and every absolute-tick cooldown — lab, link,
+  terminal and factory `cooldownTime`, a stronghold's `deployTime` and
+  `nextExpandTime`, a keeper lair's `nextSpawnTime`, and road, container and
+  rampart decay — rebased onto the sim clock: an effect ending in 300 ticks on
+  the live server ends 300 ticks after the scenario loads. Written to the map as
+  `effects[].ticksRemaining` and a `ticks: { field: n }` table; the loader turns
+  them back into absolute deadlines. Invader-core effects are no longer wiped
+  on load, only ones an older map carries as a raw season tick.
+- Room import keeps the live server's id on every structure and creep, not just
+  sources and minerals. A keeper lair loaded under a fresh id spawned a second
+  keeper next to the imported one, because keepers are named after their lair's
+  id. A map entry without an id still gets a generated one.
+
 - Every room in a replay, in the Run tab's live view and in the scenario preview
   is labelled with its own name, small and white inside its top-left corner —
   shorter than the wall tile behind it. Baked into the cached structure layer,

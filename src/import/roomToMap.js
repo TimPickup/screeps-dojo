@@ -35,8 +35,38 @@ const KNOWN_STRUCTURES = new Set([
 // rebasing it would make every wall in an imported base expire.
 const ABSOLUTE_DECAY_FIELDS = {
 	powerBank: 'decayTime',
-	deposit: 'decayTime'
+	deposit: 'decayTime',
+	road: 'nextDecayTime',
+	container: 'nextDecayTime',
+	rampart: 'nextDecayTime'
 };
+
+// Other absolute-tick clocks a live doc can carry (cooldowns, a stronghold's
+// deploy/expand timers, a keeper lair's next spawn). Rebased the same way into
+// the map's relative `ticks` table, which the loader turns back into absolute
+// deadlines against the sim clock. A clock already in the past is dropped —
+// the engine treats a missing one as "ready".
+const ABSOLUTE_TICK_FIELDS = ['cooldownTime', 'deployTime', 'nextExpandTime', 'nextSpawnTime'];
+
+// Rebase a doc's `effects[]` (power/season effects with an absolute `endTime`)
+// onto relative `ticksRemaining`. Expired effects are dropped. Without a
+// gameTime there is nothing to measure against, so the whole list is dropped.
+function rebaseEffects(effects, gameTime) {
+	if (!Array.isArray(effects) || typeof gameTime !== 'number') return undefined;
+	const out = [];
+	for (const effect of effects) {
+		if (!effect || typeof effect !== 'object') continue;
+		const copy = Object.assign({}, effect);
+		if (typeof copy.endTime === 'number') {
+			const remaining = copy.endTime - gameTime;
+			if (remaining <= 0) continue;
+			copy.ticksRemaining = remaining;
+		}
+		delete copy.endTime;
+		out.push(copy);
+	}
+	return out.length ? out : undefined;
+}
 
 // Engine object fields we never copy onto a structure entry (positional/identity
 // or engine-internal); everything else passes through (hits, store, level, etc.).
@@ -125,6 +155,7 @@ function roomToMap(input) {
 				body: (object.body || []).map(function (part) { return part.type; }),
 				hits: object.hits, hitsMax: object.hitsMax
 			};
+			if (object._id) creep.id = object._id;
 			const store = cleanStore(object.store);
 			if (store) creep.store = store;
 			map.creeps.push(creep);
@@ -136,6 +167,11 @@ function roomToMap(input) {
 			if (object.user && tag === null) continue;
 			if (tag === 'me' && !includeMyStructures) continue;
 			const entry = { type: object.type, x: object.x, y: object.y };
+			// Keep the live id on EVERY object: the engine ties objects together by
+			// id (a keeper is named after its lair's id, so a lair loaded under a
+			// fresh id spawns a second keeper beside the imported one), and a
+			// local copy is easiest to check against the live server by id.
+			if (object._id) entry.id = object._id;
 			if (object.user && tag !== null) {
 				entry.owner = tag;
 				if (!OWNER_TAGS[tag]) usedLabels.add(tag);
@@ -144,7 +180,20 @@ function roomToMap(input) {
 			for (const key of Object.keys(object)) {
 				if (STRUCTURE_OMIT.has(key) || key === 'store') continue;
 				if (key === decayField) continue;   // rebased below, never copied raw
+				if (key === 'effects') continue;    // rebased below
+				if (ABSOLUTE_TICK_FIELDS.indexOf(key) !== -1) continue;
 				entry[key] = object[key];
+			}
+			const effects = rebaseEffects(object.effects, gameTime);
+			if (effects) entry.effects = effects;
+			if (typeof gameTime === 'number') {
+				for (const field of ABSOLUTE_TICK_FIELDS) {
+					if (typeof object[field] !== 'number') continue;
+					const remaining = object[field] - gameTime;
+					if (remaining <= 0) continue;
+					entry.ticks = entry.ticks || {};
+					entry.ticks[field] = remaining;
+				}
 			}
 			if (decayField && typeof object[decayField] === 'number') {
 				// Only rebasable against the source server's own clock. Without it

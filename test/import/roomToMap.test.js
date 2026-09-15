@@ -230,9 +230,21 @@ describe('roomToMap', function () {
 		}], { gameTime: 263943 });
 		assert.deepStrictEqual(result.skipped, {});
 		assert.deepStrictEqual(result.map.structures, [{
-			type: 'powerBank', x: 36, y: 26, hits: 2000000, hitsMax: 2000000,
+			type: 'powerBank', x: 36, y: 26, id: '6aa08296cb612e298351a872', hits: 2000000, hitsMax: 2000000,
 			ticksToDecay: 232, store: { power: 8727 }
 		}]);
+	});
+
+	// The engine ties objects together by id: a keeper is named after its
+	// lair's id, so a lair loaded under a fresh id spawns a SECOND keeper next
+	// to the imported one. Every structure and creep keeps its live id.
+	it('keeps the live id on structures and creeps', function () {
+		const result = build([
+			{ _id: '6a8cac76dd4872bccd31c538', type: 'keeperLair', x: 10, y: 10, user: 'sk' },
+			{ _id: '6a8cac76dd4872bccd31c599', type: 'creep', x: 11, y: 10, user: 'sk', name: 'Keeper6a8cac76dd4872bccd31c538', body: [{ type: 'attack' }], hits: 100, hitsMax: 100 }
+		]);
+		assert.strictEqual(result.map.structures[0].id, '6a8cac76dd4872bccd31c538');
+		assert.strictEqual(result.map.creeps[0].id, '6a8cac76dd4872bccd31c599');
 	});
 
 	// decayTime is an absolute tick on the SOURCE server (~264k on season). Copied
