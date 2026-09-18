@@ -47,6 +47,15 @@ describe('recording a scenario run', function () {
 			return object.type === 'creep' && object.name === 'T';
 		});
 		assert.ok(creep, 'creep T present in final frame');
+		const endDir = path.join(path.dirname(result.recordingPath), 'end state');
+		const endMap = JSON.parse(fs.readFileSync(path.join(endDir, 'map.W0N0.json'), 'utf8'));
+		assert.deepStrictEqual(endMap.terrain, recording.terrain.W0N0);
+		const endCreep = endMap.creeps.find(c => c.name === 'T');
+		assert.strictEqual(endCreep.x, creep.x);
+		assert.strictEqual(endCreep.y, creep.y);
+		assert.strictEqual(endCreep.owner, 'me');
+		assert.ok(JSON.parse(fs.readFileSync(path.join(endDir, 'memory.json'), 'utf8')));
+		assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(endDir, 'segments.json'), 'utf8')), {});
 
 		// frames stream to an ndjson journal during the run (bounded memory),
 		// then finalize() assembles recording.json and DELETES the redundant
@@ -56,6 +65,71 @@ describe('recording a scenario run', function () {
 		assert.ok(!fs.existsSync(journalPath), 'frames.ndjson removed after finalize (no duplicate on disk)');
 		// the assembled recording carries one frame per line of the old journal
 		assert.strictEqual(recording.frames.length, result.ticks + 1, 'recording has every captured frame');
+	});
+
+	it('exports every room and final memory plus active, inactive and empty segments', async function () {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dojo-end-state-'));
+		cleanup.push(dir);
+		fs.copyFileSync(path.join(__dirname, '../../examples/walk-to-flag/map.json'), path.join(dir, 'map.json'));
+		fs.writeFileSync(path.join(dir, 'map.W3N0.json'), JSON.stringify({
+			room: 'W3N0', terrain: Array(50).fill('.'.repeat(50)), structures: [], creeps: []
+		}));
+		fs.writeFileSync(path.join(dir, 'scenario.js'), `module.exports = {
+			maxTicks: 2,
+			modules: { main: 'module.exports.loop = function () { Memory.tick = Game.time; RawMemory.segments[7] = String(Game.time); };' },
+			setup: async function (world) {
+				await world.loadAllMaps({ room: 'W0N0', x: 5, y: 2 });
+				await world.seedMemory({ seeded: true });
+				await world.seedSegments({ 99: 'inactive', 98: '' });
+				await world.addCreep({ room: 'W0N0', x: 5, y: 3, name: 'Aged', body: ['move'], ticksToLive: 42 });
+			},
+			expect: function () {}
+		};`);
+		const result = await runScenario(dir, { record: true });
+		const recording = loadRecording(result.recordingPath);
+		const endDir = path.join(path.dirname(result.recordingPath), 'end state');
+		const read = name => JSON.parse(fs.readFileSync(path.join(endDir, name), 'utf8'));
+		const memory = read('memory.json');
+		assert.strictEqual(memory.seeded, true);
+		assert.strictEqual(memory.tick, recording.frames[recording.frames.length - 1].gameTime - 1);
+		assert.deepStrictEqual(read('segments.json'), { 7: String(memory.tick), 98: '', 99: 'inactive' });
+		for (const room of ['W0N0', 'W3N0']) {
+			const map = read('map.' + room + '.json');
+			assert.strictEqual(map.room, room);
+			assert.deepStrictEqual(map.terrain, recording.terrain[room]);
+			for (const structure of map.structures) {
+				assert.ok(!Object.hasOwn(structure, '$loki'));
+				assert.ok(!Object.hasOwn(structure, 'meta'));
+			}
+		}
+		// Reload the actual export, then verify compatibility with exports made
+		// before database bookkeeping was excluded.
+		const DojoWorld = require('../../src/dojoWorld');
+		const world = new DojoWorld({ scenarioDir: endDir });
+		try {
+			await world.reset();
+			world.modules = { main: 'module.exports.loop = function () {};' };
+			await world.loadAllMaps({}, { memory: memory, segments: read('segments.json') });
+			const restored = await world.captureFrame();
+			const original = recording.frames[recording.frames.length - 1];
+			const exportedCreeps = read('map.W0N0.json').creeps;
+			assert.ok(exportedCreeps.length > 0);
+			for (const creep of exportedCreeps) {
+				const before = original.objects.find(object => object._id === creep.id);
+				const after = restored.objects.find(object => object._id === creep.id);
+				assert.strictEqual(creep.ticksToLive, before.ageTime - original.gameTime);
+				assert.strictEqual(after.ageTime - restored.gameTime, creep.ticksToLive);
+			}
+			await world.addObject('W3N0', 'container', 10, 10, {
+				id: 'legacy-export-container', $loki: 77, meta: { revision: 3 }, store: { energy: 200 }
+			});
+			await world.start();
+			await world.tick();
+			const state = await world.readState();
+			assert.ok(state.objects.some(object => object._id === 'legacy-export-container'));
+		} finally {
+			world.stop();
+		}
 	});
 
 	it('saves a partial recording when the run aborts mid-way', async function () {
@@ -100,6 +174,10 @@ describe('recording a scenario run', function () {
 		assert.ok(/boom/.test(recording.meta.error), 'error captured in meta');
 		assert.ok(recording.frames.length >= 3, 'frames captured up to the abort, got ' + recording.frames.length);
 		assert.ok(recording.terrain.W0N0, 'terrain captured');
+		const endDir = path.join(path.dirname(thrown.recordingPath), 'end state');
+		assert.ok(fs.existsSync(path.join(endDir, 'map.W0N0.json')));
+		assert.ok(fs.existsSync(path.join(endDir, 'memory.json')));
+		assert.ok(fs.existsSync(path.join(endDir, 'segments.json')));
 	});
 });
 

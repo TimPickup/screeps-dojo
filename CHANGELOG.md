@@ -9,6 +9,11 @@ behaviour changes, patch = fixes).
 
 ### Added
 
+- Recordings always save an `end state/` folder with a map for every room,
+  the main bot's memory and all stored segments, using the live import format.
+  Stopped and failed recordings save the latest captured state too.
+- Live room and end-state exports preserve creep `ticksToLive`; loading a map
+  restores the saved remaining lifetime on the simulation clock.
 - Room import keeps the special effects on structures (a Season stronghold's
   invulnerability, power effects) and every absolute-tick cooldown — lab, link,
   terminal and factory `cooldownTime`, a stronghold's `deployTime` and
@@ -18,6 +23,8 @@ behaviour changes, patch = fixes).
   `effects[].ticksRemaining` and a `ticks: { field: n }` table; the loader turns
   them back into absolute deadlines. Invader-core effects are no longer wiped
   on load, only ones an older map carries as a raw season tick.
+- Room import keeps a source's live `energy` and `energyCapacity` instead of
+  resetting it to the dojo's 1000 default.
 - Room import keeps the live server's id on every structure and creep, not just
   sources and minerals. A keeper lair loaded under a fresh id spawned a second
   keeper next to the imported one, because keepers are named after their lair's
@@ -48,6 +55,14 @@ behaviour changes, patch = fixes).
 
 ### Fixed
 
+- End-state exports exclude internal database fields (`$loki` and `meta`).
+  Loading older exports ignores these fields so they no longer fail with
+  "Document is already in collection, please use update()".
+- A map without a controller loaded with a hidden placeholder one at (0,0),
+  and the engine decides source capacity by whether a controller exists at all
+  (`sources/tick.js`): an imported keeper or sector-centre room got 1500-energy
+  sources instead of 4000. Only the main bot's home room gets the placeholder
+  now (addBot needs one); `addEnemyBot` seeds its own if the room has none.
 - Replay console lines were labelled one tick ahead: a bot logging at
   `Game.time 1` showed up under `[2]`. A frame is captured after its tick has
   run, so it carries the clock the engine has already advanced to; the label now

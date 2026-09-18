@@ -16,6 +16,7 @@
 // was hard-killed before finalize (no recording.json, frames.ndjson present).
 const fs = require('fs');
 const path = require('path');
+const { writeEndState } = require('./recordingEndState');
 
 const { RECORDINGS_DIR_NAME, resolveScenarioPath, listScenarioDirs, isDirEntry } = require('./scenarioTree');
 
@@ -136,16 +137,21 @@ function createRecorder(scenarioDir) {
 	const journalFile = path.join(dir, 'frames.ndjson');
 	let frames = 0;
 	let finalizedPath = null;
+	let terrainSnapshot = null;
+	let endState = null;
 	return {
 		dir: dir,
 		writeMeta: function (meta) {
 			fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
 		},
 		setTerrain: function (terrain) {
+			terrainSnapshot = terrain;
 			fs.writeFileSync(path.join(dir, 'terrain.json'), JSON.stringify(terrain));
 		},
-		addFrame: function (frame) {
+		addFrame: function (frame, memory) {
 			fs.appendFileSync(journalFile, JSON.stringify(frame) + '\n');
+			// One detached snapshot only: engine docs and segment hashes may mutate.
+			if (memory) endState = JSON.parse(JSON.stringify(Object.assign({ frame: frame }, memory)));
 			frames++;
 		},
 		frameCount: function () {
@@ -153,6 +159,7 @@ function createRecorder(scenarioDir) {
 		},
 		finalize: function (meta) {
 			if (finalizedPath !== null) return finalizedPath;
+			if (endState) writeEndState(dir, endState, terrainSnapshot, meta);
 			fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
 			finalizedPath = assembleRecording(dir);
 			// The journal is only needed to salvage a run killed BEFORE finalize.

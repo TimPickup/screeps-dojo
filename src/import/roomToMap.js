@@ -75,7 +75,7 @@ function rebaseEffects(effects, gameTime) {
 // millions of ticks ahead of a fresh sim, where `gameTime - launchTime` goes
 // negative and the mod's score formula (log10 of it) turns into NaN. A reactor
 // starts its clock again on its first tick here, which is what a scenario wants.
-const STRUCTURE_OMIT = new Set(['_id', 'type', 'x', 'y', 'room', 'user', 'spawning', 'launchTime']);
+const STRUCTURE_OMIT = new Set(['_id', '$loki', 'meta', 'type', 'x', 'y', 'room', 'user', 'spawning', 'launchTime']);
 
 function cleanStore(store) {
 	if (!store || typeof store !== 'object') return undefined;
@@ -131,6 +131,12 @@ function roomToMap(input) {
 			// loader must recreate sources with their original ids or mining breaks
 			const source = { x: object.x, y: object.y };
 			if (object._id) source.id = object._id;
+			// Live fill and capacity (1500 neutral / 3000 owned / 4000 keeper or
+			// centre room). The engine re-derives the capacity from the room's
+			// controller on its first tick anyway; the fill is what would
+			// otherwise reset to the dojo's 1000 default.
+			if (typeof object.energy === 'number') source.energy = object.energy;
+			if (typeof object.energyCapacity === 'number') source.energyCapacity = object.energyCapacity;
 			map.sources.push(source);
 			continue;
 		}
@@ -156,6 +162,13 @@ function roomToMap(input) {
 				hits: object.hits, hitsMax: object.hitsMax
 			};
 			if (object._id) creep.id = object._id;
+			// Raw room API/engine docs carry an absolute death tick. Export a
+			// remaining lifetime so the loader can rebase it onto its own clock.
+			if (Number.isFinite(object.ageTime) && Number.isFinite(gameTime)) {
+				creep.ticksToLive = Math.max(0, object.ageTime - gameTime);
+			} else if (Number.isFinite(object.ticksToLive)) {
+				creep.ticksToLive = Math.max(0, object.ticksToLive);
+			}
 			const store = cleanStore(object.store);
 			if (store) creep.store = store;
 			map.creeps.push(creep);

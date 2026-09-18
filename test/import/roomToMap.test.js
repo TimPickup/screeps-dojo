@@ -25,6 +25,32 @@ function build(objects, options) {
 }
 
 describe('roomToMap', function () {
+	it('exports remaining creep lifetime for every owner against the snapshot clock', function () {
+		const objects = ['mine', 'inv', 'sk', 'p1'].map((user, index) => ({
+			type: 'creep', name: user, user: user, x: index, y: 1,
+			body: [{ type: 'move' }], ageTime: 100000 + 42 + index
+		}));
+		const creeps = build(objects, { gameTime: 100000 }).map.creeps;
+		assert.deepStrictEqual(creeps.map(creep => creep.ticksToLive), [42, 43, 44, 45]);
+		assert.ok(creeps.every(creep => !Object.hasOwn(creep, 'ageTime')));
+	});
+
+	it('preserves explicit TTL including zero, but does not guess from an unknown clock', function () {
+		const creep = { type: 'creep', name: 'T', user: 'mine', x: 1, y: 1, body: [{ type: 'move' }] };
+		assert.strictEqual(build([Object.assign({}, creep, { ticksToLive: 12 })]).map.creeps[0].ticksToLive, 12);
+		assert.strictEqual(build([Object.assign({}, creep, { ticksToLive: 0 })]).map.creeps[0].ticksToLive, 0);
+		assert.ok(!Object.hasOwn(build([Object.assign({}, creep, { ageTime: 100000 })]).map.creeps[0], 'ticksToLive'));
+		assert.ok(!Object.hasOwn(build([creep]).map.creeps[0], 'ticksToLive'));
+		assert.strictEqual(build([Object.assign({}, creep, { ageTime: 99 })], { gameTime: 100 }).map.creeps[0].ticksToLive, 0);
+	});
+
+	it('drops database bookkeeping while preserving game IDs and state', function () {
+		const result = build([{ type: 'container', x: 5, y: 5, _id: 'container-id',
+			$loki: 77, meta: { revision: 3 }, hits: 123, store: { energy: 200 } }]);
+		assert.deepStrictEqual(result.map.structures, [{ type: 'container', x: 5, y: 5,
+			id: 'container-id', hits: 123, store: { energy: 200 } }]);
+	});
+
 	it('keeps my structures with owner tag and store', function () {
 		const result = build([
 			{ type: 'tower', x: 10, y: 10, user: 'mine', store: { energy: 500 }, hits: 3000, hitsMax: 3000 }
@@ -165,7 +191,7 @@ describe('roomToMap', function () {
 			{ type: 'mineral', x: 35, y: 35, mineralType: 'H', density: 3 }
 		]);
 		assert.deepStrictEqual(result.map.controller, { x: 20, y: 20, level: 4, owner: 'me' });
-		assert.deepStrictEqual(result.map.sources, [{ x: 30, y: 30 }]);
+		assert.deepStrictEqual(result.map.sources, [{ x: 30, y: 30, energy: 3000 }]);
 		assert.deepStrictEqual(result.map.minerals, [{ x: 35, y: 35, mineralType: 'H', density: 3 }]);
 		assert.deepStrictEqual(result.map.structures, []);
 	});

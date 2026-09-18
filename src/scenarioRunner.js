@@ -250,7 +250,7 @@ async function runScenario(scenarioDir, options) {
 			// anything setup() warned about belongs on the first frame, not
 			// blamed on tick 1
 			frame0.console = takeConsoleDelta();
-			if (recorder) recorder.addFrame(frame0);
+			if (recorder) recorder.addFrame(frame0, await world.captureRecordingMemory());
 			if (streamFrames) emit({ type: 'frame', frame: frame0 });
 			if (frame0.console.length) emit({ type: 'console', lines: frame0.console });
 		}
@@ -285,7 +285,7 @@ async function runScenario(scenarioDir, options) {
 			if (recorder || streamFrames) {
 				const frame = await world.captureFrame();
 				frame.console = tickConsole;
-				if (recorder) recorder.addFrame(frame);
+				if (recorder) recorder.addFrame(frame, await world.captureRecordingMemory());
 				if (streamFrames) emit({ type: 'frame', frame: frame });
 			}
 			if (tickConsole.length) emit({ type: 'console', lines: tickConsole });

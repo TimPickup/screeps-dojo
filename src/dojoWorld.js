@@ -312,9 +312,15 @@ class DojoWorld {
 			// without one, and it claims the room's controller (sets user +
 			// level 1) itself. Place the map's controller now — from the
 			// top-level field or a structures[] entry (the editor exports the
-			// latter) — and only fall back to an auto-inject at (0,0) (the
-			// border wall corner, never walkable) when the map has neither.
-			// placeMapObjects skips controllers to avoid duplicates.
+			// latter). placeMapObjects skips controllers to avoid duplicates.
+			//
+			// A map WITHOUT a controller stays without one unless it is named
+			// in options.placeholderControllers (or that option is absent, the
+			// legacy behaviour for direct callers): the engine decides a room's
+			// source capacity by whether a controller exists at all
+			// (sources/tick.js — no controller means a keeper/centre room at
+			// SOURCE_ENERGY_KEEPER_CAPACITY, 4000), so a hidden placeholder in an
+			// imported centre room silently turned its sources into 1500 ones.
 			const structuresController = (map.structures || []).find(function (entry) {
 				return entry.type === 'controller';
 			});
@@ -329,9 +335,20 @@ class DojoWorld {
 					level: controller.level || 0, progress: 0
 				});
 			} else {
-				await this.world.addRoomObjectUnchecked(map.room, 'controller', 0, 0, { level: 0 });
+				const wanted = options && options.placeholderControllers;
+				if (!wanted || wanted.indexOf(map.room) !== -1) await this.ensurePlaceholderController(map.room);
 			}
 		}
+	}
+
+	// The placeholder controller addBot needs: a level-0 one at (0,0), the
+	// border wall corner, never walkable. No-op when the room already has one.
+	async ensurePlaceholderController(room) {
+		const { db } = await this.world.load();
+		const existing = await db['rooms.objects'].findOne({ room: room, type: 'controller' });
+		if (existing) return false;
+		await this.world.addRoomObjectUnchecked(room, 'controller', 0, 0, { level: 0 });
+		return true;
 	}
 
 	async addMainBot(botOptions) {
@@ -394,7 +411,26 @@ class DojoWorld {
 		}
 	}
 
+	// Read every stored segment, including ones not active in the last tick.
+	async captureRecordingMemory() {
+		const { env } = await this.world.load();
+		const ids = Array.from({ length: 100 }, (unused, id) => id);
+		const values = await env.hmget(env.keys.MEMORY_SEGMENTS + this.botUserId, ids);
+		const segments = {};
+		for (const id of ids) {
+			if (values[id] !== undefined && values[id] !== null) segments[id] = values[id];
+		}
+		return {
+			memory: await env.get(env.keys.MEMORY + this.botUserId),
+			segments: segments,
+			playerUserIds: this.playerUserIds
+		};
+	}
+
 	async addEnemyBot(botOptions) {
+		// A scenario may drop an enemy into a room whose map has no controller
+		// (loadScenarioMaps only seeds the placeholder in the main bot's home).
+		if (botOptions && botOptions.room) await this.ensurePlaceholderController(botOptions.room);
 		return this.world.addBot(botOptions);
 	}
 
@@ -612,10 +648,16 @@ class DojoWorld {
 	// and needs a location, so when we adopt a map spawn we place that bootstrap
 	// on the same tile and drop it afterwards, leaving the map's named spawn.)
 	async loadScenarioMaps(maps, botOptions, options) {
-		await this.createRoomsFromMaps(maps, options);
-
 		const opts = Object.assign({}, botOptions);
 		const home = this.findHomeSpawn(maps);
+		// Only the bot's home room gets a placeholder controller when its map
+		// has none; every other controller-less map loads as the engine's own
+		// keeper/centre room (see createRoomsFromMaps).
+		const homeRoom = opts.room !== undefined ? opts.room : (home ? home.room : undefined);
+		await this.createRoomsFromMaps(maps, Object.assign({}, options, {
+			placeholderControllers: homeRoom === undefined ? [] : [homeRoom]
+		}));
+
 		const adoptHome = home && opts.room === undefined && opts.x === undefined && opts.y === undefined;
 		if (adoptHome) { opts.room = home.room; opts.x = home.x; opts.y = home.y; }
 		if (opts.room === undefined) {
@@ -796,6 +838,10 @@ class DojoWorld {
 				+ NON_ROOM_OBJECT_TYPES[type] + '() instead');
 		}
 		const doc = Object.assign({}, attributes);
+		// Older end-state exports included Loki's collection bookkeeping.
+		// Preserve game IDs, but never insert another collection's internal ID.
+		delete doc.$loki;
+		delete doc.meta;
 		const activate = doc.activate !== false;
 		delete doc.activate;
 		// Creeps need a body, boosts and a death clock built for them, so the

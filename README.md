@@ -462,6 +462,13 @@ live there so they follow the scenario when you rename it or move it into a
 folder. The GUI hides that directory from the Edit tab's file list. A scenario
 can also set `record: true` in scenario.js.
 
+Every recording also saves an `end state/` folder beside `recording.json`,
+with `map.<ROOM>.json` for every simulated room, plus the main bot's
+`memory.json` and `segments.json` (including inactive segments). Maps use
+the same supported fields and format as live room imports. Stopped or failed
+runs save the latest captured tick; SIGTERM/SIGINT do too. A hard kill
+(SIGKILL) cannot write an end state.
+
 Recordings made before v0.13 lived in a top-level `recordings/<scenario>/`; the
 GUI server moves those into their scenario the first time it starts. Any whose
 scenario no longer exists is left in `recordings/` untouched.
