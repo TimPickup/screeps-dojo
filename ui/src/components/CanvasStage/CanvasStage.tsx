@@ -36,6 +36,7 @@ interface Props {
   layout: StageLayout;
   relPath: string;
   playing: boolean;
+  loading?: boolean;
   speed: number;
   tick: number;                 // controlled (scrub); advanced via onTick during play
   onTick: (t: number) => void;
@@ -47,7 +48,7 @@ interface Props {
 
 // Shared canvas replay/live renderer: cached terrain + structure layers with
 // native Canvas2D creeps, interpolation, effects and RoomVisual playback.
-export function CanvasStage({ recording, layout, relPath, playing, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
+export function CanvasStage({ recording, layout, relPath, playing, loading = false, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
   const modImages = useModImages();
@@ -60,7 +61,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   const playhead = useRef(0);
   const lastTs = useRef(0);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
-  const stateRef = useRef({ playing, speed, tick, showVisuals, selectedId });
+  const stateRef = useRef({ playing, loading, speed, tick, showVisuals, selectedId, onEnded });
   // The draw loop is created once; a ref lets it pick up the artwork as it
   // finishes decoding, without tearing the loop down and back up.
   const modImagesRef = useRef(modImages);
@@ -68,7 +69,7 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
   // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
   const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
   recordingRef.current = recording;
-  stateRef.current = { playing, speed, tick, showVisuals, selectedId };
+  stateRef.current = { playing, loading, speed, tick, showVisuals, selectedId, onEnded };
   modImagesRef.current = modImages;
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
@@ -130,12 +131,15 @@ export function CanvasStage({ recording, layout, relPath, playing, speed, tick, 
       let sub: number | null = null;
       if (st.playing && ready) {
         playhead.current += dt * st.speed;
-        if (playhead.current >= count - 1) { playhead.current = count - 1; onEnded(); }
+        if (playhead.current >= count - 1) {
+          playhead.current = count - 1;
+          if (!st.loading) st.onEnded();
+        }
         const t = Math.floor(playhead.current);
         sub = playhead.current - t;
         if (t !== st.tick) onTick(t);
       }
-      const drawTick = st.playing ? Math.floor(playhead.current) : st.tick;
+      const drawTick = Math.min(count - 1, st.playing ? Math.floor(playhead.current) : st.tick);
 
       // clear + world transform (tile → device px)
       ctx.setTransform(1, 0, 0, 1, 0, 0);

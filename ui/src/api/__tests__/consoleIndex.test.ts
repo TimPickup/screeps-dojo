@@ -7,6 +7,17 @@ function frame(gameTime: number, lines?: string[]): Frame {
 }
 
 describe('buildConsoleIndex', () => {
+  it('indexes appended frames, including after an initially empty console', () => {
+    const growing: Frame[] = [];
+    const index = buildConsoleIndex(growing);
+    expect(index.total).toBe(0);
+    growing.push(frame(1), frame(2, ['first']));
+    expect(index.countUpTo(1)).toBe(1);
+    growing.push(frame(3, ['second', 'third']));
+    expect(index.total).toBe(3);
+    expect(index.countUpTo(1)).toBe(1);
+    expect(index.slice(0, 3)).toEqual(['[1] first', '[2] second', '[2] third']);
+  });
   const frames = [
     frame(100, ['a', 'b']),
     frame(101),

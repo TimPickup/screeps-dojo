@@ -30,28 +30,34 @@ const EMPTY: ConsoleIndex = {
 };
 
 export function buildConsoleIndex(frames: readonly Frame[] | undefined): ConsoleIndex {
-  const count = frames ? frames.length : 0;
-  if (!frames || count === 0) return EMPTY;
-
+  if (!frames) return EMPTY;
+  let count = 0;
   let total = 0;
-  for (let i = 0; i < count; i++) {
-    const c = frames[i] && frames[i].console;
-    if (c) total += c.length;
-  }
-  if (total === 0) return EMPTY;
-
   // frameOf[i] = index of the frame line i came from.
   // endByFrame[f] = number of lines at or before frame f (a running total).
-  const frameOf = new Int32Array(total);
-  const endByFrame = new Int32Array(count);
-  let n = 0;
-  for (let f = 0; f < count; f++) {
-    const c = frames[f] && frames[f].console;
-    if (c) for (let j = 0; j < c.length; j++) frameOf[n++] = f;
-    endByFrame[f] = n;
-  }
+  let frameOf: Int32Array = new Int32Array(0);
+  let endByFrame: Int32Array = new Int32Array(0);
+  const grow = (array: Int32Array, needed: number) => {
+    if (array.length >= needed) return array;
+    const next = new Int32Array(Math.max(needed, array.length * 2, 64));
+    next.set(array);
+    return next;
+  };
+  // Streamed recordings append to the same array. Index only new frames;
+  // geometric capacity growth avoids copying the full index on every batch.
+  const update = () => {
+    endByFrame = grow(endByFrame, frames.length);
+    for (; count < frames.length; count++) {
+      const lines = frames[count]?.console?.length || 0;
+      frameOf = grow(frameOf, total + lines);
+      frameOf.fill(count, total, total + lines);
+      total += lines;
+      endByFrame[count] = total;
+    }
+  };
 
   const line = (i: number): string => {
+    update();
     if (i < 0 || i >= total) return '';
     const f = frameOf[i];
     const frame = frames[f];
@@ -65,13 +71,15 @@ export function buildConsoleIndex(frames: readonly Frame[] | undefined): Console
   };
 
   return {
-    total,
+    get total() { update(); return total; },
     countUpTo(tick: number) {
-      if (tick < 0) return 0;
+      update();
+      if (tick < 0 || !count) return 0;
       return endByFrame[tick >= count ? count - 1 : tick];
     },
     line,
     slice(from: number, to: number) {
+      update();
       const start = Math.max(0, from);
       const end = Math.min(total, to);
       const out: string[] = [];

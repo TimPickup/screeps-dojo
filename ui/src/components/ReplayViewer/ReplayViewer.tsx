@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Recording } from '../../api/types';
 import { api } from '../../api/client';
 import { usePrefs, REPLAY_SPEEDS } from '../../state/prefs';
@@ -36,11 +36,16 @@ function renderProgressLabel(format: 'gif' | 'mp4', progress: RenderProgress): s
   return 'Rendering ' + name + '…';
 }
 
-export function ReplayViewer({ recording, relPath }: { recording: Recording; relPath: string }) {
+export function ReplayViewer({ recording, relPath, loading = false, onPriority }: {
+  recording: Recording; relPath: string; loading?: boolean; onPriority?: (urgent: boolean) => void;
+}) {
   const prefs = usePrefs();
   const frames = recording.frames;
   const count = frames.length;
+  const total = loading ? Math.max(count, (recording.meta.ticks || 0) + 1) : count;
   const [tick, setTick] = useState(0);
+  const waiting = loading && tick >= count;
+  useEffect(() => { onPriority?.(waiting); }, [waiting, onPriority]);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(prefs.defaultReplaySpeed || 1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,15 +64,17 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
     input.select(); // typing a new tick replaces the current one
   }, [editingTick]);
   // Layout is computed client-side; CanvasStage owns its rAF playback clock.
-  const canvasLayout = useMemo(() => computeStageLayout(Object.keys(recording.terrain || {})), [recording]);
+  const canvasLayout = useMemo(() => computeStageLayout(Object.keys(recording.terrain || {})), [recording.terrain]);
 
-  const frame = frames[Math.min(tick, count - 1)] || null;
+  const frame = waiting ? null : frames[Math.min(tick, count - 1)] || null;
   // Peak per-tick CPU across the recording, to scale the CPU bar in the toolbar.
-  const maxCpu = useMemo(() => {
-    let m = 0;
-    for (const f of frames) if (typeof f.cpu === 'number' && f.cpu > m) m = f.cpu;
-    return m;
-  }, [frames]);
+  const cpuPeak = useRef({ frames, count: 0, max: 0 });
+  if (cpuPeak.current.frames !== frames) cpuPeak.current = { frames, count: 0, max: 0 };
+  for (let i = cpuPeak.current.count; i < count; i++) {
+    cpuPeak.current.max = Math.max(cpuPeak.current.max, frames[i].cpu || 0);
+  }
+  cpuPeak.current.count = count;
+  const maxCpu = cpuPeak.current.max;
   const curCpu = frame && typeof frame.cpu === 'number' ? frame.cpu : null;
   const cpuFrac = maxCpu > 0 && curCpu != null ? Math.min(1, curCpu / maxCpu) : 0;
   const cpuColor = cpuFrac > 0.8 ? '#e0564f' : cpuFrac > 0.5 ? '#e0a84f' : '#5bb98a';
@@ -127,12 +134,16 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
   };
 
   const test = recording.meta.test;
-  const clampTick = Math.min(tick, count - 1);
+  const clampTick = Math.min(tick, total - 1);
+  const timelineStyle = {
+    '--played': `${Math.min(clampTick, count - 1) / Math.max(1, total - 1) * 100}%`,
+    '--loaded': `${(count - 1) / Math.max(1, total - 1) * 100}%`,
+  } as CSSProperties;
 
   const openTickInput = () => { setPlaying(false); setTickDraft(String(clampTick)); };
   const commitTickInput = () => {
     const wanted = Number.parseInt(tickDraft ?? '', 10);
-    if (Number.isFinite(wanted)) setTick(Math.max(0, Math.min(count - 1, wanted)));
+    if (Number.isFinite(wanted)) setTick(Math.max(0, Math.min(total - 1, wanted)));
     setTickDraft(null);
   };
 
@@ -141,7 +152,7 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
       <div className={styles.toolbar}>
         <span className={styles.scenario}>{recording.meta.scenario}</span>
         {test && <span className={test.passed ? styles.pass : styles.fail}>{test.passed ? 'PASS' : 'FAIL'}</span>}
-        <span className={styles.dim}>{recording.meta.endReason} · {count} frames</span>
+        <span className={styles.dim}>{recording.meta.endReason} · {total} frames</span>
         <span className={styles.dim} title="Bot CPU used this tick (ms)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           · CPU {curCpu != null ? curCpu.toFixed(1) : '—'}ms
           <span style={{ display: 'inline-block', width: 56, height: 8, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
@@ -178,20 +189,25 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
 
       <div className={styles.canvas}>
         <CanvasStage recording={recording} layout={canvasLayout} relPath={relPath}
-          playing={playing} speed={speed} tick={clampTick} onTick={setTick} onEnded={() => setPlaying(false)}
+          playing={playing && !waiting} loading={loading} speed={speed} tick={clampTick} onTick={setTick} onEnded={() => setPlaying(false)}
           showVisuals={showVisuals} selectedId={selectedId} onSelectObject={setSelectedId} />
+        {waiting && <div className={styles.seekLoading} role="status">Loading tick {clampTick.toLocaleString()}…</div>}
       </div>
 
       <div className={styles.scrub}>
-        <button className={styles.play} onClick={() => setPlaying((p) => !p)}>{playing ? '❚❚' : '▶'}</button>
-        <input className={styles.range} type="range" min={0} max={Math.max(0, count - 1)} value={clampTick} onChange={(e) => { setPlaying(false); setTick(Number(e.target.value)); }} />
+        <button className={styles.play} aria-label={playing ? 'Pause' : 'Play'} onClick={() => setPlaying((p) => !p)}>{playing ? '❚❚' : '▶'}</button>
+        <input className={styles.range} type="range" min={0} max={Math.max(0, total - 1)} value={clampTick}
+          aria-label="Replay timeline" aria-valuetext={`Tick ${clampTick} of ${total - 1}, loaded through tick ${count - 1}`}
+          style={timelineStyle}
+          onChange={(e) => { setPlaying(false); setTick(Number(e.target.value)); }} />
+        {loading && <span className={styles.bufferStatus}>{playing && clampTick >= count - 1 ? 'Buffering…' : `Loading ${Math.min(99, Math.floor(count / total * 100))}%`}</span>}
         <span className={styles.tickLabel}>
           {tickDraft === null
             ? <button type="button" className={styles.tickButton} onClick={openTickInput}
-                title="Jump to a tick">tick {clampTick}/{count - 1}</button>
+                title="Jump to a tick">tick {clampTick}/{total - 1}</button>
             : <>
                 <input ref={tickInputRef} className={styles.tickInput} type="text" inputMode="numeric"
-                  value={tickDraft} aria-label={`Jump to a tick (0-${count - 1})`}
+                  value={tickDraft} aria-label={`Jump to a tick (0-${total - 1})`}
                   onChange={(e) => setTickDraft(e.target.value.replace(/[^0-9]/g, ''))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') commitTickInput();
@@ -200,7 +216,7 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
                   // Clicking away accepts what was typed; OK commits it itself.
                   onBlur={(e) => { if (!(e.relatedTarget instanceof HTMLElement) || !e.relatedTarget.hasAttribute('data-tick-go')) commitTickInput(); }} />
                 <button type="button" className={styles.tickGo} data-tick-go="" onClick={commitTickInput}>OK</button>
-                <span className={styles.dim}>/{count - 1}</span>
+                <span className={styles.dim}>/{total - 1}</span>
               </>}
         </span>
         <select className={styles.speed} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
@@ -208,7 +224,7 @@ export function ReplayViewer({ recording, relPath }: { recording: Recording; rel
         </select>
       </div>
 
-      <ConsoleDrawer source={consoleIndex} available={consoleIndex.countUpTo(clampTick)} sourceKey={relPath}
+      <ConsoleDrawer source={consoleIndex} available={waiting ? 0 : consoleIndex.countUpTo(clampTick)} sourceKey={relPath}
         rightPanel={<ObjectInspector obj={selectedObj} gameTime={frame?.gameTime} botUserId={recording.meta.botUserId} />} rightTitle="Inspector" />
     </div>
   );

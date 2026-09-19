@@ -658,3 +658,48 @@ describe('DojoWorld NPC room activation', function () {
 			'an invader core room must stay active, got ' + JSON.stringify(active));
 	});
 });
+
+// A scenario's bot keeps ONE isolate for the whole run (the mockup stores no
+// code timestamp, so the driver never recycles it) — heap caches survive tick
+// after tick, which is the point. forceGlobalReset is how a scenario asks for
+// the other case: the wipe a code upload causes on a real server.
+describe('DojoWorld forceGlobalReset', function () {
+	this.timeout(600000);
+	let world;
+
+	before(async function () {
+		world = new DojoWorld();
+		await world.reset();
+		world.modules = { main: 'module.exports.loop = function () {};' };
+		await world.loadScenarioMaps([walledRoom('W0N0')], { room: 'W0N0', x: 10, y: 10 });
+		await world.start();
+	});
+
+	after(function () {
+		if (world) world.stop();
+	});
+
+	it('wipes the bot heap while leaving Memory alone', async function () {
+		await world.seedMemory({ keep: 'me' });
+		await world.evalInBot('global.dojoProbe = 42');
+		assert.strictEqual(await world.evalInBot('typeof global.dojoProbe'), 'number',
+			'a global must survive an ordinary tick');
+
+		await world.forceGlobalReset();
+
+		assert.strictEqual(await world.evalInBot('typeof global.dojoProbe'), 'undefined',
+			'forceGlobalReset must drop the isolate, taking every global with it');
+		assert.strictEqual(await world.evalInBot('Memory.keep'), 'me',
+			'Memory lives in the database, so a global reset must not touch it');
+	});
+
+	it('is repeatable within the same millisecond', async function () {
+		const first = await world.forceGlobalReset();
+		const second = await world.forceGlobalReset();
+		assert.ok(second > first,
+			'each reset needs a strictly greater timestamp, got ' + first + ' then ' + second);
+		await world.evalInBot('global.dojoProbe = 1');
+		await world.forceGlobalReset();
+		assert.strictEqual(await world.evalInBot('typeof global.dojoProbe'), 'undefined');
+	});
+});

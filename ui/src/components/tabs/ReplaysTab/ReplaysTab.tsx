@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../api/client';
 import { recordingSubtitle, statusLabel } from '../../../api/recordingLabels';
 import type { RecordingEntry, Recording } from '../../../api/types';
+import type { ReplayBatch } from '../../../api/replayStream';
 import { ReplayViewer } from '../../ReplayViewer/ReplayViewer';
 import styles from './ReplaysTab.module.css';
 
@@ -10,6 +11,8 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [recording, setRecording] = useState<Recording | null>(null);
+  const [buffering, setBuffering] = useState(false);
+  const replayWorker = useRef<Worker | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Every load is stamped, and only the newest one is allowed to write state.
@@ -49,18 +52,44 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
     setRecording(null);
     setError(null);
     load(scenario);
+    return () => { replayWorker.current?.terminate(); replayWorker.current = null; };
   }, [scenario, load]);
 
   // Scenario changes always load (the effect calls load directly); only the
   // manual button is gated, so repeated clicks cannot queue up requests.
   const refresh = () => { if (!inFlight.current) load(scenario); };
+  const setReplayPriority = useCallback((urgent: boolean) => {
+    replayWorker.current?.postMessage({ type: 'priority', urgent });
+  }, []);
 
-  const open = async (entry: RecordingEntry) => {
+  const open = (entry: RecordingEntry) => {
+    replayWorker.current?.terminate();
     setSelected(entry.relPath);
     setRecording(null);
+    setBuffering(true);
     setError(null);
-    try { setRecording(await api.recording(entry.relPath)); }
-    catch (e) { setError(String((e as Error).message || e)); }
+    const worker = new Worker(new URL('../../../api/replay.worker.ts', import.meta.url), { type: 'module' });
+    replayWorker.current = worker;
+    let current: Recording | null = null;
+    const fail = (message: string) => {
+      if (replayWorker.current !== worker) return;
+      setError(message);
+      setBuffering(false);
+      worker.terminate();
+    };
+    worker.onerror = () => fail('Unable to load this replay. Select it to retry.');
+    worker.onmessage = ({ data }: MessageEvent<ReplayBatch>) => {
+      if (replayWorker.current !== worker) return;
+      if (data.error) { fail(data.error); return; }
+      if (!current) current = { meta: data.meta!, terrain: data.terrain!, frames: [] };
+      // Append once; do not copy the entire replay with each incoming batch.
+      for (const frame of data.frames) current.frames.push(frame);
+      setRecording({ ...current });
+      setBuffering(!data.done);
+      if (data.done) worker.terminate();
+      else worker.postMessage('ack');
+    };
+    worker.postMessage(entry.relPath);
   };
 
   return (
@@ -102,7 +131,7 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
         {error && <div style={{ color: 'var(--hostile)', padding: 12 }}>{error}</div>}
         {!selected && !error && <div className={styles.empty}>Select a recording to watch.</div>}
         {selected && !recording && !error && <div className={styles.empty}>Loading…</div>}
-        {recording && selected && <ReplayViewer recording={recording} relPath={selected} />}
+        {recording && selected && <ReplayViewer key={selected} recording={recording} relPath={selected} loading={buffering} onPriority={setReplayPriority} />}
       </section>
     </div>
   );

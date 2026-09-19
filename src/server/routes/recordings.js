@@ -3,10 +3,20 @@
 const path = require('path');
 const { listRecordings, loadRecording, listOrphanedRecordings, clearOrphanedRecordings } = require('../../recording');
 const { pathSafe } = require('../pathSafe');
+const streamReplay = require('../streamReplay');
 
 function toPosix(p) { return p.split(path.sep).join('/'); }
 
 module.exports = function registerRecordingRoutes(router, ctx) {
+	// Controls belong to a single open response, not a recording or another tab.
+	const streams = new Map();
+	router.post('/api/recordings/streams/:id/priority', function (req, res) {
+		const stream = streams.get(req.params.id);
+		if (!stream) { ctx.sendJson(res, 404, { error: 'stream closed' }); return; }
+		if (typeof req.body?.urgent !== 'boolean') { ctx.sendJson(res, 400, { error: 'urgent must be a boolean' }); return; }
+		stream.urgent = req.body.urgent;
+		ctx.sendJson(res, 200, { ok: true });
+	});
 	// ?scenario=<name> restricts the listing to one scenario. The GUI always
 	// passes it; without it this walks every recording on disk, which on a Docker
 	// bind mount costs seconds once a few hundred runs have accumulated.
@@ -69,11 +79,24 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 			// streaming one above it — and without this header every recording,
 			// however small, takes the slow path. Stat after loadRecording(), which
 			// is what writes the file in the salvage case.
+			const size = fs.statSync(abs).size;
+			const progressive = req.query.get('progressive') === '1';
+			const id = progressive ? require('crypto').randomUUID() : null;
+			const control = { urgent: false };
+			if (id) {
+				streams.set(id, control);
+				res.once('close', () => streams.delete(id));
+			}
 			res.writeHead(200, {
 				'Content-Type': 'application/json; charset=utf-8',
-				'Content-Length': fs.statSync(abs).size
+				'Content-Length': size,
+				...(id ? { 'X-Replay-Stream': id } : {})
 			});
-			fs.createReadStream(abs).on('error', function () { try { res.end(); } catch (e) { /* */ } }).pipe(res);
+			if (progressive) {
+				streamReplay(abs, res, { isUrgent: () => control.urgent }).catch(() => res.destroy());
+			} else {
+				fs.createReadStream(abs).on('error', function () { res.destroy(); }).pipe(res);
+			}
 		} catch (e) {
 			ctx.sendJson(res, 404, { error: String((e && e.message) || e) });
 		}

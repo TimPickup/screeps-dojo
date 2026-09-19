@@ -16,14 +16,22 @@
 .cancel:disabled { color: var(--muted); cursor: default; }
 .renderTrack { height: 4px; margin-top: 4px; background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 2px; overflow: hidden; }
 .renderFill { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 120ms linear; }
-.canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
+.canvas { position: relative; flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
+.seekLoading { position: absolute; inset: 0; display: grid; place-items: center; background: #0e0e0e; color: var(--muted); }
 .loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .scrub { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line2); }
 /* Fixed box: the pause glyph is taller than the play triangle, so a
    content-sized button changed height (and shoved the scrub row) on every
    press. */
 .play { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 40px; height: 24px; padding: 0; line-height: 1; font-size: 11px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); }
-.range { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.range {
+  flex: 1; min-width: 40px; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
+  background: linear-gradient(to right, var(--accent) 0% var(--played), var(--muted) var(--played) var(--loaded), var(--line2) var(--loaded) 100%);
+}
+.range::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.range::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--accent); }
+.range:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.bufferStatus { color: var(--muted); font-size: 11px; min-width: 78px; }
 /* Label and the jump-to-tick editor share one width so the row never shifts
    when it opens. */
 .tickLabel { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 12px; min-width: 116px; height: 24px; }
