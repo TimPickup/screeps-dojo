@@ -9,6 +9,10 @@ behaviour changes, patch = fixes).
 
 ### Added
 
+- `world.forceGlobalReset()` reproduces the global reset a code upload causes
+  on a live server: the bot's isolate is dropped and its code recompiled, so
+  the next tick starts with an empty heap while Memory, segments and the world
+  carry on unchanged.
 - Recordings always save an `end state/` folder with a map for every room,
   the main bot's memory and all stored segments, using the live import format.
   Stopped and failed recordings save the latest captured state too.

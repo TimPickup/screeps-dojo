@@ -146,6 +146,7 @@ class DojoWorld {
 		this.server = createServer(options.modfile ? { modfile: options.modfile } : undefined);
 		this.bot = null;        // main bot User (set by addMainBot)
 		this.botUserId = null;
+		this._codeTimestamp = 0;   // last stamp written by forceGlobalReset
 		// Imported player label -> that player's real user id in this sim, filled
 		// in by bindMapPlayers for the labels settings.json assigned a bot to.
 		this.playerUserIds = {};
@@ -477,6 +478,33 @@ class DojoWorld {
 				setTimeout(function () { reject(new Error('evalInBot: no result within 10s')); }, 10000);
 			})
 		]);
+	}
+
+	// Forces the bot's next tick to start from a FRESH runtime — the "global
+	// reset" a code upload causes on a real server: the isolate is disposed,
+	// the code is recompiled, and everything cached on `global` is gone.
+	// Memory, RawMemory segments and the world itself are untouched, exactly
+	// as on live.
+	//
+	// The driver keeps one isolate per user and only drops it when the code
+	// it was built from is newer than the code the isolate holds
+	// (@screeps/driver lib/runtime/user-vm.js), so bumping the stored
+	// timestamp is the whole trigger. screeps-server-mockup's addBot stores no
+	// timestamp at all, which is why a scenario's isolate otherwise lives for
+	// the entire run. The publish is not optional: the patched driver caches
+	// each user's code doc in the runner and re-reads it only when that
+	// channel fires (server-mock-patches/02-driver-runtime-data.patch).
+	async forceGlobalReset() {
+		if (!this.botUserId) throw new Error('forceGlobalReset: add the main bot first');
+		const { db } = await this.world.load();
+		// Strictly increasing even when two resets land in the same millisecond
+		// — the driver compares with `>`, so a repeated value is a no-op.
+		this._codeTimestamp = Math.max(Date.now(), (this._codeTimestamp || 0) + 1);
+		await db['users.code'].update(
+			{ user: this.botUserId, activeWorld: true },
+			{ $set: { timestamp: this._codeTimestamp } });
+		await this.server.common.storage.pubsub.publish('user:' + this.botUserId + '/code', 'update');
+		return this._codeTimestamp;
 	}
 
 	resolveOwner(owner) {
