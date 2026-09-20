@@ -5,9 +5,79 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
-## [Unreleased]
+## [0.14.0] — 2026-09-20
+
+The visual map editor stops being a thing you fall out of into the JSON view.
+It has three modes now — select, paint terrain, build — and the right-hand panel
+follows whichever one you are in, so the build palette, the terrain brushes and
+a selected object's properties all live in the same place. Creeps are editable
+at last, with an ordered body you can reorder and boost; every structure type
+the loader can place is in the palette, drawn with the game's own artwork; and a
+structure's store is modelled as the thing it actually is, so a lab offers
+energy and one mineral rather than a free-for-all.
+
+Three bugs came out of that work, and all of them were losing data on save —
+labs dropping their mineral, structures dropping the ids the engine ties objects
+together by. Opening a map no longer changes it.
+
+Replays also start instantly instead of after a download, recordings save an end
+state you can reload, and an imported room keeps the clocks and effects it had
+on the live server.
 
 ### Added
+
+- The visual map editor has three modes — **Select**, **Terrain** and **Build**,
+  on a rail down the left or with the `1`/`2`/`3` keys — and the right-hand
+  panel shows whatever the mode needs: the build palette, the terrain brushes,
+  or the selected object's properties. What you are about to place is drawn
+  under the cursor as a semi-transparent ghost, with the game's own artwork; the
+  palette icons, that ghost and the object that lands on the map are all drawn
+  by the same routine, so they cannot disagree.
+- Creeps can be edited. They render, select, drag, duplicate and delete like
+  anything else, and the body is an ordered list of segments — a count, a part
+  and a boost — so `1 move / 10 work / 9 move` keeps that order, which matters
+  because damage eats parts from the front. Underneath, the replay inspector's
+  part grid, ten to a row, with a white outline on a boosted part and the
+  compound on hover. They were always in `map.creeps[]`; the editor simply never
+  showed them.
+- The build palette offers every structure type the loader can place, including
+  the ones that were missing entirely — observer, power spawn, nuker, extractor,
+  keeper lair, invader core, deposit, portal, construction sites — and the loose
+  objects that lie on the floor: dropped resources, tombstones and ruins. Each
+  row shows how many the room has against what the current RCL allows, in bold
+  red when it is over, which never blocks the click: an imported enemy base is
+  legitimately over its limit.
+- A structure's store is modelled as what it really is. A storage or a creep is
+  one shared pool that takes anything, so you add and remove resources freely. A
+  nuker is energy and G with separate ceilings, a lab is energy plus *one*
+  mineral picked from a dropdown, a spawn is 300 energy — there the slots are
+  the structure, so there is nothing to add or delete and the editor never
+  offers a resource that structure cannot hold. Where the loader's own default
+  would be too small — a lab holding a mineral, an extension above RCL 6 — the
+  editor writes the matching `storeCapacityResource`, so what the panel shows is
+  what the run gets.
+- The owner dropdown reads the scenario's own `settings.json`, so it offers
+  exactly the player sides this scenario could run a codebase for, alongside
+  me / invader / source keeper / unclaimed.
+- Undo and redo in the map editor (`Ctrl+Z` / `Ctrl+Shift+Z`), with a whole drag
+  stroke or a typed-in number counting as one step. Plus `Esc` to deselect,
+  `Del` to delete, arrow keys to nudge, a live coordinate readout, and a picker
+  when you click a tile holding several things — the same one the replay viewer
+  uses.
+- Leaving the Edit tab with unsaved changes now asks, and offers to save rather
+  than only to discard. The draft lived in React state alone, so clicking Run,
+  Test, a breadcrumb or the back button used to throw it away without a word.
+  Closing the browser gets its own prompt.
+- Re-importing a room reloads whatever the editor has open, instead of leaving
+  you editing the copy from before the import and saving it back over the fresh
+  one.
+- Replays open on the first frames instead of after the whole file has
+  downloaded. The server streams a recording — a short burst, then paced reads
+  that respond to backpressure and stop the moment you leave — and a worker
+  parses frames as they arrive, so a long replay is watchable while the rest of
+  it loads. The scrub bar shows how much has arrived against the full length,
+  scrubbing past that says which tick it is waiting for, and seeking tells the
+  server to stop pacing and send.
 
 - `world.forceGlobalReset()` reproduces the global reset a code upload causes
   on a live server: the bot's isolate is dropped and its code recompiled, so
@@ -58,6 +128,23 @@ behaviour changes, patch = fixes).
   of walking through every tab you looked at.
 
 ### Fixed
+
+- Opening a map in the visual editor changed it. `STRUCTURE_MANAGED` stripped
+  `level`, `mineralType`, `mineralAmount`, `energy`, `energyCapacity` and
+  `density` from anything that was not a source or a mineral, and only wrote
+  `level` back when it was not zero — so every lab lost the mineral it was
+  holding the moment the file was saved, and a stronghold's invader core lost
+  `level: 0`. Put every map under `scenarios/` through an open-and-save round
+  trip and 363 of 1026 came back different; it is 12 now, and those twelve are
+  the legacy migration of sources and minerals out of `structures[]`, which is a
+  repair worth keeping.
+- The map editor dropped a structure's `id` on save. The engine ties objects
+  together by id — a source keeper is named after its lair's — so saving an
+  imported keeper room broke it.
+- `auto-wall border` was never about walls, and is now `Lock border to wall`
+  with the room's current exits listed under it. It stops a terrain brush from
+  painting the outer ring, which is the only thing that opens or closes a room
+  exit.
 
 - End-state exports exclude internal database fields (`$loki` and `meta`).
   Loading older exports ignores these fields so they no longer fail with
@@ -1035,6 +1122,7 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.14.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.14.0
 [0.13.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.13.0
 [0.12.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.12.0
 [0.11.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.11.0
