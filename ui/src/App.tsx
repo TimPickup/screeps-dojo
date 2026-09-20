@@ -5,6 +5,7 @@ import { ScenarioWorkspace } from './components/ScenarioWorkspace/ScenarioWorksp
 import { Settings } from './components/Settings/Settings';
 import { openSettings, closeSettings, useSettingsOverlay } from './state/settingsOverlay';
 import { navigate, useRoute } from './state/route';
+import { guardedNavigate } from './state/navigationGuard';
 import { HostActionOverlay } from './components/HostActionOverlay/HostActionOverlay';
 import { Bootstrap } from './components/Bootstrap/Bootstrap';
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary';
@@ -45,7 +46,10 @@ export function App() {
     api.version().then(setVersion).catch(() => {});
   }, []);
 
-  const home = (revealFolder?: string) => navigate({ view: 'list', folder: revealFolder || null });
+  // Leaving a scenario unmounts the Edit tab, and its draft lives only in
+  // React state — so anything that navigates away asks first.
+  const home = (revealFolder?: string) =>
+    guardedNavigate(() => navigate({ view: 'list', folder: revealFolder || null }));
 
   // The logo is the way back to the start in every app that has one, so it is
   // a button here too rather than decoration next to the ← that already does it.

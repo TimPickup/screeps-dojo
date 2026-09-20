@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { api } from '../../../api/client';
 import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
-import { parseDoc } from '../../ScenarioSettingsEditor/settingsDoc';
+import { MAIN_SIDE, parseDoc } from '../../ScenarioSettingsEditor/settingsDoc';
 import { ScenarioSettingsEditor } from '../../ScenarioSettingsEditor/ScenarioSettingsEditor';
+import { UnsavedDialog } from './UnsavedDialog';
+import { clearNavigationGuard, setNavigationGuard, type NavigationGuard } from '../../../state/navigationGuard';
 import styles from './EditTab.module.css';
 
 interface FileEntry { path: string; kind: string; }
@@ -79,7 +81,18 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   // from the settings draft while it is being edited, so ticking Season 5 in
   // the ⚙ makes the reactor appear without a save.
   const [savedMods, setSavedMods] = useState<string[]>([]);
+  // The player SIDES this scenario declares (settings.json "bots"). They are
+  // the owner labels a map may legally use, so the editor's owner dropdown can
+  // offer exactly the ones this scenario could actually run a codebase for.
+  const [savedSides, setSavedSides] = useState<string[]>([]);
+  // What to do once the unsaved-changes prompt is answered. Non-null means
+  // the prompt is on screen.
+  const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   const jumpingRef = useRef(false);
+  // The guard below is registered once but must read today's values, not the
+  // ones captured when it was created.
+  const dirtyRef = useRef(false);
+  const saveRef = useRef<() => Promise<void>>(async () => {});
 
   const selectedKind = files.find((f) => f.path === selected)?.kind;
   const isMap = selectedKind === 'map';
@@ -90,16 +103,47 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   // whitespace doesn't show as "dirty" the instant the file loads.
   const dirty = structured ? normalizedJson(current) !== normalizedJson(savedContent) : current !== savedContent;
 
+  dirtyRef.current = dirty;
+
+  // Anything that navigates away — the tab strip, the breadcrumbs, the back
+  // button — asks here first, so a draft that only lives in React state is
+  // never thrown away silently.
+  useEffect(() => {
+    const guard: NavigationGuard = (proceed) => {
+      if (!dirtyRef.current) { proceed(); return; }
+      setPendingLeave({ proceed });
+    };
+    setNavigationGuard(guard);
+    return () => clearNavigationGuard(guard);
+  }, []);
+
+  // Closing or reloading the browser is outside React's reach, so it gets
+  // the browser's own generic prompt.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
   const refreshFiles = () => api.files(scenario).then(setFiles).catch(() => {});
   useEffect(() => { refreshFiles(); }, [scenario]);
   useEffect(() => {
     let live = true;
     api.scenarioSettings(scenario)
-      .then((r) => { if (live) setSavedMods(r.settings?.mods || []); })
+      .then((r) => {
+        if (!live) return;
+        setSavedMods(r.settings?.mods || []);
+        const bots = r.settings?.bots;
+        setSavedSides(bots && typeof bots === 'object' ? Object.keys(bots).filter((side) => side !== 'main') : []);
+      })
       .catch(() => {});
     return () => { live = false; };
   }, [scenario]);
   const scenarioMods = isSettings ? (parseDoc(settingsDraft).form?.mods ?? savedMods) : savedMods;
+  const scenarioSides = isSettings
+    ? (parseDoc(settingsDraft).form?.sides.map((s) => s.side).filter((side) => side !== MAIN_SIDE) ?? savedSides)
+    : savedSides;
   useEffect(() => { setView('visual'); }, [selected]);
 
   const load = (path: string, text: string) => {
@@ -156,6 +200,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     setSavedContent(current); setStatus('saved ✓');
     setTimeout(() => setStatus(''), 1500);
   };
+  saveRef.current = save;
   const removeFile = async (f: FileEntry, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm('Delete ' + f.path + '?')) return;
@@ -193,6 +238,23 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     return () => window.removeEventListener('keydown', h);
   }, [dirty, selected, current]);
 
+  // Re-reads the open file from disk. Used after an import, which can rewrite
+  // the very file being edited.
+  const reloadOpenFile = async () => {
+    const path = selected;
+    if (!path) return;
+    let text: string;
+    try { text = (await api.file(scenario, path)).content; }
+    catch { return; }            // deleted by the import: leave the draft alone
+    if (normalizedJson(text) === normalizedJson(savedContent)) return;   // unchanged on disk
+    if (dirtyRef.current && !window.confirm(
+      'The import rewrote ' + path + ', which you have unsaved changes to. '
+      + 'Reload it and lose your changes?')) return;
+    load(path, text);
+    setStatus('reloaded after import');
+    setTimeout(() => setStatus(''), 2500);
+  };
+
   const runImport = async () => {
     const list = rooms.trim().split(/[\s,]+/).filter(Boolean);
     if (!list.length) return;
@@ -206,13 +268,38 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
       });
       const es = new EventSource(api.importStreamUrl(importId));
       es.addEventListener('log', (e) => setImportLog((l) => l.concat(JSON.parse((e as MessageEvent).data).line)));
-      es.addEventListener('done', () => { es.close(); setImporting(false); refreshFiles(); setImportLog((l) => l.concat('✓ done')); });
+      es.addEventListener('done', () => {
+        es.close(); setImporting(false); refreshFiles();
+        setImportLog((l) => l.concat('✓ done'));
+        // The open file may be one the import just rewrote. Re-read it, or
+        // you carry on editing the copy from before the import and save it
+        // back over the fresh one.
+        reloadOpenFile();
+      });
       es.addEventListener('failed', () => { es.close(); setImporting(false); setImportLog((l) => l.concat('✗ failed')); });
     } catch (e) { setImporting(false); setImportLog((l) => l.concat('error: ' + (e as Error).message)); }
   };
 
+  const answerLeave = async (action: 'save' | 'discard' | 'cancel') => {
+    const pending = pendingLeave;
+    setPendingLeave(null);
+    if (!pending || action === 'cancel') return;
+    if (action === 'save') {
+      try { await saveRef.current(); }
+      catch (e) { window.alert('Save failed, so nothing was discarded: ' + (e as Error).message); return; }
+    }
+    dirtyRef.current = false;
+    pending.proceed();
+  };
+
   return (
     <div className={styles.wrap}>
+      {pendingLeave && (
+        <UnsavedDialog file={selected || 'this file'}
+          onSave={() => answerLeave('save')}
+          onDiscard={() => answerLeave('discard')}
+          onCancel={() => answerLeave('cancel')} />
+      )}
       <aside className={styles.tree}>
         <div className={styles.head}>files</div>
         {files.map((f) => (
@@ -277,7 +364,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                   isSettings ? (
                     <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} />
                   ) : (
-                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} />
+                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} ownerLabels={scenarioSides} />
                   )
                 ) : (
                   <div className={styles.monaco}>

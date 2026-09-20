@@ -40,3 +40,21 @@
 .url { display: block; margin: 10px 0; color: var(--accent); word-break: break-all; background: var(--bg2); padding: 6px; border-radius: var(--radius); }
 .popupBtns { display: flex; gap: 8px; }
 .popupBtns button { background: var(--panel2); border: 1px solid var(--accent); color: var(--accent); border-radius: var(--radius); padding: 4px 12px; }
+
+/* Unsaved-changes prompt. Three answers, because "discard or stay" is the
+   wrong pair — what people usually want is "save it and carry on". */
+.modalScrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; }
+.modal { min-width: 340px; max-width: 460px; background: #1b1b1b; border: 1px solid #3a3a3a;
+  border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); padding: 16px 18px; }
+.modalTitle { color: #e6e6e6; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.modalBody { color: #b4b4b4; font-size: 12px; line-height: 1.6; margin-bottom: 16px; }
+.modalBody code { color: #ddd; background: #111; padding: 1px 5px; border-radius: 3px; }
+.modalButtons { display: flex; justify-content: flex-end; gap: 8px; }
+.modalButtons button { font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 3px; cursor: pointer; }
+.modalCancel { background: #232323; border: 1px solid #444; color: #bbb; }
+.modalCancel:hover { background: #2e2e2e; color: #ddd; }
+.modalDiscard { background: #3a1a1a; border: 1px solid #aa3333; color: #ff8888; }
+.modalDiscard:hover { background: #4a1f1f; }
+.modalSave { background: #1e2f1e; border: 1px solid var(--accent); color: var(--accent); }
+.modalSave:hover { background: #264026; }
