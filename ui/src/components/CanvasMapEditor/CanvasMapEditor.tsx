@@ -1,364 +1,401 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Frame, FrameObject } from '../../api/types';
-import { drawStaticScene } from '../../canvas/staticLayers';
-import { populateFrameMy } from '../../canvas/ownership';
-import { computeStageLayout } from '../../render/geometry';
-import {
-  makeEditableObject, parseEditableMap, serializeEditableMap, structureLayer,
-  type EditableMap, type EditableObject,
-} from './mapModel';
-import styles from './CanvasMapEditor.module.css';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { useModImages } from '../../hooks/useModImages';
+import {
+	canRedo, canUndo, pushHistory, redo, resetHistory, undo, type History,
+} from './history';
+import {
+	countByType, makeEditableObject, mapRcl, nextCreepName, nextFlagName, parseEditableMap,
+	serializeEditableMap, structureLayer, type EditableFlag, type EditableMap, type EditableObject,
+} from './mapModel';
+import { explicitCapacityFor } from './storeRules';
+import { ModeRail, ROOM_RE, type EditorMode } from './ModeRail';
+import { ConstructPanel, ERASER } from './ConstructPanel';
+import { TerrainPanel } from './TerrainPanel';
+import { PropertiesPanel } from './PropertiesPanel';
+import { EditorCanvas, type Selection } from './EditorCanvas';
+import { labelFor } from './gameData';
+import styles from './CanvasMapEditor.module.css';
 
-type Tool = { kind: 'select' } | { kind: 'terrain'; value: string } | { kind: 'object'; value: string };
-type Selection = { kind: 'structure' | 'flag'; index: number } | null;
 export type CanvasMapEditorChangeKind = 'load' | 'edit';
 
 interface Props {
-  value: string;
-  onChange: (value: string, kind: CanvasMapEditorChangeKind) => void;
-  // Curated game mods this scenario selects (settings.json "mods"). They add
-  // placeable objects and resources — a reactor is only offered where a run
-  // would actually understand one.
-  mods?: string[];
+	value: string;
+	onChange: (value: string, kind: CanvasMapEditorChangeKind) => void;
+	// Curated game mods this scenario selects (settings.json "mods"). They add
+	// placeable objects and resources — a reactor is only offered where a run
+	// would actually understand one.
+	mods?: string[];
+	// Player side names from the scenario's settings.json "bots". They are the
+	// owner labels a map may use, so the owner dropdown offers exactly the ones
+	// this scenario can actually run a codebase for.
+	ownerLabels?: string[];
 }
 
-const OBJECTS = [
-  'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory',
-  'container', 'road', 'rampart', 'constructedWall', 'source', 'controller', 'mineral',
-  'powerBank', 'flag',
-];
-// What each mod adds to the palette. A map keeps its seasonal objects whatever
-// is selected — this only decides what can be PLACED, so unticking a mod never
-// silently deletes anything.
-const MOD_OBJECTS: Record<string, string[]> = { season5: ['reactor'] };
-const MOD_MINERALS: Record<string, string[]> = { season5: ['T'] };
-const OWNED = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory', 'rampart', 'controller']);
-const STORE_CAPACITY: Record<string, number> = { storage: 1000000, terminal: 300000, container: 2000, reactor: 1000 };
-const MINERALS = ['H', 'O', 'U', 'L', 'K', 'Z', 'X'];
-
-function withModExtras(base: string[], mods: string[] | undefined, extras: Record<string, string[]>): string[] {
-  const out = base.slice();
-  for (const mod of mods || []) for (const value of extras[mod] || []) if (!out.includes(value)) out.push(value);
-  return out;
-}
-const ROOM_RE = /^[WE]\d+[NS]\d+$/;
-
-function frameFor(map: EditableMap): Frame {
-  const objects: FrameObject[] = map.structures.map((object, index) => {
-    const { owner, ...renderFields } = object;
-    const output = {
-      ...renderFields,
-      _id: String(object._id || object.id || `editor-${index}`),
-      type: object.type,
-      room: map.room,
-      x: object.x,
-      y: object.y,
-    } as FrameObject;
-    if (output.user === undefined && owner !== undefined) output.user = owner;
-    if (object.type === 'source') {
-      const capacity = typeof object.energyCapacity === 'number' ? object.energyCapacity : 3000;
-      output.energyCapacity = capacity;
-      if (typeof object.energy !== 'number') output.energy = capacity;
-    }
-    return output;
-  });
-  const flags = map.flags.map((flag) => ({ room: map.room, ...flag }));
-  return populateFrameMy({ gameTime: 0, objects, flags });
+// Which edge tiles are not solid wall — i.e. where a creep can leave the room.
+function exitSummary(terrain: string[]): string {
+	const open = { top: 0, bottom: 0, left: 0, right: 0 };
+	for (let i = 0; i < 50; i++) {
+		if (terrain[0]?.[i] !== '#') open.top++;
+		if (terrain[49]?.[i] !== '#') open.bottom++;
+		if (terrain[i]?.[0] !== '#') open.left++;
+		if (terrain[i]?.[49] !== '#') open.right++;
+	}
+	const parts = Object.entries(open).filter(([, count]) => count > 0).map(([edge, count]) => `${edge} ${count}`);
+	return parts.length ? parts.join(', ') : 'none — the room is sealed';
 }
 
-function findAt(map: EditableMap, x: number, y: number): Selection {
-  const rank = { floor: 0, overlay: 1, main: 2 };
-  let best = -1, bestRank = -1;
-  map.structures.forEach((object, index) => {
-    if (object.x !== x || object.y !== y) return;
-    const value = rank[structureLayer(object.type)];
-    if (value > bestRank) { best = index; bestRank = value; }
-  });
-  if (best !== -1) return { kind: 'structure', index: best };
-  const flag = map.flags.findIndex((value) => value.x === x && value.y === y);
-  return flag === -1 ? null : { kind: 'flag', index: flag };
-}
+export function CanvasMapEditor({ value, onChange, mods, ownerLabels }: Props) {
+	const fontsReady = useRenderFonts();
+	const terrainTextures = useTerrainTextures();
+	const modImages = useModImages();
 
-function isClaimed(owner: unknown): boolean {
-  return owner != null && owner !== 'neutral' && owner !== 'unclaimed';
-}
+	const [history, setHistory] = useState<History<EditableMap> | null>(null);
+	const historyRef = useRef<History<EditableMap> | null>(null);
+	const coalesceRef = useRef<string | undefined>(undefined);
+	const gestureRef = useRef(0);
+	const onChangeRef = useRef(onChange);
+	const lastEmittedRef = useRef<string | null>(null);
+	const processedValueRef = useRef<string | null>(null);
+	onChangeRef.current = onChange;
 
-export function CanvasMapEditor({ value, onChange, mods }: Props) {
-  const fontsReady = useRenderFonts();
-  const terrainTextures = useTerrainTextures();
-  const modImages = useModImages();
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const modelRef = useRef<EditableMap | null>(null);
-  const onChangeRef = useRef(onChange);
-  const lastEmittedRef = useRef<string | null>(null);
-  const processedValueRef = useRef<string | null>(null);
-  const paintingRef = useRef(false);
-  const lastTileRef = useRef('');
-  const [model, setModel] = useState<EditableMap | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [tool, setTool] = useState<Tool>({ kind: 'select' });
-  const [selection, setSelection] = useState<Selection>(null);
-  const [borderWall, setBorderWall] = useState(true);
-  const [roomText, setRoomText] = useState('');
-  const [storeText, setStoreText] = useState('{}');
-  const [storeError, setStoreError] = useState(false);
-  const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
-  const [canvasSize, setCanvasSize] = useState(1);
-  onChangeRef.current = onChange;
+	const [error, setError] = useState<string | null>(null);
+	const [mode, setMode] = useState<EditorMode>('select');
+	const [buildType, setBuildType] = useState<string | null>('extension');
+	const [terrainBrush, setTerrainBrush] = useState('.');
+	const [brushSize, setBrushSize] = useState(1);
+	const [lockBorder, setLockBorder] = useState(true);
+	const [selection, setSelection] = useState<Selection>(null);
+	const [roomText, setRoomText] = useState('');
+	const [hovered, setHovered] = useState<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    if (processedValueRef.current === value) return;
-    processedValueRef.current = value;
-    if (lastEmittedRef.current === value) return;
-    const parsed = parseEditableMap(value);
-    setError(parsed.error);
-    if (!parsed.map) return;
-    modelRef.current = parsed.map;
-    setModel(parsed.map);
-    setRoomText(parsed.map.room);
-    setSelection(null);
-    const normalized = serializeEditableMap(parsed.map);
-    if (normalized !== value) {
-      lastEmittedRef.current = normalized;
-      onChangeRef.current(normalized, 'load');
-    }
-  }, [value]);
+	const model = history?.present ?? null;
 
-  const commit = (next: EditableMap) => {
-    modelRef.current = next;
-    setModel(next);
-    const serialized = serializeEditableMap(next);
-    lastEmittedRef.current = serialized;
-    onChangeRef.current(serialized, 'edit');
-  };
+	// --- loading from outside (file switch, JSON view edit) -------------------
+	useEffect(() => {
+		if (processedValueRef.current === value) return;
+		processedValueRef.current = value;
+		if (lastEmittedRef.current === value) return;
+		const parsed = parseEditableMap(value);
+		setError(parsed.error);
+		if (!parsed.map) return;
+		const next = resetHistory(parsed.map);
+		historyRef.current = next;
+		setHistory(next);
+		setRoomText(parsed.map.room);
+		setSelection(null);
+		coalesceRef.current = undefined;
+		const normalized = serializeEditableMap(parsed.map);
+		if (normalized !== value) {
+			lastEmittedRef.current = normalized;
+			onChangeRef.current(normalized, 'load');
+		}
+	}, [value]);
 
-  useEffect(() => {
-    const object = selection?.kind === 'structure' ? model?.structures[selection.index] : null;
-    setStoreText(JSON.stringify(object?.store || {}));
-    setStoreError(false);
-  }, [selection, model]);
+	const emit = useCallback((next: EditableMap) => {
+		const serialized = serializeEditableMap(next);
+		lastEmittedRef.current = serialized;
+		onChangeRef.current(serialized, 'edit');
+	}, []);
 
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const resize = () => setCanvasSize(Math.max(1, Math.min(host.clientWidth - 20, host.clientHeight - 20, 900)));
-    const observer = new ResizeObserver(resize);
-    observer.observe(host);
-    resize();
-    return () => observer.disconnect();
-  }, []);
+	// One edit. `coalesceKey` merges a whole drag stroke into a single undo
+	// step; undefined always starts a new one.
+	const commit = useCallback((next: EditableMap, coalesceKey?: string) => {
+		const current = historyRef.current;
+		if (!current) return;
+		const pushed = pushHistory(current, next, coalesceKey, coalesceRef.current);
+		coalesceRef.current = pushed.key;
+		historyRef.current = pushed.history;
+		setHistory(pushed.history);
+		emit(next);
+	}, [emit]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !model || !fontsReady || !terrainTextures) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.max(1, Math.floor(canvasSize * dpr));
-    canvas.height = Math.max(1, Math.floor(canvasSize * dpr));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#0e0e0e';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const scale = canvasSize * dpr / 50;
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
-    const layout = computeStageLayout([model.room]);
-    drawStaticScene(ctx, { terrain: { [model.room]: model.terrain }, frame: frameFor(model), layout }, { initialSourceEnergy: true, terrainTextures, modImages });
-    if (hovered) {
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(hovered.x, hovered.y, 1, 1);
-    }
-    if (selection) {
-      const selected = selection.kind === 'structure' ? model.structures[selection.index] : model.flags[selection.index];
-      if (selected) {
-        ctx.strokeStyle = '#65fd62';
-        ctx.lineWidth = 0.07;
-        ctx.beginPath();
-        ctx.arc(selected.x + 0.5, selected.y + 0.5, 0.62, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-  }, [model, selection, hovered, canvasSize, fontsReady, terrainTextures, modImages]);
+	const applyHistory = useCallback((step: (history: History<EditableMap>) => History<EditableMap>) => {
+		const current = historyRef.current;
+		if (!current) return;
+		const next = step(current);
+		if (next === current) return;
+		coalesceRef.current = undefined;
+		historyRef.current = next;
+		setHistory(next);
+		setSelection(null);
+		emit(next.present);
+	}, [emit]);
 
-  const tileFromPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(49, Math.floor((event.clientX - rect.left) * 50 / rect.width))),
-      y: Math.max(0, Math.min(49, Math.floor((event.clientY - rect.top) * 50 / rect.height))),
-    };
-  };
+	// --- editing operations ---------------------------------------------------
+	const paintTerrain = useCallback((x: number, y: number) => {
+		const current = historyRef.current?.present;
+		if (!current) return;
+		const onBorder = x === 0 || x === 49 || y === 0 || y === 49;
+		const tile = lockBorder && onBorder ? '#' : terrainBrush;
+		if (current.terrain[y][x] === tile) return;
+		const terrain = current.terrain.slice();
+		terrain[y] = terrain[y].slice(0, x) + tile + terrain[y].slice(x + 1);
+		commit({ ...current, terrain }, `terrain:${gestureRef.current}`);
+	}, [commit, lockBorder, terrainBrush]);
 
-  const applyAt = (x: number, y: number) => {
-    const current = modelRef.current;
-    if (!current) return;
-    if (tool.kind === 'select') {
-      setSelection(findAt(current, x, y));
-      return;
-    }
-    if (tool.kind === 'terrain') {
-      const actual = borderWall && (x === 0 || x === 49 || y === 0 || y === 49) ? '#' : tool.value;
-      if (current.terrain[y][x] === actual) return;
-      const terrain = current.terrain.slice();
-      terrain[y] = terrain[y].slice(0, x) + actual + terrain[y].slice(x + 1);
-      commit({ ...current, terrain });
-      return;
-    }
-    if (tool.value === 'eraser') {
-      const structures = current.structures.slice();
-      const flags = current.flags.slice();
-      const structureIndex = structures.findIndex((object) => object.x === x && object.y === y);
-      const flagIndex = flags.findIndex((flag) => flag.x === x && flag.y === y);
-      if (structureIndex === -1 && flagIndex === -1) return;
-      if (structureIndex !== -1) structures.splice(structureIndex, 1);
-      if (flagIndex !== -1) flags.splice(flagIndex, 1);
-      setSelection(null);
-      commit({ ...current, structures, flags });
-      return;
-    }
-    if (tool.value === 'flag') {
-      if (current.flags.some((flag) => flag.x === x && flag.y === y)) return;
-      setSelection(null);
-      commit({ ...current, flags: current.flags.concat({ name: `flag${current.flags.length}`, x, y }) });
-      return;
-    }
-    let structures = current.structures;
-    if (tool.value === 'controller') structures = structures.filter((object) => object.type !== 'controller');
-    const layer = structureLayer(tool.value);
-    structures = structures.filter((object) => !(object.x === x && object.y === y && structureLayer(object.type) === layer));
-    setSelection(null);
-    commit({ ...current, structures: structures.concat(makeEditableObject(tool.value, x, y)) });
-  };
+	const placeObject = useCallback((x: number, y: number) => {
+		const current = historyRef.current?.present;
+		if (!current || !buildType) return;
 
-  const updateStructure = (index: number, change: (object: EditableObject) => EditableObject) => {
-    const current = modelRef.current;
-    if (!current || !current.structures[index]) return;
-    const structures = current.structures.slice();
-    structures[index] = change({ ...structures[index] });
-    commit({ ...current, structures });
-  };
+		if (buildType === ERASER) {
+			const structures = current.structures.filter((object) => !(object.x === x && object.y === y));
+			const flags = current.flags.filter((flag) => !(flag.x === x && flag.y === y));
+			if (structures.length === current.structures.length && flags.length === current.flags.length) return;
+			setSelection(null);
+			commit({ ...current, structures, flags }, `erase:${gestureRef.current}`);
+			return;
+		}
 
-  const selectedObject = selection?.kind === 'structure' && model ? model.structures[selection.index] : null;
-  const selectedFlag = selection?.kind === 'flag' && model ? model.flags[selection.index] : null;
-  const usedStore = selectedObject?.store ? Object.values(selectedObject.store).reduce((sum, amount) => sum + Number(amount || 0), 0) : 0;
-  const capacity = selectedObject ? (STORE_CAPACITY[selectedObject.type] || 0) : 0;
+		if (buildType === 'flag') {
+			if (current.flags.some((flag) => flag.x === x && flag.y === y)) return;
+			setSelection(null);
+			commit({ ...current, flags: current.flags.concat({ name: nextFlagName(current.flags), x, y }) },
+				`place:${gestureRef.current}`);
+			return;
+		}
 
-  const deleteSelection = () => {
-    const current = modelRef.current;
-    if (!current || !selection) return;
-    if (selection.kind === 'structure') commit({ ...current, structures: current.structures.filter((_, index) => index !== selection.index) });
-    else commit({ ...current, flags: current.flags.filter((_, index) => index !== selection.index) });
-    setSelection(null);
-  };
+		let structures = current.structures;
+		// One controller per room: placing another moves it.
+		if (buildType === 'controller') structures = structures.filter((object) => object.type !== 'controller');
+		const layer = structureLayer(buildType);
+		structures = structures.filter((object) => {
+			if (object.x !== x || object.y !== y) return true;
+			// Loose objects stack (a tile can hold energy AND a tombstone), so
+			// only an identical type is replaced; everything else displaces
+			// whatever shares its layer.
+			if (layer === 'loose') return object.type !== buildType;
+			return structureLayer(object.type) !== layer;
+		});
+		const created = makeEditableObject(buildType, x, y, {
+			terrainTile: current.terrain[y]?.[x],
+			existing: current.structures,
+			rcl: mapRcl(current),
+		});
+		setSelection(null);
+		commit({ ...current, structures: structures.concat(created) }, `place:${gestureRef.current}`);
+	}, [buildType, commit]);
 
-  return (
-    <div className={styles.root}>
-      <aside className={styles.palette}>
-        <section className={styles.section}>
-          <div className={styles.label}>Room</div>
-          <input className={ROOM_RE.test(roomText) ? styles.input : `${styles.input} ${styles.invalid}`}
-            value={roomText} onChange={(event) => {
-              const room = event.target.value.trim();
-              setRoomText(event.target.value);
-              const current = modelRef.current;
-              if (current && ROOM_RE.test(room)) commit({ ...current, room });
-            }} />
-        </section>
-        <section className={styles.section}>
-          <div className={styles.label}>Tool</div>
-          <button className={tool.kind === 'select' ? styles.activeWide : styles.wide} onClick={() => setTool({ kind: 'select' })}>▣ select / edit</button>
-        </section>
-        <section className={styles.section}>
-          <div className={styles.label}>Terrain</div>
-          {[['.', 'plain .'], ['~', 'swamp ~'], ['#', 'wall #']].map(([value, label]) => (
-            <button key={value} className={tool.kind === 'terrain' && tool.value === value ? styles.active : styles.button}
-              onClick={() => setTool({ kind: 'terrain', value })}>{label}</button>
-          ))}
-          <label className={styles.check}><input type="checkbox" checked={borderWall} onChange={(event) => setBorderWall(event.target.checked)} /> auto-wall border</label>
-        </section>
-        <section className={styles.section}>
-          <div className={styles.label}>Objects</div>
-          <div className={styles.grid}>
-            {withModExtras(OBJECTS, mods, MOD_OBJECTS).map((value) => (
-              <button key={value} className={tool.kind === 'object' && tool.value === value ? styles.active : styles.button}
-                onClick={() => setTool({ kind: 'object', value })}>{value === 'constructedWall' ? 'constructed wall' : value}</button>
-            ))}
-            <button className={tool.kind === 'object' && tool.value === 'eraser' ? styles.active : styles.button}
-              onClick={() => setTool({ kind: 'object', value: 'eraser' })}>eraser</button>
-          </div>
-        </section>
-        <section className={styles.section}>
-          <div className={styles.label}>Properties</div>
-          {!selection && <div className={styles.muted}>Click a placed object to edit</div>}
-          {selectedFlag && <label className={styles.property}>flag name<input className={styles.input} value={selectedFlag.name} onChange={(event) => {
-            const current = modelRef.current; if (!current || selection?.kind !== 'flag') return;
-            const flags = current.flags.slice(); flags[selection.index] = { ...flags[selection.index], name: event.target.value }; commit({ ...current, flags });
-          }} /></label>}
-          {selectedObject && OWNED.has(selectedObject.type) && <label className={styles.property}>owner<select className={styles.input}
-            value={selectedObject.owner == null ? (selectedObject.type === 'controller' ? 'unclaimed' : 'me') : (selectedObject.owner === 'neutral' ? 'unclaimed' : selectedObject.owner)}
-            onChange={(event) => updateStructure(selection!.index, (object) => {
-              object.owner = event.target.value;
-              if (object.type === 'controller') object.level = isClaimed(object.owner) ? (object.level || 1) : 0;
-              return object;
-            })}>
-            <option value="me">me</option><option value="invader">invader</option><option value="unclaimed">unclaimed / neutral</option>
-          </select></label>}
-          {selectedObject && capacity > 0 && <>
-            <label className={styles.property}>store<input className={storeError ? `${styles.input} ${styles.invalid}` : styles.input} value={storeText}
-              onChange={(event) => {
-                const text = event.target.value; setStoreText(text);
-                try {
-                  const store = JSON.parse(text);
-                  if (!store || typeof store !== 'object' || Array.isArray(store)) throw new Error('store must be an object');
-                  setStoreError(false); updateStructure(selection!.index, (object) => ({ ...object, store }));
-                } catch { setStoreError(true); }
-              }} /></label>
-            <div className={usedStore > capacity ? styles.over : styles.muted}>{usedStore.toLocaleString()} / {capacity.toLocaleString()}{usedStore > capacity ? ' ⚠ over capacity' : ''}</div>
-          </>}
-          {/* A power bank's power is its whole point, and it lives in store.power.
-              Its own field rather than the raw-store box because there is exactly
-              one resource, and no capacity hint: season banks routinely hold more
-              than vanilla's POWER_BANK_CAPACITY_MAX. */}
-          {selectedObject?.type === 'powerBank' && <label className={styles.property}>power<input className={styles.input} type="number" min={0} step={100}
-            value={selectedObject.store?.power ?? 0}
-            onChange={(event) => updateStructure(selection!.index, (object) => ({
-              ...object, store: { ...object.store, power: Math.max(0, Number(event.target.value) || 0) },
-            }))} /></label>}
-          {selectedObject?.type === 'controller' && isClaimed(selectedObject.owner) && <label className={styles.property}>level<input className={styles.input} type="number" min={0} max={8} value={selectedObject.level || 1}
-            onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, level: Number(event.target.value) }))} /></label>}
-          {selectedObject?.type === 'mineral' && <>
-            <label className={styles.property}>mineral<select className={styles.input} value={selectedObject.mineralType || 'H'}
-              onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, mineralType: event.target.value }))}>
-              {withModExtras(MINERALS, mods, MOD_MINERALS).map((value) => <option key={value} value={value}>{value}</option>)}
-            </select></label>
-            <label className={styles.property}>density<select className={styles.input} value={selectedObject.density || 3}
-              onChange={(event) => updateStructure(selection!.index, (object) => ({ ...object, density: Number(event.target.value) }))}>
-              {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select></label>
-          </>}
-          {selection && <button className={styles.delete} onClick={deleteSelection}>Delete</button>}
-        </section>
-      </aside>
-      <div ref={hostRef} className={styles.canvasHost}>
-        {error && <div className={styles.error}>Cannot render map: {error}</div>}
-        {model && <canvas ref={canvasRef} className={styles.canvas} style={{ width: canvasSize, height: canvasSize }}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            const tile = tileFromPointer(event); lastTileRef.current = `${tile.x},${tile.y}`;
-            paintingRef.current = tool.kind !== 'select'; applyAt(tile.x, tile.y);
-          }}
-          onPointerMove={(event) => {
-            const tile = tileFromPointer(event); setHovered(tile);
-            if (!paintingRef.current || !(event.buttons & 1)) return;
-            const key = `${tile.x},${tile.y}`; if (key === lastTileRef.current) return; lastTileRef.current = key;
-            applyAt(tile.x, tile.y);
-          }}
-          onPointerUp={() => { paintingRef.current = false; lastTileRef.current = ''; }}
-          onPointerLeave={() => { paintingRef.current = false; lastTileRef.current = ''; setHovered(null); }} />}
-      </div>
-    </div>
-  );
+	const onPaint = mode === 'terrain' ? paintTerrain : placeObject;
+	const onPaintEnd = useCallback(() => { gestureRef.current++; coalesceRef.current = undefined; }, []);
+
+	// `field` names which control produced the edit. Consecutive edits from the
+	// SAME control merge into one undo step, so typing "1000" into a number box
+	// is one step, not four — while moving to another field starts a new one.
+	const updateSelectedObject = useCallback((change: (object: EditableObject) => EditableObject, field?: string) => {
+		const current = historyRef.current?.present;
+		if (!current || selection?.kind !== 'structure') return;
+		const existing = current.structures[selection.index];
+		if (!existing) return;
+		let next = change({ ...existing });
+		// A lab holding a mineral, or a high-RCL extension, needs its capacity
+		// written out — the loader's own default would be too small.
+		const capacity = explicitCapacityFor(next, mapRcl(current));
+		if (capacity) next = { ...next, storeCapacityResource: capacity };
+		else if (next.storeCapacityResource && (next.type === 'lab' || next.type === 'extension')) {
+			next = { ...next };
+			delete next.storeCapacityResource;
+		}
+		const structures = current.structures.slice();
+		structures[selection.index] = next;
+		commit({ ...current, structures }, field && `prop:structure:${selection.index}:${field}`);
+	}, [commit, selection]);
+
+	const updateSelectedFlag = useCallback((change: (flag: EditableFlag) => EditableFlag, field?: string) => {
+		const current = historyRef.current?.present;
+		if (!current || selection?.kind !== 'flag') return;
+		const flags = current.flags.slice();
+		if (!flags[selection.index]) return;
+		flags[selection.index] = change({ ...flags[selection.index] });
+		commit({ ...current, flags }, field && `prop:flag:${selection.index}:${field}`);
+	}, [commit, selection]);
+
+	const moveObject = useCallback((index: number, x: number, y: number) => {
+		const current = historyRef.current?.present;
+		if (!current) return;
+		const object = current.structures[index];
+		if (!object || (object.x === x && object.y === y)) return;
+		const structures = current.structures.slice();
+		structures[index] = { ...object, x, y };
+		commit({ ...current, structures }, `move:${gestureRef.current}:${index}`);
+	}, [commit]);
+
+	const deleteSelection = useCallback(() => {
+		const current = historyRef.current?.present;
+		if (!current || !selection) return;
+		if (selection.kind === 'structure') {
+			commit({ ...current, structures: current.structures.filter((_, index) => index !== selection.index) });
+		} else {
+			commit({ ...current, flags: current.flags.filter((_, index) => index !== selection.index) });
+		}
+		setSelection(null);
+	}, [commit, selection]);
+
+	const duplicateSelection = useCallback(() => {
+		const current = historyRef.current?.present;
+		if (!current || !selection) return;
+		if (selection.kind === 'structure') {
+			const object = current.structures[selection.index];
+			if (!object) return;
+			const copy: EditableObject = { ...object, x: Math.min(49, object.x + 1) };
+			// Identity must not be duplicated: two objects with one id, or two
+			// creeps with one name, is a broken world.
+			delete copy.id;
+			delete copy._id;
+			if (copy.type === 'creep') copy.name = nextCreepName(current.structures);
+			const structures = current.structures.concat(copy);
+			commit({ ...current, structures });
+			setSelection({ kind: 'structure', index: structures.length - 1 });
+		} else {
+			const flag = current.flags[selection.index];
+			if (!flag) return;
+			const flags = current.flags.concat({ ...flag, name: nextFlagName(current.flags), x: Math.min(49, flag.x + 1) });
+			commit({ ...current, flags });
+			setSelection({ kind: 'flag', index: flags.length - 1 });
+		}
+	}, [commit, selection]);
+
+	const nudgeSelection = useCallback((dx: number, dy: number) => {
+		const current = historyRef.current?.present;
+		if (!current || !selection) return;
+		if (selection.kind === 'structure') {
+			const object = current.structures[selection.index];
+			if (!object) return;
+			moveObject(selection.index, Math.max(0, Math.min(49, object.x + dx)), Math.max(0, Math.min(49, object.y + dy)));
+		} else {
+			const flag = current.flags[selection.index];
+			if (!flag) return;
+			const flags = current.flags.slice();
+			flags[selection.index] = { ...flag, x: Math.max(0, Math.min(49, flag.x + dx)), y: Math.max(0, Math.min(49, flag.y + dy)) };
+			commit({ ...current, flags }, `nudge:${selection.index}`);
+		}
+	}, [commit, moveObject, selection]);
+
+	// Selecting something else ends whatever editing run was in progress, so the
+	// next field edit starts its own undo step.
+	useEffect(() => { coalesceRef.current = undefined; }, [selection]);
+
+	// --- keyboard -------------------------------------------------------------
+	useEffect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			const target = event.target as HTMLElement | null;
+			// Never steal a key from a field the user is typing in.
+			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+				if (event.key === 'Escape') target.blur();
+				return;
+			}
+			const meta = event.ctrlKey || event.metaKey;
+			if (meta && event.key.toLowerCase() === 'z') {
+				event.preventDefault();
+				applyHistory(event.shiftKey ? redo : undo);
+				return;
+			}
+			if (meta && event.key.toLowerCase() === 'y') { event.preventDefault(); applyHistory(redo); return; }
+			if (meta) return;
+			if (event.key === '1') { setMode('select'); return; }
+			if (event.key === '2') { setMode('terrain'); return; }
+			if (event.key === '3') { setMode('build'); return; }
+			if (event.key === 'Escape') { setSelection(null); return; }
+			if (event.key === 'Delete' || event.key === 'Backspace') {
+				if (selection) { event.preventDefault(); deleteSelection(); }
+				return;
+			}
+			if (event.key === 'ArrowUp') { if (selection) { event.preventDefault(); nudgeSelection(0, -1); } return; }
+			if (event.key === 'ArrowDown') { if (selection) { event.preventDefault(); nudgeSelection(0, 1); } return; }
+			if (event.key === 'ArrowLeft') { if (selection) { event.preventDefault(); nudgeSelection(-1, 0); } return; }
+			if (event.key === 'ArrowRight') { if (selection) { event.preventDefault(); nudgeSelection(1, 0); } return; }
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [applyHistory, deleteSelection, nudgeSelection, selection]);
+
+	// --- derived --------------------------------------------------------------
+	const rcl = useMemo(() => mapRcl(model), [model]);
+	const counts = useMemo(() => countByType(model), [model]);
+	const selectedObject = selection?.kind === 'structure' && model ? model.structures[selection.index] ?? null : null;
+	const selectedFlag = selection?.kind === 'flag' && model ? model.flags[selection.index] ?? null : null;
+
+	const panelTitle = mode === 'build' ? 'Construct' : mode === 'terrain' ? 'Terrain' : 'Selected';
+	const panelBadge = mode === 'build'
+		? `RCL ${rcl}`
+		: mode === 'terrain'
+			? `${terrainBrush === '#' ? 'wall' : terrainBrush === '~' ? 'swamp' : 'plain'} ${brushSize}×${brushSize}`
+			: selectedObject ? labelFor(selectedObject.type) : selectedFlag ? 'Flag' : '';
+
+	return (
+		<div className={styles.root}>
+			<ModeRail
+				mode={mode} onMode={setMode}
+				room={roomText}
+				onRoom={(next) => {
+					setRoomText(next);
+					const current = historyRef.current?.present;
+					const trimmed = next.trim();
+					if (current && ROOM_RE.test(trimmed) && trimmed !== current.room) commit({ ...current, room: trimmed });
+				}}
+				hovered={hovered}
+				canUndo={!!history && canUndo(history)}
+				canRedo={!!history && canRedo(history)}
+				onUndo={() => applyHistory(undo)}
+				onRedo={() => applyHistory(redo)}
+			/>
+
+			{model ? (
+				<EditorCanvas
+					map={model}
+					mode={mode}
+					buildType={mode === 'build' ? buildType : null}
+					terrainBrush={terrainBrush}
+					brushSize={brushSize}
+					selection={selection}
+					fontsReady={fontsReady}
+					terrainTextures={terrainTextures}
+					modImages={modImages}
+					onSelect={setSelection}
+					onPaint={onPaint}
+					onPaintEnd={onPaintEnd}
+					onMoveObject={moveObject}
+					onHover={setHovered}
+				/>
+			) : (
+				<div className={styles.canvasHost}>
+					{error && <div className={styles.error}>Cannot render map: {error}</div>}
+				</div>
+			)}
+
+			<aside className={styles.panel}>
+				<div className={styles.panelHead}>
+					<span className={styles.panelTitle}>{panelTitle}</span>
+					{panelBadge && <span className={styles.panelBadge}>{panelBadge}</span>}
+				</div>
+				<div className={styles.panelBody}>
+					{mode === 'build' && (
+						<ConstructPanel mods={mods} counts={counts} rcl={rcl} selected={buildType} onSelect={setBuildType} />
+					)}
+					{mode === 'terrain' && model && (
+						<TerrainPanel
+							brush={terrainBrush} onBrush={setTerrainBrush}
+							size={brushSize} onSize={setBrushSize}
+							lockBorder={lockBorder} onLockBorder={setLockBorder}
+							exitSummary={exitSummary(model.terrain)}
+						/>
+					)}
+					{mode === 'select' && (
+						<PropertiesPanel
+							object={selectedObject}
+							flag={selectedFlag}
+							rcl={rcl}
+							mods={mods}
+							ownerLabels={ownerLabels || []}
+							onChangeObject={updateSelectedObject}
+							onChangeFlag={updateSelectedFlag}
+							onDelete={deleteSelection}
+							onDuplicate={duplicateSelection}
+						/>
+					)}
+				</div>
+			</aside>
+		</div>
+	);
 }
