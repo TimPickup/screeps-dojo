@@ -1,6 +1,7 @@
 import type { FrameObject } from '../../api/types';
 import { TYPE_SCHEMA } from './inspectorSchema';
 import { StoreList, OwnerTag, HitsBar, StatRow } from './pieces';
+import { BOOSTS } from '../CanvasMapEditor/gameData';
 
 // Body-part colours (engine `type` strings; ranged_attack has the underscore).
 const PART_COLORS: Record<string, string> = {
@@ -23,8 +24,15 @@ const BASE_HANDLED = new Set([
   'meta', '$loki', 'actionLog', '_actionLog', 'notifyWhenAttacked',
 ]);
 
+function boostTitle(type: string, hits: number, boost: string | undefined): string {
+  const base = type + ' (' + hits + ')';
+  if (!boost) return base;
+  const effect = BOOSTS[type]?.find((entry) => entry.compound === boost)?.effect;
+  return effect ? base + ' — ' + boost + ' (' + effect + ')' : base + ' — ' + boost;
+}
+
 // Up-to-10-per-row grid of coloured part squares (max body is 50 → 5 rows).
-function BodyGrid({ body }: { body: Array<{ type: string; hits: number }> }) {
+function BodyGrid({ body }: { body: Array<{ type: string; hits: number; boost?: string }> }) {
   const cell = 15;
   const gap = 2;
   return (
@@ -32,13 +40,15 @@ function BodyGrid({ body }: { body: Array<{ type: string; hits: number }> }) {
       {body.map((part, i) => {
         const color = PART_COLORS[part.type] ?? '#888';
         const hp = typeof part.hits === 'number' ? part.hits : 100;
+        const boosted = !!part.boost;
         return (
           <div
             key={i}
-            title={part.type + ' (' + hp + ')'}
+            title={boostTitle(part.type, hp, part.boost)}
             style={{
               width: cell, height: cell, background: color, borderRadius: 3,
-              border: part.type === 'tough' ? '1px solid #b0b0b0' : '1px solid rgba(0,0,0,0.4)',
+              border: boosted ? '1px solid #ffffff' : (part.type === 'tough' ? '1px solid #b0b0b0' : '1px solid rgba(0,0,0,0.4)'),
+              boxShadow: boosted ? '0 0 3px rgba(255,255,255,0.65)' : undefined,
               opacity: hp <= 0 ? 0.2 : 0.45 + 0.55 * Math.min(1, hp / 100),
               boxSizing: 'border-box',
             }}
@@ -66,7 +76,7 @@ export function ObjectInspector({ obj, gameTime, botUserId }: {
   const ageTime = typeof obj.ageTime === 'number' ? obj.ageTime : undefined;
   const ticksToLive = ageTime !== undefined && typeof gameTime === 'number' ? ageTime - gameTime : undefined;
 
-  const body = obj.body as Array<{ type: string; hits: number }> | undefined;
+  const body = obj.body;
 
   // Fields already surfaced (identity + this type's schema) — everything else
   // still shows in the formatted catch-all, so nothing is hidden.

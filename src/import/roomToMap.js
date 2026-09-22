@@ -77,6 +77,54 @@ function rebaseEffects(effects, gameTime) {
 // starts its clock again on its first tick here, which is what a scenario wants.
 const STRUCTURE_OMIT = new Set(['_id', '$loki', 'meta', 'type', 'x', 'y', 'room', 'user', 'spawning', 'launchTime']);
 
+// Engine creep fields worth keeping beyond the ones written by hand below.
+// `strongholdId` is what tells the processor a creep belongs to a stronghold
+// garrison instead of to the roaming invader AI — without it an imported
+// stronghold's defenders leave their ramparts and charge (src/import/
+// strongholdRepair.js has the full mechanism).
+const CREEP_KEEP = ['strongholdId'];
+
+// A live body is [{type, hits, boost?}, ...]. Emit the same three shapes the
+// map editor writes and the loader accepts (ui bodyModel.segmentsToBody,
+// dojoWorld.buildCreepBody):
+//
+//   nothing boosted         -> ["attack","move"]
+//   one boost per part type -> ["attack","move"] + boosts: { attack: "XUH2O" }
+//   same type, two boosts   -> [{type:"attack",boost:"XUH2O"},{type:"attack"}]
+//
+// Dropping the boosts (which is what a plain `.map(part => part.type)` does)
+// silently unboosts an imported T4/T5 stronghold garrison, whose whole threat
+// is its boosts.
+function exportBody(parts) {
+	const types = [];
+	const perType = {};
+	let anyBoost = false;
+	let consistent = true;
+	for (const part of parts || []) {
+		const type = typeof part === 'string' ? part : part && part.type;
+		if (!type) continue;
+		const boost = (part && typeof part === 'object') ? part.boost : undefined;
+		if (boost) anyBoost = true;
+		if (Object.prototype.hasOwnProperty.call(perType, type)) {
+			if (perType[type] !== boost) consistent = false;
+		} else {
+			perType[type] = boost;
+		}
+		types.push({ type: type, boost: boost });
+	}
+	if (!anyBoost) return { body: types.map(function (part) { return part.type; }) };
+	if (consistent) {
+		const boosts = {};
+		for (const type of Object.keys(perType)) if (perType[type]) boosts[type] = perType[type];
+		return { body: types.map(function (part) { return part.type; }), boosts: boosts };
+	}
+	return {
+		body: types.map(function (part) {
+			return part.boost ? { type: part.type, boost: part.boost } : { type: part.type };
+		})
+	};
+}
+
 function cleanStore(store) {
 	if (!store || typeof store !== 'object') return undefined;
 	const out = {};
@@ -156,11 +204,16 @@ function roomToMap(input) {
 			if (object.spawning || tag === null) continue;
 			if (tag === 'me' && !includeMyCreeps) continue;
 			if (!OWNER_TAGS[tag]) usedLabels.add(tag);
+			const { body, boosts } = exportBody(object.body);
 			const creep = {
 				name: object.name, x: object.x, y: object.y, owner: tag,
-				body: (object.body || []).map(function (part) { return part.type; }),
+				body: body,
 				hits: object.hits, hitsMax: object.hitsMax
 			};
+			if (boosts) creep.boosts = boosts;
+			for (const key of CREEP_KEEP) {
+				if (object[key] !== undefined && object[key] !== null) creep[key] = object[key];
+			}
 			if (object._id) creep.id = object._id;
 			// Raw room API/engine docs carry an absolute death tick. Export a
 			// remaining lifetime so the loader can rebase it onto its own clock.

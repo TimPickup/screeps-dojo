@@ -186,7 +186,7 @@ export interface FrameObject {
   hits?: number;
   hitsMax?: number;
   store?: Record<string, number>;
-  body?: Array<{ type: string; hits: number }>;
+  body?: Array<{ type: string; hits: number; boost?: string }>;
   name?: string;
   level?: number;
   progress?: number;

@@ -9,6 +9,7 @@ const { parseTerrain, serializeFlags, parseFlags, validateEdges, autoMirror } = 
 const warnings = require('./harnessWarnings');
 const botModules = require('./botModules');
 const modRegistry = require('./mods');
+const { planStrongholdRepair } = require('./import/strongholdRepair');
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
@@ -586,6 +587,7 @@ class DojoWorld {
 					activate: false
 				}));
 			}
+			await this.repairStronghold(map.room);
 			await this.activateRoom(map.room);
 		}
 	}
@@ -907,6 +909,35 @@ class DojoWorld {
 		return result && result._id;
 	}
 
+	// Re-binds an imported stronghold to its own AI. A live stronghold's core
+	// and garrison are tied together by three fields the engine reads and a
+	// room snapshot does not always carry — strongholdId, strongholdBehavior
+	// and population — and without them the processor hands the defenders to
+	// the roaming invader AI, which walks them off their ramparts at whoever
+	// enters. src/import/strongholdRepair.js holds the mechanism and derives
+	// the patch; this applies it.
+	//
+	// Never overwrites a field the map already set, so a scenario that spells
+	// out its own garrison keeps it, and a second call changes nothing.
+	// Returns how many objects were patched.
+	async repairStronghold(roomName) {
+		const { db } = await this.world.load();
+		const core = await db['rooms.objects'].findOne({ room: roomName, type: 'invaderCore' });
+		if (!core) return 0;
+		const npcCreeps = await db['rooms.objects'].find({
+			room: roomName, type: 'creep', user: this.resolveOwner('invader')
+		});
+		const plan = planStrongholdRepair(roomName, core, npcCreeps);
+		for (const message of plan.warnings) warnings.warnOnce('stronghold:' + roomName + ':' + message, message);
+
+		let patched = 0;
+		if (plan.core) patched += await this.updateObject({ _id: core._id }, plan.core);
+		for (const entry of plan.creeps) {
+			patched += await this.updateObject({ _id: entry.doc._id }, entry.patch);
+		}
+		return patched;
+	}
+
 	// Edits objects already in the world — the counterpart to addObject, and the
 	// reason a scenario no longer needs the db. `query` is a rooms.objects
 	// selector ({ room, type }, { _id }, { name }...); `changes` is either plain
@@ -1072,6 +1103,13 @@ class DojoWorld {
 			ageTime: await this.creepAgeTime(bodyParts, creepOptions),
 			fatigue: 0, spawning: false, notifyWhenAttacked: false
 		};
+		// Binds a garrison creep to its stronghold. The processor routes an
+		// Invader-owned creep WITHOUT this to the roaming invader AI, so an
+		// imported stronghold whose defenders lost it abandons its ramparts and
+		// charges the first hostile in the room (src/import/strongholdRepair.js).
+		if (creepOptions.strongholdId !== undefined && creepOptions.strongholdId !== null) {
+			creepDoc.strongholdId = creepOptions.strongholdId;
+		}
 		// An imported creep keeps the live server's id, like every other object.
 		if (creepOptions.id !== undefined) creepDoc._id = creepOptions.id;
 		const result = await this.world.addRoomObjectUnchecked(creepOptions.room, 'creep', creepOptions.x, creepOptions.y, creepDoc);

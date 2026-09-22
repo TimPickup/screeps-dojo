@@ -12,6 +12,7 @@
 		"clean": "node scripts/clean.js",
 		"update": "node scripts/update.js",
 		"import-room": "docker compose run --rm dojo node scripts/importRoom.js",
+		"import-replay": "docker compose run --rm dojo node scripts/importReplay.js",
 		"install:dojo": "docker compose run --rm dojo npm install",
 		"smoke": "docker compose run --rm dojo npm run smoke:inner",
 		"smoke:inner": "node scripts/smoke.js",

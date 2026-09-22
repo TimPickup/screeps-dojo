@@ -338,4 +338,60 @@ describe('roomToMap', function () {
 		assert.strictEqual(result.map.terrain.length, 50);
 		assert.ok(KNOWN_STRUCTURES.has('tower'));
 	});
+
+	// A stronghold garrison is defined by its boosts as much as its body, and
+	// by strongholdId — without the latter the processor hands the creep to the
+	// roaming invader AI and it charges instead of holding its rampart.
+	describe('stronghold garrison', function () {
+		it('keeps strongholdId on an invader creep', function () {
+			const creeps = build([{
+				type: 'creep', name: 'defender0', user: 'inv', x: 5, y: 5,
+				body: [{ type: 'attack' }, { type: 'move' }], strongholdId: 'E26S25_264000'
+			}]).map.creeps;
+			assert.strictEqual(creeps[0].strongholdId, 'E26S25_264000');
+		});
+
+		it('leaves an unboosted body in the plain string form', function () {
+			const creeps = build([{
+				type: 'creep', name: 'defender0', user: 'inv', x: 5, y: 5,
+				body: [{ type: 'attack' }, { type: 'attack' }, { type: 'move' }]
+			}]).map.creeps;
+			assert.deepStrictEqual(creeps[0].body, ['attack', 'attack', 'move']);
+			assert.ok(!Object.hasOwn(creeps[0], 'boosts'));
+		});
+
+		it('collapses one boost per part type into a boosts map', function () {
+			const creeps = build([{
+				type: 'creep', name: 'defender0', user: 'inv', x: 5, y: 5,
+				body: [
+					{ type: 'attack', boost: 'XUH2O' }, { type: 'attack', boost: 'XUH2O' },
+					{ type: 'move', boost: 'XZHO2' }
+				]
+			}]).map.creeps;
+			assert.deepStrictEqual(creeps[0].body, ['attack', 'attack', 'move']);
+			assert.deepStrictEqual(creeps[0].boosts, { attack: 'XUH2O', move: 'XZHO2' });
+		});
+
+		it('falls back to per-part entries when one part type carries two boosts', function () {
+			const creeps = build([{
+				type: 'creep', name: 'defender0', user: 'inv', x: 5, y: 5,
+				body: [{ type: 'attack', boost: 'XUH2O' }, { type: 'attack' }, { type: 'move' }]
+			}]).map.creeps;
+			assert.deepStrictEqual(creeps[0].body,
+				[{ type: 'attack', boost: 'XUH2O' }, { type: 'attack' }, { type: 'move' }]);
+			assert.ok(!Object.hasOwn(creeps[0], 'boosts'));
+		});
+
+		it('keeps the core fields the stronghold AI reads', function () {
+			const structures = build([{
+				type: 'invaderCore', x: 25, y: 25, user: 'inv', level: 3,
+				strongholdId: 'E26S25_264000', strongholdBehavior: 'bunker3', templateName: 'bunker3',
+				population: [{ body: 'fullDefender', behavior: 'simple-melee' }]
+			}]).map.structures;
+			assert.strictEqual(structures[0].strongholdBehavior, 'bunker3');
+			assert.strictEqual(structures[0].strongholdId, 'E26S25_264000');
+			assert.deepStrictEqual(structures[0].population,
+				[{ body: 'fullDefender', behavior: 'simple-melee' }]);
+		});
+	});
 });
