@@ -47,6 +47,7 @@ const SEASON5_CHECKS = [
 	'unclaimedReactorDoesNotScore',
 	'claimReactorTransfersOwnership',
 	'claimedReactorConsumesThorium',
+	'reactorStopsWhenEmpty',
 	'claimedReactorScores',
 	'reactorLaunchTime',
 	'continuousWorkVisibleToBot',

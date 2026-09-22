@@ -258,7 +258,7 @@ async function main() {
 		const afterBurn = await reactor(world);
 		const scoreAfterBurn = (await world.readUsers())[world.botUserId].score;
 		check('claimedReactorConsumesThorium',
-			afterBurn && beforeBurn && (afterBurn.store.T || 0) < (beforeBurn.store.T || 0),
+			afterBurn && beforeBurn && beforeBurn.store.T - afterBurn.store.T === 3,
 			JSON.stringify({ before: beforeBurn && beforeBurn.store, after: afterBurn && afterBurn.store }));
 		check('claimedReactorScores', scoreAfterBurn > scoreBeforeBurn,
 			scoreBeforeBurn + ' -> ' + scoreAfterBurn);
@@ -281,6 +281,19 @@ async function main() {
 		const workReport = takeReport() || {};
 		check('continuousWorkVisibleToBot', typeof workReport.continuousWork === 'number' && workReport.continuousWork >= 0,
 			String(workReport.continuousWork));
+
+		// The last unit must reach zero, not -1 (which is truthy and keeps burning).
+		await world.updateObject({ type: 'reactor' }, { store: { T: 1 }, launchTime: null });
+		const lastUnitScore = (await world.readUsers())[world.botUserId].score;
+		await world.tick();
+		const exhausted = await reactor(world);
+		await world.tick();
+		const stopped = await reactor(world);
+		const stoppedScore = (await world.readUsers())[world.botUserId].score;
+		check('reactorStopsWhenEmpty', exhausted.store.T === 0 && stopped.store.T === 0
+			&& !stopped.launchTime && stoppedScore - lastUnitScore === 1,
+			JSON.stringify({ exhausted: exhausted.store, stopped: stopped.store,
+				launchTime: stopped.launchTime, scoreGained: stoppedScore - lastUnitScore }));
 
 		// --- Thorium in a tile ages everything standing in it ------------------
 		const roads = await find(world, { room: 'W0N0', type: 'road' });

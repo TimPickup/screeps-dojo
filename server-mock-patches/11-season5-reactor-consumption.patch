@@ -1,0 +1,12 @@
+--- a/src/reactor.roomObject.js
++++ b/src/reactor.roomObject.js
+@@ -81,7 +81,8 @@
+                         }
+ 
++                        // bulk.update mutates object.store and retains it for persistence.
++                        // A second decrement would burn two Thorium per tick.
+                         bulk.update(object, {store: {T: object.store.T - 1}});
+-                        object.store.T--;
+ 
+                         const score = 1+Math.floor(Math.log10(1+gameTime-object.launchTime));
+                         bulkUsers.inc(object.user, 'score', score);

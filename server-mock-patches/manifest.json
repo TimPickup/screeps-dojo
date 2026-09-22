@@ -4,7 +4,8 @@
     "@screeps/common": "2.16.0",
     "@screeps/driver": "5.3.0",
     "@screeps/engine": "4.3.0",
-    "screeps-server-mockup": "1.5.1"
+    "screeps-server-mockup": "1.5.1",
+    "@screeps/mod-season5": "1.0.3"
   },
   "operations": [
     {
@@ -137,6 +138,18 @@
           "path": "dist/src/world.js",
           "pristineSha256": "f0ad6365cdd39f87daf04a85082e10b37a3c9811f975fbbb485417b11263b9cf",
           "patchedSha256": "3cb549bc1846bf529a4eea3d2c88ef6adc08f4553672e4a02101c60c0f13c497"
+        }
+      ]
+    },
+    {
+      "type": "patch",
+      "package": "@screeps/mod-season5",
+      "patch": "server-mock-patches/11-season5-reactor-consumption.patch",
+      "targets": [
+        {
+          "path": "src/reactor.roomObject.js",
+          "pristineSha256": "d779651ec296dc621f4438ea41a043bf5d4ebe8e9822da5433d3d0f35f24b9e5",
+          "patchedSha256": "e48ac5cbe66e01024ae9d821577cdff8a1ff1c48a55707a9cd32e62ffb2fe628"
         }
       ]
     }
