@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { expandRoomSpecs } = require('../../src/import/roomSpecs');
-const { parseArgs, mapFileName } = require('../../scripts/importRoom');
+const { parseArgs, mapFileName, dedupeCreeps } = require('../../scripts/importRoom');
 
 describe('room import specifications', function () {
 	it('keeps individual room lists working', function () {
@@ -66,5 +66,24 @@ describe('room import specifications', function () {
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it('keeps only the most recent sighting of a creep seen in two rooms', function () {
+		const first = { creeps: [
+			{ name: 'a', id: 'id-a', owner: 'me' },
+			{ name: 'b', id: 'id-b', owner: 'me' },
+			{ name: 'c', id: 'id-c-old', owner: 'me' },
+			{ name: 'same', id: 'id-x', owner: 'tigga' }
+		] };
+		const second = { creeps: [
+			{ name: 'a', id: 'id-a', owner: 'me' },
+			{ name: 'c-renamed', id: 'id-c-old', owner: 'me' },
+			{ name: 'same', id: 'id-y', owner: 'me' }
+		] };
+		const result = dedupeCreeps([first, second]);
+		assert.deepStrictEqual(first.creeps.map(function (c) { return c.name; }), ['b', 'same']);
+		assert.strictEqual(second.creeps.length, 3);
+		assert.deepStrictEqual(result.changed, [0]);
+		assert.strictEqual(result.removed.length, 2);
 	});
 });

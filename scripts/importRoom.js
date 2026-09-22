@@ -58,6 +58,36 @@ function uniqueFileName(dir, base, ext) {
 function mapFileName(dir, roomName, overwrite) {
 	return overwrite ? 'map.' + roomName + '.json' : uniqueFileName(dir, 'map.' + roomName, '.json');
 }
+// Rooms download one after another, so a creep that crosses a room edge
+// between two downloads is in both maps. Given this batch's maps in download
+// order, drops every creep that a LATER map also has (same owner+name, or same
+// id) — the later download is the more recent sighting. Mutates the maps and
+// returns the indexes of the ones that lost a creep, plus a log line for each.
+function dedupeCreeps(maps) {
+	const lastSeenByName = new Map();
+	const lastSeenById = new Map();
+	maps.forEach(function (map, mapIndex) {
+		for (const creep of map.creeps || []) {
+			if (creep.name) lastSeenByName.set(creep.owner + '|' + creep.name, mapIndex);
+			if (creep.id) lastSeenById.set(creep.id, mapIndex);
+		}
+	});
+	const changed = [];
+	const removed = [];
+	maps.forEach(function (map, mapIndex) {
+		if (!map.creeps) return;
+		const kept = map.creeps.filter(function (creep) {
+			const newerByName = creep.name && lastSeenByName.get(creep.owner + '|' + creep.name) > mapIndex;
+			const newerById = creep.id && lastSeenById.get(creep.id) > mapIndex;
+			if (!newerByName && !newerById) return true;
+			removed.push({ mapIndex: mapIndex, name: creep.name, id: creep.id });
+			return false;
+		});
+		if (kept.length !== map.creeps.length) { map.creeps = kept; changed.push(mapIndex); }
+	});
+	return { changed: changed, removed: removed };
+}
+
 const { roomToMap } = require('../src/import/roomToMap');
 const ownerLabels = require('../src/import/ownerLabels');
 const screepsProfiles = require('../src/screepsProfiles');
@@ -146,6 +176,8 @@ async function main() {
 	const ownerRegistry = { labels: {}, users: {} };
 	// Labels that actually own something somewhere in this batch.
 	const playersSeen = new Set();
+	// This batch's maps in download order, for dedupeCreeps.
+	const written = [];
 
 	for (const roomName of parsed.rooms) {
 		const room = await client.getRoom(roomName);
@@ -172,6 +204,7 @@ async function main() {
 		// (a previous import or a hand-authored map) — dedupe with " (1)", " (2)"…
 		const file = mapFileName(outDir, roomName, parsed.overwrite);
 		fs.writeFileSync(path.join(outDir, file), JSON.stringify(result.map, null, '\t'));
+		written.push({ file: file, roomName: roomName, map: result.map });
 		const skippedSummary = Object.keys(result.skipped).length
 			? ' (skipped ' + Object.keys(result.skipped).map(function (t) { return result.skipped[t] + ' ' + t; }).join(', ') + ')'
 			: '';
@@ -183,6 +216,15 @@ async function main() {
 			const seen = owners.counts[label];
 			if (seen.structures > 0 || seen.creeps > 0) playersSeen.add(label);
 		}
+	}
+
+	const dedupe = dedupeCreeps(written.map(function (entry) { return entry.map; }));
+	for (const gone of dedupe.removed) {
+		console.log('duplicate creep ' + (gone.name || gone.id) + ' dropped from '
+			+ written[gone.mapIndex].roomName + ' (seen later in another room)');
+	}
+	for (const mapIndex of dedupe.changed) {
+		fs.writeFileSync(path.join(outDir, written[mapIndex].file), JSON.stringify(written[mapIndex].map, null, '\t'));
 	}
 
 	const hint = settingsHint(Array.from(playersSeen), parsed.scenario);
@@ -218,6 +260,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-	parseArgs: parseArgs, mapFileName: mapFileName,
+	parseArgs: parseArgs, mapFileName: mapFileName, dedupeCreeps: dedupeCreeps,
 	playerSummary: playerSummary, settingsHint: settingsHint
 };

@@ -73,7 +73,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const [importStructures, setImportStructures] = useState(true);
   const [importMemory, setImportMemory] = useState(false);
   const [importSegments, setImportSegments] = useState(false);
-  const [overwriteMaps, setOverwriteMaps] = useState(false);
+  const [overwriteMaps, setOverwriteMaps] = useState(true);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
   // Which curated game mods this scenario selects. The map editor offers their
@@ -134,6 +134,8 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
       .then((r) => {
         if (!live) return;
         setSavedMods(r.settings?.mods || []);
+        // Offer the last import's rooms again (settings.json "lastImport").
+        setRooms(r.settings?.lastImport || '');
         const bots = r.settings?.bots;
         setSavedSides(bots && typeof bots === 'object' ? Object.keys(bots).filter((side) => side !== 'main') : []);
       })

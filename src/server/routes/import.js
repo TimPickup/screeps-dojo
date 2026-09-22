@@ -79,6 +79,10 @@ module.exports = function registerImportRoutes(router, ctx) {
 		const includeMyCreeps = !req.body || req.body.creeps !== false;
 		const includeMyStructures = !req.body || req.body.structures !== false;
 		const overwrite = Boolean(req.body && req.body.overwrite === true);
+		// The specs as typed (W7N4:W6N2, not the six rooms it expands to), so
+		// the import box can offer the same list next time.
+		try { scenarioSettings.saveLastImport(dir, req.body.rooms.join(' ')); }
+		catch (e) { /* remembering the list is a nicety; never fail the import */ }
 
 		counter += 1;
 		const id = 'import-' + Date.now() + '-' + counter;

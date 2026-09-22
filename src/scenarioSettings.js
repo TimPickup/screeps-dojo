@@ -3,7 +3,7 @@
 // Optional per-scenario overrides: scenarios/<name>/settings.json.
 //
 //   { "bot": "speedrun", "bots": { "enemy": "default" }, "server": "season",
-//     "mods": ["season5"] }
+//     "mods": ["season5"], "lastImport": "W7N4:W6N2 W1N1" }
 //
 // "bot" is shorthand for bots.main. Values are profile NAMES, never paths: a
 // host path that was not bind-mounted when the container was created is
@@ -19,7 +19,7 @@ const path = require('path');
 const mods = require('./mods');
 
 const FILE_NAME = 'settings.json';
-const KNOWN_KEYS = ['bot', 'bots', 'server', 'mods'];
+const KNOWN_KEYS = ['bot', 'bots', 'server', 'mods', 'lastImport'];
 const MAIN_SIDE = 'main';
 const SIDE_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
@@ -65,6 +65,9 @@ function validate(raw, label) {
 	// Season 5 that quietly ran vanilla would produce confidently wrong results.
 	const settings = { bots: bots, mods: mods.validate(raw.mods, label) };
 	if (raw.server !== undefined) settings.server = raw.server.toLowerCase();
+	// The room list the last import was given, so the import box can offer it
+	// again. Only ever written by saveLastImport; a bad value is just ignored.
+	if (typeof raw.lastImport === 'string' && raw.lastImport) settings.lastImport = raw.lastImport;
 	return { settings: settings, warnings: warnings };
 }
 
@@ -92,7 +95,25 @@ function load(scenarioDir) {
 
 // Writing is deliberately not here: settings.json is saved through the ordinary
 // scenario file route like any other file, so there is exactly one write path.
+// The one exception is saveLastImport below, which only touches its own key.
 // The editor mirrors validate() in ui/src/components/ScenarioSettingsEditor.
+
+// Remembers the room list of an import in settings.json ("lastImport"), keeping
+// every other key exactly as it was. A file that is not valid JSON is left
+// alone: it is the user's half-finished edit, and a room list is not worth it.
+function saveLastImport(scenarioDir, roomSpecs) {
+	const file = filePath(scenarioDir);
+	let raw = {};
+	try {
+		raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+	} catch (e) {
+		if (!e || e.code !== 'ENOENT') return false;
+	}
+	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+	raw.lastImport = roomSpecs;
+	fs.writeFileSync(file, JSON.stringify(raw, null, '\t') + '\n');
+	return true;
+}
 module.exports = {
 	FILE_NAME: FILE_NAME,
 	KNOWN_KEYS: KNOWN_KEYS,
@@ -100,5 +121,6 @@ module.exports = {
 	SIDE_RE: SIDE_RE,
 	filePath: filePath,
 	validate: validate,
-	load: load
+	load: load,
+	saveLastImport: saveLastImport
 };

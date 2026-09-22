@@ -121,4 +121,20 @@ describe('scenarioSettings', function () {
 		write('{}\n');
 		assert.deepStrictEqual(scenarioSettings.load(dir).settings, { bots: {}, mods: [] });
 	});
+
+	it('remembers the last import without touching other keys', function () {
+		write('{"bot":"speedrun","custom":1}');
+		assert.strictEqual(scenarioSettings.saveLastImport(dir, 'W7N4:W6N2 W1N1'), true);
+		const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+		assert.deepStrictEqual(raw, { bot: 'speedrun', custom: 1, lastImport: 'W7N4:W6N2 W1N1' });
+		assert.strictEqual(scenarioSettings.load(dir).settings.lastImport, 'W7N4:W6N2 W1N1');
+	});
+
+	it('creates settings.json for the last import, but never rewrites a broken one', function () {
+		assert.strictEqual(scenarioSettings.saveLastImport(dir, 'W1N1'), true);
+		assert.strictEqual(scenarioSettings.load(dir).settings.lastImport, 'W1N1');
+		write('{ half typed');
+		assert.strictEqual(scenarioSettings.saveLastImport(dir, 'W2N2'), false);
+		assert.strictEqual(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'), '{ half typed');
+	});
 });

@@ -101,6 +101,8 @@ export interface ScenarioSettings {
   bots: Record<string, string>;
   server?: string;
   mods?: string[];
+  // The room specs the last import was given; prefills the import box.
+  lastImport?: string;
 }
 
 // One entry of the curated catalog (GET /api/mods). The server owns this list;
