@@ -138,7 +138,12 @@ function createRecorder(scenarioDir) {
 	let frames = 0;
 	let finalizedPath = null;
 	let terrainSnapshot = null;
-	let endState = null;
+	// The last frame (as its JSON) and memory, kept as-is and only turned into
+	// the end-state snapshot by finalize(): the frame string is immutable and
+	// Memory/segments come back from storage as fresh strings, so nothing here
+	// needs a defensive deep copy on every tick.
+	let lastFrameJson = null;
+	let lastMemory = null;
 	return {
 		dir: dir,
 		writeMeta: function (meta) {
@@ -148,10 +153,18 @@ function createRecorder(scenarioDir) {
 			terrainSnapshot = terrain;
 			fs.writeFileSync(path.join(dir, 'terrain.json'), JSON.stringify(terrain));
 		},
-		addFrame: function (frame, memory) {
-			fs.appendFileSync(journalFile, JSON.stringify(frame) + '\n');
-			// One detached snapshot only: engine docs and segment hashes may mutate.
-			if (memory) endState = JSON.parse(JSON.stringify(Object.assign({ frame: frame }, memory)));
+		// frameJson: JSON.stringify(frame), when the caller already has it (the
+		// runner serializes each frame once for both this and the live stream).
+		addFrame: function (frame, memory, frameJson) {
+			const json = typeof frameJson === 'string' ? frameJson : JSON.stringify(frame);
+			fs.appendFileSync(journalFile, json + '\n');
+			if (memory) {
+				lastFrameJson = json;
+				lastMemory = Object.assign({}, memory, {
+					segments: Object.assign({}, memory.segments),
+					playerUserIds: Object.assign({}, memory.playerUserIds)
+				});
+			}
 			frames++;
 		},
 		frameCount: function () {
@@ -159,7 +172,10 @@ function createRecorder(scenarioDir) {
 		},
 		finalize: function (meta) {
 			if (finalizedPath !== null) return finalizedPath;
-			if (endState) writeEndState(dir, endState, terrainSnapshot, meta);
+			if (lastMemory) {
+				const endState = Object.assign({ frame: JSON.parse(lastFrameJson) }, lastMemory);
+				writeEndState(dir, endState, terrainSnapshot, meta);
+			}
 			fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
 			finalizedPath = assembleRecording(dir);
 			// The journal is only needed to salvage a run killed BEFORE finalize.

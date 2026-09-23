@@ -30,6 +30,14 @@ function openSse(res) {
 				res.write('data: ' + JSON.stringify(data === undefined ? null : data) + '\n\n');
 			} catch (e) { close(); }
 		},
+		// Sends an event whose data is ALREADY a JSON string (no re-encode).
+		sendJson: function (type, json) {
+			if (closed) return;
+			try {
+				res.write('event: ' + type + '\n');
+				res.write('data: ' + json + '\n\n');
+			} catch (e) { close(); }
+		},
 		comment: function (text) { if (!closed) { try { res.write(': ' + text + '\n\n'); } catch (e) { close(); } } },
 		close: close,
 		isClosed: function () { return closed; }

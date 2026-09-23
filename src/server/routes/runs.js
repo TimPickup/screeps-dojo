@@ -43,7 +43,13 @@ module.exports = function registerRunRoutes(router, ctx) {
 	router.get('/api/jobs/:id/stream', function (req, res) {
 		const sse = openSse(res);
 		const unsubscribe = jobManager.subscribe(req.params.id, function (evt) {
-			sse.send(evt.type, evt);
+			// A frame arrives pre-serialized from the run process (see
+			// runScenarioChild); wrap it without parsing the world back apart.
+			if (evt.type === 'frame' && typeof evt.frameJson === 'string') {
+				sse.sendJson('frame', '{"type":"frame","frame":' + evt.frameJson + '}');
+			} else {
+				sse.send(evt.type, evt);
+			}
 			// terminal events end the stream so a finished/absent job's connection
 			// doesn't hang open forever (heartbeating). The browser's EventSource
 			// also closes on these (useJobStream), but close server-side too.

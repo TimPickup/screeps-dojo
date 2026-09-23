@@ -40,6 +40,10 @@ runScenario(scenarioDir, {
 	record: record,
 	streamFrames: streamFrames,
 	onEvent: function (ev) {
+		// A frame crosses IPC as the JSON the runner already made: a string
+		// serializes far cheaper than the object graph it encodes, and the
+		// parent forwards it to the browser as-is.
+		if (ev.type === 'frame' && typeof ev.frameJson === 'string') ev = { type: 'frame', frameJson: ev.frameJson };
 		try { send({ ev: ev }); } catch (e) { /* forwarding never breaks the run */ }
 	}
 }).then(function (result) {

@@ -182,6 +182,16 @@ async function runScenario(scenarioDir, options) {
 		});
 	}
 
+	// A frame is serialized exactly once: the recorder journals that string and
+	// the live stream forwards it untouched (runScenarioChild -> jobManager ->
+	// SSE), so no process on the way re-encodes the whole world. `frame` rides
+	// along for in-process listeners.
+	async function recordAndStream(frame) {
+		const frameJson = JSON.stringify(frame);
+		if (recorder) recorder.addFrame(frame, await world.captureRecordingMemory(), frameJson);
+		if (streamFrames) emit({ type: 'frame', frame: frame, frameJson: frameJson });
+	}
+
 	// Drains console lines accumulated since the last call (per-tick delta).
 	// Harness warnings (raw server access, etc.) join the scenario's own console
 	// here: printed to the container's stdout they reach nobody running from the
@@ -246,12 +256,11 @@ async function runScenario(scenarioDir, options) {
 		if (streamFrames) emit({ type: 'terrain', terrain: terrain, botUserId: world.botUserId });
 		// initial pre-tick frame (for recording and/or live stream)
 		if (recorder || streamFrames) {
-			const frame0 = await world.captureFrame();
+			const frame0 = await world.captureFrame(state.objects);
 			// anything setup() warned about belongs on the first frame, not
 			// blamed on tick 1
 			frame0.console = takeConsoleDelta();
-			if (recorder) recorder.addFrame(frame0, await world.captureRecordingMemory());
-			if (streamFrames) emit({ type: 'frame', frame: frame0 });
+			await recordAndStream(frame0);
 			if (frame0.console.length) emit({ type: 'console', lines: frame0.console });
 		}
 
@@ -281,12 +290,11 @@ async function runScenario(scenarioDir, options) {
 
 			const tickConsole = takeConsoleDelta();
 			// capture the frame ONCE and feed both the recorder and the live
-			// stream (captureFrame is an expensive db scan — never double it)
+			// stream, reusing the object docs readState just read for this tick
 			if (recorder || streamFrames) {
-				const frame = await world.captureFrame();
+				const frame = await world.captureFrame(state.objects);
 				frame.console = tickConsole;
-				if (recorder) recorder.addFrame(frame, await world.captureRecordingMemory());
-				if (streamFrames) emit({ type: 'frame', frame: frame });
+				await recordAndStream(frame);
 			}
 			if (tickConsole.length) emit({ type: 'console', lines: tickConsole });
 			emit({ type: 'tick', tick: ticks, maxTicks: scenario.maxTicks });

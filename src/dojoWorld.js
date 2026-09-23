@@ -137,6 +137,18 @@ function structureDefaults(type, spawnIndex) {
 	}
 }
 
+// The readUsers() shape from raw user docs.
+function usersById(docs) {
+	const users = {};
+	for (const doc of docs) {
+		users[doc._id] = {
+			username: doc.username,
+			score: typeof doc.score === 'number' ? doc.score : 0
+		};
+	}
+	return users;
+}
+
 class DojoWorld {
 	// options.mods    — active mod IDs (src/mods.js), for mod-supplied object
 	//                   defaults and for the run's metadata
@@ -1232,34 +1244,39 @@ class DojoWorld {
 	// store, actionLog with attack/heal/say), flag docs, and the per-room
 	// engine event log. Richer than readState on purpose: anything not
 	// recorded can't be rendered later.
-	async captureFrame() {
+	//
+	// `objects` lets the runner hand over the object docs readState() just read
+	// for the same tick, instead of paying for a second full-world scan. Every
+	// per-room lookup is batched into one storage call: each call is a cloned
+	// round trip, and a big map has hundreds of rooms.
+	async captureFrame(objects) {
 		const { db, env } = await this.world.load();
 		const gameTime = await this.world.gameTime;
+		if (!objects) objects = await db['rooms.objects'].find({});
+		const flags = await db['rooms.flags'].find({});
 		// CPU the bot used this tick. The engine runtime persists it to the user doc each tick
 		// (@screeps/driver runtime/make.js: $set.lastUsedCpu = usedTime), so we can read it here without
 		// advancing the world. ms of CPU; null if unavailable (e.g. a tick the bot was skipped).
+		const userDocs = await db.users.find({});
 		let cpu = null;
-		if (this.botUserId) {
-			try {
-				const users = await db.users.find({ _id: this.botUserId });
-				if (users && users[0] && typeof users[0].lastUsedCpu === 'number') cpu = users[0].lastUsedCpu;
-			} catch (error) { /* cpu unavailable for this tick */ }
+		for (const doc of userDocs) {
+			if (doc._id === this.botUserId && typeof doc.lastUsedCpu === 'number') cpu = doc.lastUsedCpu;
 		}
-		const objects = await db['rooms.objects'].find({});
-		const flags = await db['rooms.flags'].find({});
 		const roomNames = new Set();
 		for (const object of objects) {
 			if (object.room) roomNames.add(object.room);
 		}
+		const rooms = Array.from(roomNames);
 		const eventLog = {};
-		for (const roomName of roomNames) {
+		let rawLogs = [];
+		try { rawLogs = await env.hmget(env.keys.ROOM_EVENT_LOG, rooms); } catch (error) { /* no logs */ }
+		rooms.forEach(function (roomName, i) {
 			try {
-				const raw = await env.hget(env.keys.ROOM_EVENT_LOG, roomName);
-				eventLog[roomName] = raw ? JSON.parse(raw) : [];
+				eventLog[roomName] = rawLogs[i] ? JSON.parse(rawLogs[i]) : [];
 			} catch (error) {
 				eventLog[roomName] = [];
 			}
-		}
+		});
 		// The bot's own RoomVisual draws (paths, island outlines, etc.). The
 		// engine stores them per user/room/tick at key roomVisual:<user>,<room>,<time>
 		// (driver/runtime/make.js). Capture for the main bot so replays/preview
@@ -1267,17 +1284,20 @@ class DojoWorld {
 		// gameTime-1 as a fallback for any off-by-one in timing).
 		const visuals = {};
 		if (this.botUserId) {
-			for (const roomName of roomNames) {
-				try {
-					let raw = await env.get(env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + gameTime);
-					if (!raw) raw = await env.get(env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + (gameTime - 1));
-					if (raw) visuals[roomName] = raw;
-				} catch (error) { /* no visuals for this room */ }
-			}
+			const visualKey = (roomName, time) => env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + time;
+			try {
+				const current = await env.mget(rooms.map(function (roomName) { return visualKey(roomName, gameTime); }));
+				const missing = rooms.filter(function (roomName, i) { return !current[i]; });
+				const previous = missing.length
+					? await env.mget(missing.map(function (roomName) { return visualKey(roomName, gameTime - 1); }))
+					: [];
+				rooms.forEach(function (roomName, i) { if (current[i]) visuals[roomName] = current[i]; });
+				missing.forEach(function (roomName, i) { if (previous[i]) visuals[roomName] = previous[i]; });
+			} catch (error) { /* no visuals this tick */ }
 		}
 		return {
 			gameTime: gameTime, cpu: cpu, objects: objects, flags: flags,
-			eventLog: eventLog, visuals: visuals, users: await this.readUsers()
+			eventLog: eventLog, visuals: visuals, users: usersById(userDocs)
 		};
 	}
 
@@ -1310,14 +1330,7 @@ class DojoWorld {
 	// scenario can compare it without knowing whether a mod that scores is loaded.
 	async readUsers() {
 		const { db } = await this.world.load();
-		const users = {};
-		for (const doc of await db.users.find({})) {
-			users[doc._id] = {
-				username: doc.username,
-				score: typeof doc.score === 'number' ? doc.score : 0
-			};
-		}
-		return users;
+		return usersById(await db.users.find({}));
 	}
 
 
