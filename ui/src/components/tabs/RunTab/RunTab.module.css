@@ -5,6 +5,7 @@
 .record { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
 .spacer { margin-left: auto; }
 .tick { color: var(--accent); font-size: 12px; }
+.tps { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
 .end { color: var(--muted); font-size: 12px; }
 .canvas { flex: 1; min-height: 0; display: flex; background: #0e0e0e; }
 .idle { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }

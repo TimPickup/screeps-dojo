@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Recording } from '../../../api/types';
 import { api } from '../../../api/client';
 import { useJobStream } from '../../../hooks/useJobStream';
+import { useTickRate } from '../../../hooks/useTickRate';
+import { CPU_AVERAGE_TICKS, useCpuAverage } from '../../../hooks/useCpuAverage';
 import { usePrefs } from '../../../state/prefs';
 import { CanvasStage } from '../../CanvasStage/CanvasStage';
 import { ObjectInspector } from '../../ObjectInspector/ObjectInspector';
@@ -19,6 +21,8 @@ export function RunTab({ scenario }: { scenario: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const stream = useJobStream(jobId);
   const running = jobId !== null && !stream.ended;
+  const tps = useTickRate(stream.lastTick, running);
+  const cpu = useCpuAverage(stream.lastFrame, running);
   const liveRecording = useMemo<Recording | null>(() => {
     if (!stream.terrain || stream.frames.length === 0) return null;
     return {
@@ -65,6 +69,8 @@ export function RunTab({ scenario }: { scenario: string }) {
         <label className={styles.record}><input type="checkbox" checked={record} onChange={(e) => setRecord(e.target.checked)} /> record</label>
         <span className={styles.spacer} />
         {jobId && <span className={styles.tick}>tick {stream.lastTick}{stream.maxTicks ? '/' + stream.maxTicks : ''}</span>}
+        {running && <span className={styles.tps} title={`main bot CPU (ms), average of the last ${CPU_AVERAGE_TICKS} ticks` + (cpu.last === null ? '' : `; last tick ${cpu.last.toFixed(1)}`)}>cpu {cpu.average === null ? '–' : cpu.average.toFixed(1)}ms</span>}
+        {running && <span className={styles.tps} title="ticks per second, averaged over the last second">{tps === null ? '–' : tps.toFixed(1)} t/s</span>}
         {stream.ended && <span className={styles.end}>{stream.error ? 'error: ' + stream.error : 'ended: ' + stream.endReason}</span>}
         {runError && <span className={styles.end} style={{ color: 'var(--warn)' }}>{runError}</span>}
       </div>
