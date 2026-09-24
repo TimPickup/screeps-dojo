@@ -126,7 +126,7 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 				fs.createReadStream(abs).on('error', function () { res.destroy(); }).pipe(res);
 			}
 		} catch (e) {
-			ctx.sendJson(res, 404, { error: String((e && e.message) || e) });
+			ctx.sendJson(res, (e && e.statusCode) || 404, { error: String((e && e.message) || e) });
 		}
 	});
 };

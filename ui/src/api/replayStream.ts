@@ -15,7 +15,13 @@ export async function readReplay(
   response: Response,
   deliver: (batch: ReplayBatch) => Promise<void>,
 ) {
-  if (!response.ok) throw new Error((await response.text()) || response.statusText);
+  if (!response.ok) {
+    // The server answers errors as { error }; show the message, not the JSON.
+    const text = await response.text();
+    let message = text;
+    try { message = JSON.parse(text).error || text; } catch { /* plain text */ }
+    throw new Error(message || response.statusText);
+  }
   if (!response.body) throw new Error('Replay streaming is unavailable.');
   const parser = new JSONParser({ paths: ['$.meta', '$.terrain', '$.frames.*'], keepStack: false });
   let meta: Recording['meta'];

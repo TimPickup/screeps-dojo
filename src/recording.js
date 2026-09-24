@@ -14,7 +14,16 @@
 // pipeline is synchronous and bounded-memory so it is safe to run from a
 // SIGTERM/SIGINT handler. loadRecording() salvages a journal whose process
 // was hard-killed before finalize (no recording.json, frames.ndjson present).
+//
+// Readers (the list, the server's file route) run in a different process from
+// the recorder, so every file they read is written whole or not at all:
+// recording.json is assembled into a temp file and renamed into place, and the
+// final meta.json lands only after that, so a run never looks finished before
+// its recording.json is complete. recorder.lock names the recording process
+// while it is alive; salvage refuses to assemble a journal whose recorder is
+// still running, so the server can never build a second copy mid-finalize.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { writeEndState } = require('./recordingEndState');
 
@@ -100,17 +109,40 @@ function appendJournalAsArrayBody(journalFile, recordingFile) {
 	}
 }
 
+// A temp name no other process can be using, so two writers of the same file
+// each finish their own copy and the last rename wins whole.
+function tempPathFor(file) {
+	return file + '.' + process.pid + '.tmp';
+}
+
+// Replaces file in one step: a reader sees the old content or the new, never
+// a partly written file.
+function writeFileAtomic(file, data) {
+	const tmp = tempPathFor(file);
+	try {
+		fs.writeFileSync(tmp, data);
+		fs.renameSync(tmp, file);
+	} catch (e) {
+		try { fs.unlinkSync(tmp); } catch (e2) { /* never written */ }
+		throw e;
+	}
+}
+
 // Assembles recording.json from the on-disk parts (meta.json, terrain.json,
 // frames.ndjson) without ever holding the frames in memory. Synthesizes meta
 // when meta.json is missing (hard-killed before writeMeta) so a journal alone
-// is still loadable. Returns the recording.json path.
-function assembleRecording(dir) {
+// is still loadable. metaJson, when given, is embedded instead of meta.json:
+// finalize() passes the final meta so it can write meta.json afterwards.
+// Builds into a temp file and renames it into place, so recording.json never
+// exists half-written. Returns the recording.json path.
+function assembleRecording(dir, metaJson) {
 	const journalFile = path.join(dir, 'frames.ndjson');
 	const metaFile = path.join(dir, 'meta.json');
 	const terrainFile = path.join(dir, 'terrain.json');
 	const recordingFile = path.join(dir, 'recording.json');
-	let metaJson;
-	if (fs.existsSync(metaFile)) {
+	if (typeof metaJson === 'string') {
+		// finalize()'s meta, not yet on disk
+	} else if (fs.existsSync(metaFile)) {
 		metaJson = fs.readFileSync(metaFile, 'utf8');
 	} else {
 		const frameCount = countJournalFrames(journalFile);
@@ -122,10 +154,41 @@ function assembleRecording(dir) {
 		});
 	}
 	const terrainJson = fs.existsSync(terrainFile) ? fs.readFileSync(terrainFile, 'utf8') : 'null';
-	fs.writeFileSync(recordingFile, '{"meta":' + metaJson + ',"terrain":' + terrainJson + ',"frames":[');
-	appendJournalAsArrayBody(journalFile, recordingFile);
-	fs.appendFileSync(recordingFile, ']}');
+	const tmp = tempPathFor(recordingFile);
+	try {
+		fs.writeFileSync(tmp, '{"meta":' + metaJson + ',"terrain":' + terrainJson + ',"frames":[');
+		appendJournalAsArrayBody(journalFile, tmp);
+		fs.appendFileSync(tmp, ']}');
+		fs.renameSync(tmp, recordingFile);
+	} catch (e) {
+		try { fs.unlinkSync(tmp); } catch (e2) { /* never written */ }
+		throw e;
+	}
 	return recordingFile;
+}
+
+const LOCK_FILE = 'recorder.lock';
+
+// Is the process recording into dir still alive? The lock names its pid and
+// host. On this host a pid probe answers exactly (EPERM: it exists but is not
+// ours). A lock from another host or pid namespace (a run started outside the
+// container serving the GUI) can't be probed, so it counts as alive while the
+// run is still writing: journal or lock touched within IN_PROGRESS_STALE_MS.
+// No lock: finalized, or recorded before locks existed.
+function isRecorderAlive(dir) {
+	const lockFile = path.join(dir, LOCK_FILE);
+	let lock;
+	try { lock = JSON.parse(fs.readFileSync(lockFile, 'utf8')); } catch (e) { return false; }
+	if (lock && lock.host === os.hostname() && Number.isInteger(lock.pid)) {
+		if (lock.pid === process.pid) return true;
+		try { process.kill(lock.pid, 0); return true; }
+		catch (e) { return e.code === 'EPERM'; }
+	}
+	let mtimeMs = 0;
+	for (const name of ['frames.ndjson', LOCK_FILE]) {
+		try { mtimeMs = Math.max(mtimeMs, fs.statSync(path.join(dir, name)).mtimeMs); } catch (e) { /* gone */ }
+	}
+	return (Date.now() - mtimeMs) < IN_PROGRESS_STALE_MS;
 }
 
 // Streaming recorder: frames go straight to disk, so RAM stays flat no matter
@@ -135,6 +198,8 @@ function createRecorder(scenarioDir) {
 	const dir = path.join(recordingsDirFor(scenarioDir), timestampDirName(new Date()));
 	fs.mkdirSync(dir, { recursive: true });
 	const journalFile = path.join(dir, 'frames.ndjson');
+	const lockFile = path.join(dir, LOCK_FILE);
+	fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, host: os.hostname() }));
 	let frames = 0;
 	let finalizedPath = null;
 	let terrainSnapshot = null;
@@ -176,12 +241,16 @@ function createRecorder(scenarioDir) {
 				const endState = Object.assign({ frame: JSON.parse(lastFrameJson) }, lastMemory);
 				writeEndState(dir, endState, terrainSnapshot, meta);
 			}
-			fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
-			finalizedPath = assembleRecording(dir);
+			// recording.json first, then the final meta.json: the list calls a
+			// run finished from meta.json, so it must not say so any earlier.
+			const metaJson = JSON.stringify(meta);
+			finalizedPath = assembleRecording(dir, metaJson);
+			writeFileAtomic(path.join(dir, 'meta.json'), metaJson);
 			// The journal is only needed to salvage a run killed BEFORE finalize.
 			// Once recording.json is assembled it's redundant — drop it so we don't
 			// keep a second full-size copy of every recording on disk.
 			try { fs.unlinkSync(journalFile); } catch (e) { /* already gone */ }
+			try { fs.unlinkSync(lockFile); } catch (e) { /* already gone */ }
 			return finalizedPath;
 		}
 	};
@@ -192,9 +261,24 @@ function loadRecording(recordingPath) {
 	const file = isJsonTarget ? recordingPath : path.join(recordingPath, 'recording.json');
 	// Salvage: a run killed before finalize leaves frames.ndjson but no
 	// recording.json — assemble it now so render/load just works.
+	// Not while its recorder is alive: it is still recording, or finalize is
+	// assembling recording.json right now and a second build would race it.
 	if (!fs.existsSync(file) && path.basename(file) === 'recording.json') {
 		const dir = path.dirname(file);
-		if (fs.existsSync(path.join(dir, 'frames.ndjson'))) assembleRecording(dir);
+		if (fs.existsSync(path.join(dir, 'frames.ndjson'))) {
+			if (isRecorderAlive(dir)) {
+				const err = new Error('still recording: this replay opens once the run has finished');
+				err.statusCode = 409;
+				throw err;
+			}
+			// A recorder killed mid-assembly leaves its temp copy behind.
+			for (const name of fs.readdirSync(dir)) {
+				if (/^recording\.json\.\d+\.tmp$/.test(name)) {
+					try { fs.unlinkSync(path.join(dir, name)); } catch (e) { /* gone */ }
+				}
+			}
+			assembleRecording(dir);
+		}
 	}
 	const recording = JSON.parse(fs.readFileSync(file, 'utf8'));
 	if (!recording.meta || !recording.terrain || !Array.isArray(recording.frames)) {
@@ -245,9 +329,7 @@ function saveRecordingCpuAvg(dir, cpuAvg) {
 		throw err;
 	}
 	meta.cpuAvg = cpuAvg;
-	const tmp = metaFile + '.tmp';
-	fs.writeFileSync(tmp, JSON.stringify(meta));
-	fs.renameSync(tmp, metaFile);
+	writeFileAtomic(metaFile, JSON.stringify(meta));
 	finalizedCache.delete(dir);
 	return meta;
 }
@@ -260,8 +342,12 @@ function deriveStatus(dir, meta, hasRecording, hasJournal) {
 	if (meta.endReason !== 'in-progress') {
 		return { status: meta.endReason, ticks: typeof meta.ticks === 'number' ? meta.ticks : null };
 	}
-	// finalize() assembles recording.json and rewrites meta.json; an in-progress
-	// meta sitting next to a recording.json means it died between the two.
+	// A live recorder is running whatever the files say: finalize() renames
+	// recording.json into place just before it writes the final meta.json, and
+	// assembling a long run can outlast the staleness window below.
+	if (isRecorderAlive(dir)) return { status: 'running', ticks: null };
+	// Otherwise an in-progress meta next to a recording.json means the run
+	// died between finalize's two writes.
 	if (hasRecording) return { status: 'interrupted', ticks: null };
 	// Only unfinalised runs pay for this stat, and there is rarely more than one.
 	const probe = path.join(dir, hasJournal ? 'frames.ndjson' : 'meta.json');

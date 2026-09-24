@@ -198,7 +198,10 @@ describe('crash-safe recording journal', function () {
 		for (let i = 0; i < 3; i++) {
 			recorder.addFrame({ gameTime: i, objects: [{ type: 'creep', name: 'T', x: i, y: 0 }] });
 		}
-		// no finalize() — this is the crash
+		// no finalize() — this is the crash. The recorder is this process, so
+		// point its lock at one that has exited, as a killed run's would.
+		const deadPid = require('child_process').spawnSync(process.execPath, ['-e', '']).pid;
+		fs.writeFileSync(path.join(recorder.dir, 'recorder.lock'), JSON.stringify({ pid: deadPid, host: os.hostname() }));
 		const recording = loadRecording(recorder.dir);
 		assert.strictEqual(recording.frames.length, 3, 'all journaled frames recovered');
 		assert.ok(recording.meta, 'meta present');
