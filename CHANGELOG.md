@@ -5,6 +5,74 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [0.15.0] — 2026-09-24
+
+Imported strongholds fight like strongholds now instead of charging you like a
+pack of loose invaders, and an official Screeps replay download opens in the
+Replays tab. A live run shows how fast it is going and what the bot is
+spending, and a replay tells you its average CPU. Recording costs less per tick,
+and a replay opened just after its run finished no longer stops dead with
+"unexpected end".
+
+### Added
+
+- Imported stronghold rooms keep their garrison bound to the core's AI. The
+  engine only drives a stronghold's creeps when core and creeps share a
+  `strongholdId`, the core has a `strongholdBehavior`, and it has a
+  `population` entry per defender. An import could miss any of them, and the
+  defenders then ran the ordinary invader code: path to the nearest hostile
+  and hit it. The room is repaired as it loads (`src/import/strongholdRepair.js`),
+  and room import keeps `strongholdId` and each body part's boost.
+- `npm run import-replay -- <replay.json>` turns an official Screeps replay
+  export (the client's "download replay") into a dojo recording that opens in
+  the Replays tab. Options: `--name`, `--profile`, and `--shard` for a replay
+  from a shard other than your profile's. The file has to be somewhere under
+  the repo, since only the repo is mounted into the container.
+- The object inspector shows a creep's boosts: a boosted part is outlined, and
+  hovering it names the compound and what it does.
+- The Run tab shows ticks per second and the main bot's CPU while a run is
+  going. CPU is averaged over the last 10 ticks, and hovering it shows the last
+  tick's figure. Ticks per second is averaged over the last second, and falls
+  towards 0 when a run stalls instead of freezing on its last value.
+- The replay viewer shows the bot's average CPU per tick over the whole
+  recording, split into the first 15 ticks (global reset and cache warm-up
+  cost far more) and every tick after, e.g. `CPU avg: 75.2ms then 15.8ms`. It
+  is worked out once, the first time the replay is fully loaded, and cached in
+  the recording's `meta.json`. A replay that fails part-way is never averaged,
+  so a truncated file cannot cache a wrong figure.
+- Room import remembers the room list you last gave it, per scenario
+  (`lastImport` in `settings.json`), and fills the import box with it next
+  time.
+
+### Changed
+
+- Room import drops a creep that turns up in two rooms. Rooms download one
+  after another, so a creep crossing a room edge between two downloads was in
+  both maps. The later download is the more recent sighting, so that copy is
+  kept, and each dropped copy is logged.
+- The Edit tab's import overwrites a room's existing map by default. Untick
+  the box to keep the old one and write `map.<room> (1).json` alongside.
+- Recording and live streaming cost less per tick. Each frame is serialized
+  once and that string is journalled, sent to the server and forwarded to the
+  browser as-is, where every step used to re-encode the whole world. The frame
+  reuses the object documents the tick already read instead of scanning the
+  world a second time, and the per-room event logs come back in one call
+  rather than one per room.
+
+### Fixed
+
+- A replay opened just after its run finished could stop with "unexpected
+  end", and skipping ahead hit it sooner. The run listed as finished while
+  `recording.json` was still being written, so the replay streamed however
+  much of it existed. `recording.json` is now built in a temp file and renamed
+  into place, and the run only lists as finished after that. A run whose
+  recorder is still alive (it writes `recorder.lock` until it finishes)
+  answers "still recording" instead of the server building a second copy of
+  its replay alongside the one being written.
+- Season 5 reactors burned two Thorium a tick instead of one: the mod
+  decremented the store and then updated it through the same object. Patched
+  in `server-mock-patches/11-season5-reactor-consumption.patch`.
+
 ## [0.14.0] — 2026-09-20
 
 The visual map editor stops being a thing you fall out of into the JSON view.
@@ -1122,6 +1190,7 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.15.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.15.0
 [0.14.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.14.0
 [0.13.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.13.0
 [0.12.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.12.0
