@@ -4,6 +4,7 @@ import type {
   ModsResponse
 } from './types';
 import { JSONParser } from '@streamparser/json';
+import type { CpuSummary } from '../state/cpuSummary';
 
 // Above this, parse the response as it streams; below it, hand the whole body
 // to the engine's own parser.
@@ -105,6 +106,9 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     return res.json() as Promise<{ removed: number; bytes: number }>;
   },
+  // Caches a recording's CPU averages in its meta.json (see state/cpuSummary.ts).
+  saveRecordingCpuAvg: (relPath: string, cpuAvg: CpuSummary) =>
+    jpost<{ ok: boolean }>('/api/recordings/cpu-avg', { path: relPath, cpuAvg }),
   recording: (relPath: string) =>
     jget<Recording>('/api/recordings/file?path=' + encodeURIComponent(relPath)),
   run: (scenario: string, record = false) =>

@@ -231,6 +231,27 @@ const finalizedCache = new Map();
 
 function _clearRecordingCache() { finalizedCache.clear(); }
 
+// Stores the GUI's per-recording CPU averages (ui/src/state/cpuSummary.ts) in
+// meta.json, so a replay is averaged once rather than on every open. Only a
+// finalized run: an in-progress one rewrites meta.json at finalize. The cache
+// entry for the run is dropped so the next listing reads the new meta. Written
+// via a temp file + rename, so a crash mid-write never truncates meta.json.
+function saveRecordingCpuAvg(dir, cpuAvg) {
+	const metaFile = path.join(dir, 'meta.json');
+	const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+	if (!meta || meta.endReason === 'in-progress') {
+		const err = new Error('recording is not finalized');
+		err.statusCode = 409;
+		throw err;
+	}
+	meta.cpuAvg = cpuAvg;
+	const tmp = metaFile + '.tmp';
+	fs.writeFileSync(tmp, JSON.stringify(meta));
+	fs.renameSync(tmp, metaFile);
+	finalizedCache.delete(dir);
+	return meta;
+}
+
 // Classifies a run from what is on disk. meta.ticks is written as 0 before the
 // first tick and only corrected by finalize(), so for an unfinalised run we
 // report null rather than repeating a 0 that was never true.
@@ -485,6 +506,7 @@ module.exports = {
 	createRecorder: createRecorder,
 	listRecordings: listRecordings,
 	readRecordingMeta: readRecordingMeta,
+	saveRecordingCpuAvg: saveRecordingCpuAvg,
 	_clearRecordingCache: _clearRecordingCache,
 	IN_PROGRESS_STALE_MS: IN_PROGRESS_STALE_MS,
 	recordingsDirFor: recordingsDirFor,

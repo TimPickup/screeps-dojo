@@ -160,6 +160,9 @@ export interface RecordingMeta {
   // existed, which is the same thing as vanilla.
   mods?: string[];
   test?: TestResult | null;
+  // Per-tick bot CPU averages, cached by the GUI the first time the replay is
+  // opened (state/cpuSummary.ts). Absent until then.
+  cpuAvg?: unknown;
 }
 
 export interface RecordingEntry {

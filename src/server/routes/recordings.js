@@ -1,7 +1,8 @@
 'use strict';
 
 const path = require('path');
-const { listRecordings, loadRecording, listOrphanedRecordings, clearOrphanedRecordings } = require('../../recording');
+const { listRecordings, loadRecording, listOrphanedRecordings, clearOrphanedRecordings, saveRecordingCpuAvg } = require('../../recording');
+const { RECORDINGS_DIR_NAME } = require('../../scenarioTree');
 const { pathSafe } = require('../pathSafe');
 const streamReplay = require('../streamReplay');
 
@@ -38,6 +39,33 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 				meta: r.meta
 			};
 		}));
+	});
+
+	// Caches the GUI's CPU averages for one recording in its meta.json (see
+	// saveRecordingCpuAvg). Body: { path: <relPath of recording.json>, cpuAvg:
+	// { warmupTicks, warmup, steady } }. Only that exact shape is written: this
+	// is a cache, not a general way to edit a recording's metadata.
+	router.post('/api/recordings/cpu-avg', function (req, res) {
+		const body = req.body || {};
+		const cpuAvg = body.cpuAvg || {};
+		const numberOrNull = function (x) { return x === null || (typeof x === 'number' && isFinite(x)); };
+		if (typeof cpuAvg.warmupTicks !== 'number' || !numberOrNull(cpuAvg.warmup) || !numberOrNull(cpuAvg.steady)) {
+			ctx.sendJson(res, 400, { error: 'cpuAvg must be { warmupTicks, warmup, steady }' });
+			return;
+		}
+		let abs;
+		try { abs = pathSafe(ctx.recordingsRoot, body.path); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
+		const dir = path.dirname(abs);
+		if (path.basename(abs) !== 'recording.json' || path.basename(path.dirname(dir)) !== RECORDINGS_DIR_NAME) {
+			ctx.sendJson(res, 400, { error: 'not a recording: ' + body.path });
+			return;
+		}
+		try {
+			saveRecordingCpuAvg(dir, { warmupTicks: cpuAvg.warmupTicks, warmup: cpuAvg.warmup, steady: cpuAvg.steady });
+			ctx.sendJson(res, 200, { ok: true });
+		} catch (e) {
+			ctx.sendJson(res, e.statusCode || (e.code === 'ENOENT' ? 404 : 500), { error: String((e && e.message) || e) });
+		}
 	});
 
 	// Recordings left in the old top-level recordings/ with no scenario to

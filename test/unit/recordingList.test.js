@@ -9,6 +9,7 @@ const {
 	listRecordings,
 	readRecordingMeta,
 	_clearRecordingCache,
+	saveRecordingCpuAvg,
 	IN_PROGRESS_STALE_MS
 } = require('../../src/recording');
 
@@ -195,6 +196,26 @@ describe('listRecordings / readRecordingMeta', function () {
 			const after = listRecordings(root, { scenario: 'live' })[0];
 			assert.strictEqual(after.status, 'until');
 			assert.strictEqual(after.ticks, 7);
+		});
+	});
+
+	describe('saveRecordingCpuAvg', function () {
+		it('caches the averages in meta.json and the next listing sees them', function () {
+			const dir = makeRecording(root, 'alpha', '20260101-000000', { scenario: 'alpha', endReason: 'maxTicks', ticks: 40 });
+			// prime the finalized cache, which must not hide the update
+			assert.strictEqual(listRecordings(root, { scenario: 'alpha' })[0].meta.cpuAvg, undefined);
+			const cpuAvg = { warmupTicks: 15, warmup: 75.2, steady: 15.8 };
+			saveRecordingCpuAvg(dir, cpuAvg);
+			assert.deepStrictEqual(readRecordingMeta(dir).cpuAvg, cpuAvg);
+			assert.deepStrictEqual(listRecordings(root, { scenario: 'alpha' })[0].meta.cpuAvg, cpuAvg);
+			assert.strictEqual(readRecordingMeta(dir).ticks, 40, 'the rest of meta is kept');
+			assert.ok(!fs.existsSync(path.join(dir, 'meta.json.tmp')));
+		});
+
+		it('refuses a run that has not been finalized', function () {
+			const dir = makeInProgress(root, 'alpha', '20260101-000000');
+			assert.throws(function () { saveRecordingCpuAvg(dir, { warmupTicks: 15, warmup: 1, steady: null }); }, /not finalized/);
+			assert.strictEqual(readRecordingMeta(dir).cpuAvg, undefined);
 		});
 	});
 });

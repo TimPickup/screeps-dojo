@@ -4,6 +4,7 @@ import { recordingSubtitle, statusLabel } from '../../../api/recordingLabels';
 import type { RecordingEntry, Recording } from '../../../api/types';
 import type { ReplayBatch } from '../../../api/replayStream';
 import { ReplayViewer } from '../../ReplayViewer/ReplayViewer';
+import type { CpuSummary } from '../../../state/cpuSummary';
 import styles from './ReplaysTab.module.css';
 
 export function ReplaysTab({ scenario }: { scenario: string }) {
@@ -12,6 +13,9 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [recording, setRecording] = useState<Recording | null>(null);
   const [buffering, setBuffering] = useState(false);
+  // True only once the last batch has arrived. A failed stream also stops
+  // buffering, but leaves a partial replay that must not be averaged and cached.
+  const [complete, setComplete] = useState(false);
   const replayWorker = useRef<Worker | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +62,12 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
   // Scenario changes always load (the effect calls load directly); only the
   // manual button is gated, so repeated clicks cannot queue up requests.
   const refresh = () => { if (!inFlight.current) load(scenario); };
+  // First time a replay is averaged: store it on the server, and on the list
+  // entry so reopening it in this session doesn't average it again either.
+  const saveCpuAvg = useCallback((relPath: string, cpuAvg: CpuSummary) => {
+    setList((entries) => entries.map((e) => (e.relPath === relPath && e.meta ? { ...e, meta: { ...e.meta, cpuAvg } } : e)));
+    api.saveRecordingCpuAvg(relPath, cpuAvg).catch(() => { /* a cache: recomputed next time */ });
+  }, []);
   const setReplayPriority = useCallback((urgent: boolean) => {
     replayWorker.current?.postMessage({ type: 'priority', urgent });
   }, []);
@@ -67,6 +77,7 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
     setSelected(entry.relPath);
     setRecording(null);
     setBuffering(true);
+    setComplete(false);
     setError(null);
     const worker = new Worker(new URL('../../../api/replay.worker.ts', import.meta.url), { type: 'module' });
     replayWorker.current = worker;
@@ -81,11 +92,14 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
     worker.onmessage = ({ data }: MessageEvent<ReplayBatch>) => {
       if (replayWorker.current !== worker) return;
       if (data.error) { fail(data.error); return; }
-      if (!current) current = { meta: data.meta!, terrain: data.terrain!, frames: [] };
+      // meta.json (the list entry) can carry a CPU average cached after the
+      // recording.json was written; it wins over the embedded copy.
+      if (!current) current = { meta: { ...data.meta!, cpuAvg: entry.meta?.cpuAvg ?? data.meta!.cpuAvg }, terrain: data.terrain!, frames: [] };
       // Append once; do not copy the entire replay with each incoming batch.
       for (const frame of data.frames) current.frames.push(frame);
       setRecording({ ...current });
       setBuffering(!data.done);
+      setComplete(data.done);
       if (data.done) worker.terminate();
       else worker.postMessage('ack');
     };
@@ -131,7 +145,7 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
         {error && <div style={{ color: 'var(--hostile)', padding: 12 }}>{error}</div>}
         {!selected && !error && <div className={styles.empty}>Select a recording to watch.</div>}
         {selected && !recording && !error && <div className={styles.empty}>Loading…</div>}
-        {recording && selected && <ReplayViewer key={selected} recording={recording} relPath={selected} loading={buffering} onPriority={setReplayPriority} />}
+        {recording && selected && <ReplayViewer key={selected} recording={recording} relPath={selected} loading={buffering} complete={complete} onPriority={setReplayPriority} onCpuAvg={saveCpuAvg} />}
       </section>
     </div>
   );

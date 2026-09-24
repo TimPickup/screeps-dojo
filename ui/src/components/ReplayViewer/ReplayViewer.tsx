@@ -7,6 +7,7 @@ import { computeStageLayout } from '../../render/geometry';
 import { ConsoleDrawer } from '../ConsoleDrawer/ConsoleDrawer';
 import { buildConsoleIndex } from '../../api/consoleIndex';
 import { ObjectInspector } from '../ObjectInspector/ObjectInspector';
+import { CPU_WARMUP_TICKS, cachedCpuSummary, cpuSummary, formatCpuSummary, type CpuSummary } from '../../state/cpuSummary';
 import styles from './ReplayViewer.module.css';
 
 
@@ -36,8 +37,9 @@ function renderProgressLabel(format: 'gif' | 'mp4', progress: RenderProgress): s
   return 'Rendering ' + name + '…';
 }
 
-export function ReplayViewer({ recording, relPath, loading = false, onPriority }: {
-  recording: Recording; relPath: string; loading?: boolean; onPriority?: (urgent: boolean) => void;
+export function ReplayViewer({ recording, relPath, loading = false, complete = false, onPriority, onCpuAvg }: {
+  recording: Recording; relPath: string; loading?: boolean; complete?: boolean; onPriority?: (urgent: boolean) => void;
+  onCpuAvg?: (relPath: string, cpuAvg: CpuSummary) => void;
 }) {
   const prefs = usePrefs();
   const frames = recording.frames;
@@ -75,6 +77,25 @@ export function ReplayViewer({ recording, relPath, loading = false, onPriority }
   }
   cpuPeak.current.count = count;
   const maxCpu = cpuPeak.current.max;
+  // Whole-recording CPU average. Read from meta when a previous open cached it;
+  // otherwise averaged once every frame has arrived (frames stream in and the
+  // array grows in place, so count is part of the key) and handed back to be
+  // cached. Until then the label shows its final shape with "..ms". A stream
+  // that failed part-way never becomes complete, so a truncated replay is
+  // neither averaged nor cached.
+  const cachedCpu = useMemo(() => cachedCpuSummary(recording.meta.cpuAvg), [recording.meta.cpuAvg]);
+  const computedCpu = useMemo(
+    () => (cachedCpu || !complete ? null : cpuSummary(frames)),
+    [cachedCpu, frames, count, complete],
+  );
+  const savedCpu = useRef<CpuSummary | null>(null);
+  useEffect(() => {
+    if (!computedCpu || savedCpu.current === computedCpu) return;
+    savedCpu.current = computedCpu;
+    onCpuAvg?.(relPath, computedCpu);
+  }, [computedCpu, relPath, onCpuAvg]);
+  const recordingTicks = Math.max(recording.meta.ticks || 0, count - 1);
+  const cpuAvgLabel = formatCpuSummary(cachedCpu || computedCpu, recordingTicks);
   const curCpu = frame && typeof frame.cpu === 'number' ? frame.cpu : null;
   const cpuFrac = maxCpu > 0 && curCpu != null ? Math.min(1, curCpu / maxCpu) : 0;
   const cpuColor = cpuFrac > 0.8 ? '#e0564f' : cpuFrac > 0.5 ? '#e0a84f' : '#5bb98a';
@@ -153,6 +174,7 @@ export function ReplayViewer({ recording, relPath, loading = false, onPriority }
         <span className={styles.scenario}>{recording.meta.scenario}</span>
         {test && <span className={test.passed ? styles.pass : styles.fail}>{test.passed ? 'PASS' : 'FAIL'}</span>}
         <span className={styles.dim}>{recording.meta.endReason} · {total} frames</span>
+        {cpuAvgLabel && <span className={styles.dim} title={`Bot CPU per tick, averaged over the whole recording. Longer than ${CPU_WARMUP_TICKS} ticks: ticks 1-${CPU_WARMUP_TICKS}, then every tick after.`}>· {cpuAvgLabel}</span>}
         <span className={styles.dim} title="Bot CPU used this tick (ms)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           · CPU {curCpu != null ? curCpu.toFixed(1) : '—'}ms
           <span style={{ display: 'inline-block', width: 56, height: 8, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
