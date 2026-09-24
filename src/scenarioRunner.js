@@ -103,6 +103,40 @@ function accumulateDamage(damageTaken, previousHits, state) {
 	}
 }
 
+// The scenario.js contract, as JSDoc so the Edit tab's editor can complete it.
+// The checks after require() below enforce the required half; keep the two in
+// step. The Edit tab applies it to every scenario.js on its own; an editor
+// outside dojo can be pointed at it with
+//     /** @type {import('screeps-dojo/scenarioRunner').Scenario} */
+// on the module.exports line.
+
+/** @typedef {import('./dojoWorld')} DojoWorld */
+/** @typedef {import('./dojoWorld').WorldState} WorldState */
+
+/**
+ * @typedef {object} ScenarioResult
+ * @property {'maxTicks' | 'until' | 'botDied' | 'aborted'} endReason
+ * @property {number} ticks
+ * @property {string[]} mods
+ * @property {Record<string, number>} damageTaken hits lost per creep name
+ * @property {Record<string, boolean>} survived every creep ever seen -> alive at the end
+ * @property {string[]} console
+ * @property {WorldState} finalState
+ * @property {string | null} recordingPath
+ */
+
+/**
+ * @typedef {object} Scenario
+ * @property {number} maxTicks
+ * @property {(world: DojoWorld) => Promise<void> | void} setup must add the main bot (loadAllMaps, loadScenarioMaps or addMainBot)
+ * @property {(result: ScenarioResult, assert: typeof import('assert')) => void} expect throws to fail
+ * @property {(state: WorldState) => boolean} [until] true ends the run early
+ * @property {(world: DojoWorld) => Promise<void> | void} [afterStart] runs with the server live, before the first tick
+ * @property {Record<string, string> | (() => Record<string, string>)} [modules] bot code, module name -> source
+ * @property {number} [tickTimeout] ms one tick may take before the run fails (default 60000)
+ * @property {boolean} [record] always record this scenario
+ */
+
 async function runScenario(scenarioDir, options) {
 	options = options || {};
 	const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
@@ -115,6 +149,7 @@ async function runScenario(scenarioDir, options) {
 	const pendingWarnings = [];
 	const { sides, settings } = installSideContext(scenarioDir, function (w) { pendingWarnings.push(w); });
 
+	/** @type {Scenario} */
 	const scenario = require(path.join(scenarioDir, 'scenario.js'));
 	if (typeof scenario.maxTicks !== 'number' || scenario.maxTicks <= 0) throw new Error(scenarioDir + ': maxTicks is required');
 	if (typeof scenario.setup !== 'function') throw new Error(scenarioDir + ': setup(world) is required');
@@ -320,6 +355,7 @@ async function runScenario(scenarioDir, options) {
 		// runs against this and never needs recordingPath, so there's no ordering
 		// cycle: run expect -> capture pass/fail -> finalize meta (with test) ->
 		// set recordingPath.
+		/** @type {ScenarioResult} */
 		const result = {
 			endReason: endReason,
 			ticks: ticks,

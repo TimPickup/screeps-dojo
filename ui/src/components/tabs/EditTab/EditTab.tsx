@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { api } from '../../../api/client';
 import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
 import { MAIN_SIDE, parseDoc } from '../../ScenarioSettingsEditor/settingsDoc';
 import { ScenarioSettingsEditor } from '../../ScenarioSettingsEditor/ScenarioSettingsEditor';
 import { UnsavedDialog } from './UnsavedDialog';
 import { clearNavigationGuard, setNavigationGuard, type NavigationGuard } from '../../../state/navigationGuard';
+import { configureJavaScript, jsSideFor, selectJsTypes, stripAnnotation, wantsScenarioAnnotation, withAnnotation } from './editorTypes';
 import styles from './EditTab.module.css';
 
 interface FileEntry { path: string; kind: string; }
@@ -93,6 +94,12 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   // ones captured when it was created.
   const dirtyRef = useRef(false);
   const saveRef = useRef<() => Promise<void>>(async () => {});
+  const monacoRef = useRef<Monaco | null>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  // Whether this file gets the editor-only type annotation (see
+  // withAnnotation), decided when it is opened.
+  const [annotate, setAnnotate] = useState(false);
+  const annotatedLineRef = useRef(0);
 
   const selectedKind = files.find((f) => f.path === selected)?.kind;
   const isMap = selectedKind === 'map';
@@ -104,6 +111,41 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const dirty = structured ? normalizedJson(current) !== normalizedJson(savedContent) : current !== savedContent;
 
   dirtyRef.current = dirty;
+
+  // Bot code and scenario code run in different places, so each .js file gets
+  // only its own runtime's completions (see editorTypes.ts).
+  const jsSide = selected && selected.endsWith('.js') ? jsSideFor(selected, content) : null;
+  useEffect(() => {
+    if (monacoRef.current && jsSide) selectJsTypes(monacoRef.current, jsSide);
+  }, [jsSide]);
+  const beforeMount = (monaco: Monaco) => {
+    monacoRef.current = monaco;
+    configureJavaScript(monaco);
+    if (jsSide) selectJsTypes(monaco, jsSide);
+  };
+  const annotated = annotate ? withAnnotation(content) : { value: content, line: 0 };
+  annotatedLineRef.current = annotated.line;
+  // Hide the annotation line and number the rest as the file does, so line
+  // numbers still match the ones in run errors.
+  const applyAnnotationView = () => {
+    const editor = editorRef.current, monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const line = annotatedLineRef.current;
+    (editor as any).setHiddenAreas(line ? [new monaco.Range(line, 1, line, 1)] : []);
+    editor.updateOptions({
+      lineNumbers: line ? (n: number) => String(n > annotatedLineRef.current && annotatedLineRef.current ? n - 1 : n) : 'on'
+    });
+  };
+  const onMount: OnMount = (editor) => {
+    editorRef.current = editor;
+    applyAnnotationView();
+    // never leave the caret on the hidden line, where typing would edit it
+    editor.onDidChangeCursorPosition((e) => {
+      const line = annotatedLineRef.current;
+      if (line && e.position.lineNumber === line) editor.setPosition({ lineNumber: line + 1, column: 1 });
+    });
+  };
+  useEffect(applyAnnotationView, [annotated.line, selected]);
 
   // Anything that navigates away — the tab strip, the breadcrumbs, the back
   // button — asks here first, so a draft that only lives in React state is
@@ -150,6 +192,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
 
   const load = (path: string, text: string) => {
     setSelected(path); setContent(text); setMapDraft(text); setSettingsDraft(text); setSavedContent(text);
+    setAnnotate(wantsScenarioAnnotation(path, text));
   };
 
   // auto-open scenario.js (or the first file) when nothing is selected yet —
@@ -387,8 +430,13 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                   height="100%"
                   theme="vs-dark"
                   language={langFor(selected)}
-                  value={content}
-                  onChange={(v) => setContent(v ?? '')}
+                  // a real .js path: without an extension the language service
+                  // reads the file as TypeScript and ignores its JSDoc types
+                  path={'file:///scenarios/' + encodeURI(scenario + '/' + selected)}
+                  value={annotated.value}
+                  beforeMount={beforeMount}
+                  onMount={onMount}
+                  onChange={(v) => setContent(annotate ? stripAnnotation(v ?? '') : v ?? '')}
                   options={{ fontFamily: 'monospace', fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false }}
                 />
               </div>

@@ -149,6 +149,97 @@ function usersById(docs) {
 	return users;
 }
 
+// The shapes scenarios pass into the world and read back out of it. Written
+// as JSDoc so the Edit tab's editor can complete them: the UI build generates
+// its type declarations from this file, so they follow the code as it changes.
+
+/** @typedef {'me' | 'invader' | 'sourceKeeper' | string} Owner */
+
+/**
+ * @typedef {object} BotOptions
+ * @property {string} [room] home room; omit room/x/y to adopt a map spawn with owner 'me'
+ * @property {number} [x]
+ * @property {number} [y]
+ * @property {string} [username]
+ * @property {Record<string, string>} [modules] bot code, module name -> source
+ */
+
+/**
+ * @typedef {object} LoadMapsOptions
+ * @property {boolean} [autoMirror] fix edge mismatches between neighbouring maps instead of throwing
+ * @property {boolean} [sealExteriorExits] false leaves exits out of the loaded set open
+ * @property {string | object} [memory] seeds the main bot's Memory
+ * @property {Record<string, string | object>} [segments] seeds RawMemory segments, id -> contents
+ */
+
+/**
+ * @typedef {object} CreepOptions
+ * @property {string} room
+ * @property {number} x
+ * @property {number} y
+ * @property {string} name
+ * @property {Array<string | { type: string, boost?: string }>} body
+ * @property {Owner} [owner] defaults to the main bot
+ * @property {Owner} [user] wins over owner
+ * @property {Record<string, string>} [boosts] part type -> compound, e.g. { tough: 'XGHO2' }
+ * @property {number} [ticksToLive]
+ * @property {number} [ageTime] absolute death tick; wins over ticksToLive
+ * @property {Record<string, number>} [store]
+ * @property {number} [hits]
+ * @property {number} [hitsMax]
+ * @property {boolean} [activate] false skips waking the room
+ * @property {string} [id]
+ * @property {string} [strongholdId]
+ */
+
+/**
+ * @typedef {object} SpawnOptions
+ * @property {string} room
+ * @property {number} x
+ * @property {number} y
+ * @property {string} [name]
+ * @property {Owner} [user] defaults to the main bot
+ * @property {boolean} [activate]
+ */
+
+/**
+ * @typedef {object} FlagOptions
+ * @property {Owner} [user] defaults to the main bot
+ * @property {number} [color] COLOR_* constant
+ * @property {number} [secondaryColor]
+ */
+
+/**
+ * @typedef {object} CreepSnapshot
+ * @property {string} name
+ * @property {string} room
+ * @property {number} x
+ * @property {number} y
+ * @property {number} hits
+ * @property {number} hitsMax
+ * @property {Record<string, number>} store
+ * @property {string} user
+ */
+
+/**
+ * @typedef {object} FlagSnapshot
+ * @property {string} name
+ * @property {string} room
+ * @property {number} x
+ * @property {number} y
+ * @property {string} user
+ */
+
+/**
+ * @typedef {object} WorldState
+ * @property {number} gameTime
+ * @property {Record<string, CreepSnapshot>} creeps the main bot's creeps, by name
+ * @property {Record<string, CreepSnapshot>} hostileCreeps everyone else's, by name
+ * @property {Record<string, FlagSnapshot>} flags
+ * @property {object[]} objects raw rooms.objects docs
+ * @property {Record<string, { username: string, score: number }>} users by user id
+ */
+
 class DojoWorld {
 	// options.mods    — active mod IDs (src/mods.js), for mod-supplied object
 	//                   defaults and for the run's metadata
@@ -365,6 +456,9 @@ class DojoWorld {
 		return true;
 	}
 
+	/**
+	 * @param {BotOptions} botOptions
+	 */
 	async addMainBot(botOptions) {
 		const options = Object.assign({ username: 'dojo', modules: this.modules || {} }, botOptions);
 		this.bot = await this.world.addBot(options);
@@ -406,6 +500,9 @@ class DojoWorld {
 
 	// Overwrites the main bot's Memory blob (addBot seeds it to '{}').
 	// `memory` may be a JSON string or a plain object.
+	/**
+	 * @param {string | object} memory
+	 */
 	async seedMemory(memory) {
 		if (!this.botUserId) throw new Error('seedMemory: add the main bot first');
 		const { env } = await this.world.load();
@@ -415,6 +512,9 @@ class DojoWorld {
 
 	// Seeds RawMemory segment contents. `segments` is a map of
 	// segmentNumber -> string. The bot still selects active segments at runtime.
+	/**
+	 * @param {Record<string, string | object>} segments
+	 */
 	async seedSegments(segments) {
 		if (!this.botUserId) throw new Error('seedSegments: add the main bot first');
 		const { env } = await this.world.load();
@@ -441,6 +541,9 @@ class DojoWorld {
 		};
 	}
 
+	/**
+	 * @param {BotOptions} botOptions
+	 */
 	async addEnemyBot(botOptions) {
 		// A scenario may drop an enemy into a room whose map has no controller
 		// (loadScenarioMaps only seeds the placeholder in the main bot's home).
@@ -451,12 +554,20 @@ class DojoWorld {
 	// Removes the spawn(s) addBot forced into a room — for scenarios that want
 	// the bot to start spawnless (e.g. probing a base plan with vision from a
 	// creep, then placing the spawn where the bot's own planner wants it).
+	/**
+	 * @param {string} room
+	 * @returns {Promise<number>}
+	 */
 	async removeSpawns(room) {
 		return this.removeObject({ room: room, type: 'spawn' });
 	}
 
 	// Inserts a spawn mid-run (the sandbox equivalent of a player placing
 	// their first spawn). Same doc shape addBot uses. Returns the new _id.
+	/**
+	 * @param {SpawnOptions} spawnOptions
+	 * @returns {Promise<string>}
+	 */
 	async addSpawn(spawnOptions) {
 		const userId = spawnOptions.user === undefined ? this.botUserId : this.resolveOwner(spawnOptions.user);
 		if (!userId) throw new Error('addSpawn: no user (add the main bot first or pass user)');
@@ -471,6 +582,10 @@ class DojoWorld {
 	// Evaluates a console expression inside the main bot's VM and returns the
 	// result string. The expression executes during the NEXT tick, so this
 	// advances the world by one tick.
+	/**
+	 * @param {string} expression
+	 * @returns {Promise<string>}
+	 */
 	async evalInBot(expression) {
 		if (!this.bot) throw new Error('evalInBot: add the main bot first');
 		const bot = this.bot;
@@ -618,6 +733,10 @@ class DojoWorld {
 	}
 
 	// One map by room name: the scenario's own map.<room>.json, parsed.
+	/**
+	 * @param {string} room
+	 * @returns {any}
+	 */
 	loadMap(room) {
 		const dir = this.requireScenarioDir('loadMap');
 		const file = 'map.' + room + '.json';
@@ -632,6 +751,9 @@ class DojoWorld {
 	// EVERY map in the scenario directory, parsed, ordered by file name so a
 	// run is reproducible (loadScenarioMaps adopts the FIRST owner:'me' spawn
 	// it finds as the bot's home).
+	/**
+	 * @returns {any[]}
+	 */
 	loadMaps() {
 		const dir = this.requireScenarioDir('loadMaps');
 		const files = this.mapFileNames();
@@ -659,6 +781,10 @@ class DojoWorld {
 	// Load the whole scenario directory into the world in one call: every
 	// map.*.json, then the usual loadScenarioMaps (bot, objects, controllers).
 	// Same arguments as loadScenarioMaps, minus the maps.
+	/**
+	 * @param {BotOptions} [botOptions]
+	 * @param {LoadMapsOptions} [options]
+	 */
 	async loadAllMaps(botOptions, options) {
 		return this.loadScenarioMaps(this.loadMaps(), botOptions, options);
 	}
@@ -689,6 +815,11 @@ class DojoWorld {
 	// map already carries. (The mockup's addBot always bootstraps its own Spawn1
 	// and needs a location, so when we adopt a map spawn we place that bootstrap
 	// on the same tile and drop it afterwards, leaving the map's named spawn.)
+	/**
+	 * @param {any[]} maps
+	 * @param {BotOptions} [botOptions]
+	 * @param {LoadMapsOptions} [options]
+	 */
 	async loadScenarioMaps(maps, botOptions, options) {
 		const opts = Object.assign({}, botOptions);
 		const home = this.findHomeSpawn(maps);
@@ -874,6 +1005,14 @@ class DojoWorld {
 	// absolute deadlines the engine reads — see applyClocks for the defaults.
 	// A map's own structures[]/sources[] entry can be passed straight through:
 	// its type/x/y keys are dropped rather than written into the doc.
+	/**
+	 * @param {string} room
+	 * @param {string} type
+	 * @param {number} x
+	 * @param {number} y
+	 * @param {Record<string, any>} [attributes]
+	 * @returns {Promise<string>}
+	 */
 	async addObject(room, type, x, y, attributes) {
 		if (NON_ROOM_OBJECT_TYPES[type]) {
 			throw new Error('addObject: ' + type + ' is not a room object — use '
@@ -964,6 +1103,11 @@ class DojoWorld {
 	//
 	// Wakes every room it touched, because a change the engine never processes
 	// is a change the bot never sees. Returns how many objects were updated.
+	/**
+	 * @param {Record<string, any>} query
+	 * @param {Record<string, any>} changes
+	 * @returns {Promise<number>}
+	 */
 	async updateObject(query, changes) {
 		const { db } = await this.world.load();
 		const matched = await db['rooms.objects'].find(query);
@@ -997,6 +1141,10 @@ class DojoWorld {
 	// Deletes objects and wakes the rooms they were in: the engine has to run a
 	// tick to notice a structure is gone. Same selector as updateObject; returns
 	// how many objects were removed.
+	/**
+	 * @param {Record<string, any>} query
+	 * @returns {Promise<number>}
+	 */
 	async removeObject(query) {
 		const { db } = await this.world.load();
 		const matched = await db['rooms.objects'].find(query);
@@ -1091,6 +1239,10 @@ class DojoWorld {
 	// Options: room, x, y, name, body (required); user/owner, boosts,
 	// ticksToLive or ageTime, store, hits, hitsMax, activate (all optional).
 	// Returns the new creep's _id.
+	/**
+	 * @param {CreepOptions} creepOptions
+	 * @returns {Promise<string>}
+	 */
 	async addCreep(creepOptions) {
 		if (!creepOptions.name) throw new Error('addCreep: name is required');
 		if (!Array.isArray(creepOptions.body) || creepOptions.body.length === 0) {
@@ -1190,6 +1342,9 @@ class DojoWorld {
 	// One tick only: ACTIVE_ROOMS is drained as the driver reads it. Never set
 	// `db.rooms.active` here — that pins the room forever (see keepRoomActive),
 	// and a one-off wake must let the room fall asleep again.
+	/**
+	 * @param {string} roomName
+	 */
 	async activateRoom(roomName) {
 		const { env } = await this.world.load();
 		await env.sadd(env.keys.ACTIVE_ROOMS, roomName);
@@ -1209,6 +1364,9 @@ class DojoWorld {
 	// does the work, we pay nothing per tick.
 	//
 	// Undo it with an explicit `$set: { active: false }`; nothing else will.
+	/**
+	 * @param {string} roomName
+	 */
 	async keepRoomActive(roomName) {
 		const { db } = await this.world.load();
 		await db.rooms.update({ _id: roomName }, { $set: { active: true } });
@@ -1217,6 +1375,13 @@ class DojoWorld {
 
 	// Flags are NOT room objects: one doc per (user, room) in 'rooms.flags',
 	// data string in the engine wire format (spec §5).
+	/**
+	 * @param {string} name
+	 * @param {string} room
+	 * @param {number} x
+	 * @param {number} y
+	 * @param {FlagOptions} [flagOptions]
+	 */
 	async addFlag(name, room, x, y, flagOptions) {
 		const options = flagOptions || {};
 		const userId = options.user === undefined ? this.botUserId : this.resolveOwner(options.user);
@@ -1336,6 +1501,9 @@ class DojoWorld {
 
 	// Snapshot read from the DB between ticks (spec §4): the runner and
 	// scenario until()/expect() see ONLY this, never bot internals.
+	/**
+	 * @returns {Promise<WorldState>}
+	 */
 	async readState() {
 		if (!this.botUserId) throw new Error('readState: add the main bot first (creep ownership is classified against it)');
 		const { db } = await this.world.load();
