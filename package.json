@@ -4,6 +4,9 @@
 	"description": "Scenario test harness for Screeps bots: real engine, tick by tick, headless",
 	"private": true,
 	"license": "MIT",
+	"exports": {
+		"./*": "./src/*.js"
+	},
 	"scripts": {
 		"postinstall": "node tools/mockEnginePatches.cjs apply",
 		"verify:mock-engine-patches": "node tools/mockEnginePatches.cjs check",

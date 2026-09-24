@@ -21,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 // Your real bot, instead of a local main.js — see `modules` below.
-// const { allBotModules, loadBotModules, botDir } = require('../../src/botModules');
+// const { allBotModules, loadBotModules, botDir } = require('screeps-dojo/botModules');
 
 module.exports = {
 

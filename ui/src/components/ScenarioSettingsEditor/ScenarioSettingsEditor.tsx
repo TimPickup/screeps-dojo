@@ -26,14 +26,14 @@ function names(profiles: Array<{ name: string }>): string[] {
   return profiles.map((profile) => profile.name);
 }
 
-const BOT_SNIPPET = `const { allBotModules } = require('../../src/botModules');
+const BOT_SNIPPET = `const { allBotModules } = require('screeps-dojo/botModules');
 
 module.exports = {
   modules: allBotModules(),
   ...
 };`;
 
-const SIDE_SNIPPET = `const { allBotModules, botDir } = require('../../src/botModules');
+const SIDE_SNIPPET = `const { allBotModules, botDir } = require('screeps-dojo/botModules');
 
 world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) });`;
 

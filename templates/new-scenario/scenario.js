@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-// const { allBotModules } = require('../../src/botModules');
+// const { allBotModules } = require('screeps-dojo/botModules');
 
 module.exports = {
 	// Code uploaded into the game VM. Use a local main.js, OR pull your real

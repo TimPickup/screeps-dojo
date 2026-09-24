@@ -372,9 +372,12 @@ See `examples/README.md` for a guided tour. A scenario is a directory
 `scenarios/<name>/scenario.js` exporting:
 
 - `modules` — code uploaded into the game VM: read scenario-local files, use
-  `loadBotModules(['CombatMovement', ...])` from `src/botModules` to pull your
-  real modules, or `allBotModules()` to run your ENTIRE codebase with its real
-  `main.js`. Which codebase that is comes from the scenario's
+  `loadBotModules(['CombatMovement', ...])` from
+  `require('screeps-dojo/botModules')` to pull your real modules, or
+  `allBotModules()` to run your ENTIRE codebase with its real `main.js`. Load
+  dojo's own code as `screeps-dojo/<file>` (any file in `src/`), never
+  `../../src/<file>`, so a scenario still works after you move it into a
+  sub-folder. Which codebase that is comes from the scenario's
   [bot profile](#bot-profiles); `botDir('enemy')` gives you another one.
 - `setup(world)` — build the world: `world.loadScenarioMaps([map], botOptions)`,
   `world.addCreep(...)`, `world.addEnemyBot(...)`, `world.addFlag(...)`. To

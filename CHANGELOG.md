@@ -5,6 +5,18 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+### Changed
+
+- Scenarios load dojo's own code by package name —
+  `require('screeps-dojo/botModules')` — instead of `../../src/botModules`, so a
+  scenario keeps working after you move it into a sub-folder. Any file in
+  `src/` can be loaded as `screeps-dojo/<file>`. The templates and the
+  scenario-settings snippets use the new form. Existing scenarios that still
+  say `../../src/...` keep working until they change folder depth; replace the
+  `../`s and `src/` with `screeps-dojo/` to fix one.
+
 ## [0.15.0] — 2026-09-24
 
 Imported strongholds fight like strongholds now instead of charging you like a
