@@ -42,13 +42,14 @@ interface Props {
   onTick: (t: number) => void;
   onEnded: () => void;
   showVisuals: boolean;
+  showMapVisuals?: boolean;
   selectedId: string | null;
   onSelectObject: (id: string | null) => void;
 }
 
 // Shared canvas replay/live renderer: cached terrain + structure layers with
 // native Canvas2D creeps, interpolation, effects and RoomVisual playback.
-export function CanvasStage({ recording, layout, relPath, playing, loading = false, speed, tick, onTick, onEnded, showVisuals, selectedId, onSelectObject }: Props) {
+export function CanvasStage({ recording, layout, relPath, playing, loading = false, speed, tick, onTick, onEnded, showVisuals, showMapVisuals = false, selectedId, onSelectObject }: Props) {
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
   const modImages = useModImages();
@@ -61,7 +62,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   const playhead = useRef(0);
   const lastTs = useRef(0);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
-  const stateRef = useRef({ playing, loading, speed, tick, showVisuals, selectedId, onEnded });
+  const stateRef = useRef({ playing, loading, speed, tick, showVisuals, showMapVisuals, selectedId, onEnded });
   // The draw loop is created once; a ref lets it pick up the artwork as it
   // finishes decoding, without tearing the loop down and back up.
   const modImagesRef = useRef(modImages);
@@ -69,7 +70,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
   const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
   recordingRef.current = recording;
-  stateRef.current = { playing, loading, speed, tick, showVisuals, selectedId, onEnded };
+  stateRef.current = { playing, loading, speed, tick, showVisuals, showMapVisuals, selectedId, onEnded };
   modImagesRef.current = modImages;
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
@@ -151,7 +152,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
         const f0 = activeRecording.frames[Math.min(drawTick, count - 1)];
         c.layers.sync(f0);
         drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, {
-          sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals,
+          sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, showMapVisuals: st.showMapVisuals,
           modImages: modImagesRef.current, smoothTurns: st.speed <= SMOOTH_TURN_MAX_SPEED,
         });
       }

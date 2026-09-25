@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
 // Tiny localStorage-backed preferences store. Phase 5's Settings overlay edits
-// these; Run/Replays read showUserVisuals + defaultReplaySpeed.
+// these; Run/Replays read showUserVisuals, showMapVisuals + defaultReplaySpeed.
 export interface Prefs {
   showUserVisuals: boolean;
+  showMapVisuals: boolean;
   defaultReplaySpeed: number;
 }
 
@@ -13,7 +14,7 @@ export interface Prefs {
 export const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128];
 
 const KEY = 'dojo.prefs';
-const DEFAULTS: Prefs = { showUserVisuals: true, defaultReplaySpeed: 1 };
+const DEFAULTS: Prefs = { showUserVisuals: true, showMapVisuals: true, defaultReplaySpeed: 1 };
 
 function read(): Prefs {
   try {

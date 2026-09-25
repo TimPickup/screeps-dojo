@@ -211,6 +211,9 @@ export interface Frame {
   // newline-separated command strings (src/dojoWorld.js captureState). Optional:
   // recordings made before this was captured simply do not carry it.
   visuals?: Record<string, string>;
+  // The bot's Game.map.visual draws: one raw command string for the whole map,
+  // each command carrying its own room name(s). Absent when the bot drew none.
+  mapVisuals?: string;
   // userId -> { username, score }. Season 5 pays score to a reactor's OWNER, so
   // it is a user field, not an object field. Absent on older recordings.
   users?: Record<string, { username?: string; score?: number }>;

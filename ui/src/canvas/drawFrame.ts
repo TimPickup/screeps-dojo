@@ -20,6 +20,7 @@ import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
 import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
+import { drawMapVisuals } from './mapVisuals.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
 
 interface DrawOptions {
@@ -27,6 +28,8 @@ interface DrawOptions {
 	layers: StaticLayers;
 	layout: StageLayout;
 	showVisuals: boolean;
+	// The bot's Game.map.visual draws, laid over the whole stage. Off unless asked.
+	showMapVisuals?: boolean;
 	// Sweep creeps into a new heading over the first part of the tick instead of
 	// snapping them round. The caller decides: worth it at ordinary replay
 	// speeds, a flicker beyond SMOOTH_TURN_MAX_SPEED.
@@ -286,6 +289,12 @@ export function drawFrame(
 	// creeps, effects, resources, and user RoomVisuals.
 	if (options.layers.rampart) {
 		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
+	}
+
+	// 5) bot's Game.map.visual draws: a map-scale overlay above the rooms
+	//    themselves, as the game client's world map shows them.
+	if (options.showMapVisuals && tickFrame.mapVisuals) {
+		drawMapVisuals(ctx, tickFrame.mapVisuals, offsets);
 	}
 }
 

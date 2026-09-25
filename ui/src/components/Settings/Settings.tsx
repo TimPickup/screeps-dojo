@@ -120,6 +120,10 @@ export function Settings({ onClose, section }: { onClose: () => void; section?: 
             Show user visuals (creep say bubbles)
           </label>
           <label className={styles.row}>
+            <input type="checkbox" checked={prefs.showMapVisuals} onChange={(e) => setPrefs({ showMapVisuals: e.target.checked })} />
+            Show map visuals (Game.map.visual)
+          </label>
+          <label className={styles.row}>
             Default replay speed
             <select value={prefs.defaultReplaySpeed} onChange={(e) => setPrefs({ defaultReplaySpeed: Number(e.target.value) })}>
               {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}

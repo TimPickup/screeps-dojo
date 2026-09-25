@@ -90,7 +90,7 @@ export function RunTab({ scenario }: { scenario: string }) {
         ) : liveRecording && stream.layout ? (
           <CanvasStage recording={liveRecording} layout={stream.layout} relPath={`live:${jobId}`}
             playing={false} speed={1} tick={liveRecording.frames.length - 1}
-            onTick={() => {}} onEnded={() => {}} showVisuals={prefs.showUserVisuals}
+            onTick={() => {}} onEnded={() => {}} showVisuals={prefs.showUserVisuals} showMapVisuals={prefs.showMapVisuals}
             selectedId={selectedId} onSelectObject={setSelectedId} />
         ) : (
           <div className={styles.idle}><div className={styles.idleHint}>booting server…</div></div>

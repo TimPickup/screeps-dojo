@@ -218,6 +218,7 @@ async function renderRecording(recording, outFile, options) {
 			layers: layers,
 			layout: layout,
 			showVisuals: true,
+			showMapVisuals: true,
 			modImages: modImages,
 			// Same rule as the browser: sweep turns at ordinary speeds, snap once
 			// a tick is too brief for the sweep to read.

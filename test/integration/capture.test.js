@@ -19,7 +19,11 @@ describe('capture API', function () {
 		await world.reset();
 		const map = JSON.parse(fs.readFileSync(
 			path.join(__dirname, '..', '..', 'examples', 'walk-to-flag', 'map.json'), 'utf8'));
-		world.modules = { main: 'module.exports.loop = function () {};' };
+		// one RoomVisual and one Game.map.visual draw per tick, for the capture test below
+		world.modules = { main: 'module.exports.loop = function () {'
+			+ ' new RoomVisual("W0N0").circle(1, 1);'
+			+ ' Game.map.visual.circle(new RoomPosition(25, 25, "W0N0"));'
+			+ ' };' };
 		await world.loadScenarioMaps([map], { room: 'W0N0', x: 5, y: 2 });
 		await world.addCreep({ room: 'W0N0', x: 25, y: 25, name: 'victim', body: ['move'] });
 		// invader adjacent so an attack actionLog entry appears within a few ticks
@@ -56,5 +60,14 @@ describe('capture API', function () {
 			if (withAction.length > 0 || events.length > 0) sawAction = true;
 		}
 		assert.ok(sawAction, 'expected an attack to surface in actionLog or eventLog within 5 ticks');
+	});
+
+	it('captureFrame keeps RoomVisual and Game.map.visual draws apart', async function () {
+		await world.tick();
+		const frame = await world.captureFrame();
+		assert.ok(frame.visuals.W0N0, 'room visual captured');
+		assert.strictEqual(frame.visuals.map, undefined, 'map draws are not filed as a room');
+		const mapCommand = JSON.parse(frame.mapVisuals.split('\n')[0]);
+		assert.deepStrictEqual([mapCommand.t, mapCommand.x, mapCommand.y, mapCommand.n], ['c', 25, 25, 'W0N0']);
 	});
 });

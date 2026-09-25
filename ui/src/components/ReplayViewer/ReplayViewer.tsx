@@ -53,6 +53,7 @@ export function ReplayViewer({ recording, relPath, loading = false, complete = f
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [render, setRender] = useState<RenderState | null>(null);
   const [showVisuals, setShowVisuals] = useState(prefs.showUserVisuals);
+  const [showMapVisuals, setShowMapVisuals] = useState(prefs.showMapVisuals);
   // Jump-to-tick: the label doubles as the way in, so the scrub bar keeps its
   // single row.
   const [tickDraft, setTickDraft] = useState<string | null>(null);
@@ -183,6 +184,7 @@ export function ReplayViewer({ recording, relPath, loading = false, complete = f
         </span>
         <span className={styles.spacer} />
         <button className={showVisuals ? styles.toggleOn : styles.btn} onClick={() => setShowVisuals((v) => !v)} title="Toggle the bot's own RoomVisual draws">👁 visuals</button>
+        <button className={showMapVisuals ? styles.toggleOn : styles.btn} onClick={() => setShowMapVisuals((v) => !v)} title="Toggle the bot's Game.map.visual draws">🗺 map visuals</button>
         <button className={styles.btn} onClick={() => doRender('gif')}>⤓ GIF</button>
         <button className={styles.btn} onClick={() => doRender('mp4')}>⤓ MP4</button>
       </div>
@@ -212,7 +214,7 @@ export function ReplayViewer({ recording, relPath, loading = false, complete = f
       <div className={styles.canvas}>
         <CanvasStage recording={recording} layout={canvasLayout} relPath={relPath}
           playing={playing && !waiting} loading={loading} speed={speed} tick={clampTick} onTick={setTick} onEnded={() => setPlaying(false)}
-          showVisuals={showVisuals} selectedId={selectedId} onSelectObject={setSelectedId} />
+          showVisuals={showVisuals} showMapVisuals={showMapVisuals} selectedId={selectedId} onSelectObject={setSelectedId} />
         {waiting && <div className={styles.seekLoading} role="status">Loading tick {clampTick.toLocaleString()}…</div>}
       </div>
 

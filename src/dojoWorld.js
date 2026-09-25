@@ -1448,22 +1448,31 @@ class DojoWorld {
 		// can show them. The just-run tick's visuals are keyed at gameTime (try
 		// gameTime-1 as a fallback for any off-by-one in timing).
 		const visuals = {};
+		// Game.map.visual draws: the engine files them under the pseudo-room
+		// "map" (roomVisual:<user>,map,<time>), one command string for the whole
+		// map, each command naming its own room(s).
+		let mapVisuals = null;
 		if (this.botUserId) {
 			const visualKey = (roomName, time) => env.keys.ROOM_VISUAL + this.botUserId + ',' + roomName + ',' + time;
+			const keyedRooms = rooms.concat(['map']);
 			try {
-				const current = await env.mget(rooms.map(function (roomName) { return visualKey(roomName, gameTime); }));
-				const missing = rooms.filter(function (roomName, i) { return !current[i]; });
+				const current = await env.mget(keyedRooms.map(function (roomName) { return visualKey(roomName, gameTime); }));
+				const missing = keyedRooms.filter(function (roomName, i) { return !current[i]; });
 				const previous = missing.length
 					? await env.mget(missing.map(function (roomName) { return visualKey(roomName, gameTime - 1); }))
 					: [];
-				rooms.forEach(function (roomName, i) { if (current[i]) visuals[roomName] = current[i]; });
+				keyedRooms.forEach(function (roomName, i) { if (current[i]) visuals[roomName] = current[i]; });
 				missing.forEach(function (roomName, i) { if (previous[i]) visuals[roomName] = previous[i]; });
 			} catch (error) { /* no visuals this tick */ }
+			// A real room can't be called "map", so this never steals a room's draws.
+			if (visuals.map) { mapVisuals = visuals.map; delete visuals.map; }
 		}
-		return {
+		const frame = {
 			gameTime: gameTime, cpu: cpu, objects: objects, flags: flags,
 			eventLog: eventLog, visuals: visuals, users: usersById(userDocs)
 		};
+		if (mapVisuals) frame.mapVisuals = mapVisuals;
+		return frame;
 	}
 
 	// Terrain as the map-format char rows, read back from the server, keyed
