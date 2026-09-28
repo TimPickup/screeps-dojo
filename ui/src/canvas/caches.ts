@@ -6,6 +6,7 @@ import {
 	type CanvasFactory,
 } from './staticLayers.ts';
 import { populateFrameMy } from './ownership.ts';
+import { flagKeyPart, rampartKeyPart, structureKeyPart } from './roomIndex.ts';
 import { STATIC_LAYER_OBJECT_TYPES, STATIC_LAYER_RESOLUTION, SWAMP_RENDER_STYLE } from './renderConstants.ts';
 import { AnimatedSwampRenderer } from './terrainSwamps.ts';
 import type { ModImages } from './modImages.ts';
@@ -19,10 +20,9 @@ export function epochKey(frame: Frame): string {
 	const parts: string[] = [];
 	for (const object of frame.objects) {
 		if (!STATIC_LAYER_OBJECT_TYPES.has(object.type)) continue;
-		parts.push(object.type + ',' + object.room + ',' + object.x + ',' + object.y + ','
-			+ (object.level ?? '') + ',' + (object.user ?? '') + ',' + (object.depositType ?? ''));
+		parts.push(structureKeyPart(object));
 	}
-	for (const flag of frame.flags || []) parts.push('flag,' + JSON.stringify(flag));
+	for (const flag of frame.flags || []) parts.push(flagKeyPart(flag));
 	parts.sort();
 	return parts.join('|');
 }
@@ -31,13 +31,7 @@ export function rampartEpochKey(frame: Frame): string {
 	const parts: string[] = [];
 	for (const object of frame.objects) {
 		if (object.type !== 'rampart') continue;
-		parts.push([
-			object.room,
-			object.x,
-			object.y,
-			object.my ? 'own' : 'other',
-			object.isPublic === true ? 'public' : 'private',
-		].join(','));
+		parts.push(rampartKeyPart(object));
 	}
 	parts.sort();
 	return parts.join('|');
