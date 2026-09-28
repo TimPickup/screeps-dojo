@@ -168,6 +168,11 @@ export const ROOM_NAME_STYLE = { fontSize: 0.65, x: 0.15, baseline: 0.75 } as co
 
 export const STATIC_LAYER_RESOLUTION = 24;
 
+// Structure and rampart tiles are cached wider than a room so a shell drawn
+// near the edge (its outline, a wide public-rampart marker) never gets cut by
+// the tile boundary. Terrain tiles need none: they abut edge-to-edge.
+export const TILE_PADDING_TILES = 2;
+
 export const WALL_RENDER_STYLE = {
 	cornerRadius: 0.42,
 	textureOpacity: 0.055,

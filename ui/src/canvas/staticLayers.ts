@@ -1,4 +1,4 @@
-import type { Recording, StageLayout, Frame } from '../api/types.ts';
+import type { Recording, StageLayout, Frame, FrameObject } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
 import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, roundedSquare, text } from './primitives.ts';
@@ -21,13 +21,15 @@ import {
 	SOURCE_RENDER_STYLE,
 	STATIC_LAYER_RESOLUTION,
 	STRUCTURE_SHELL_TYPES,
+	TILE_PADDING_TILES,
 } from './renderConstants.ts';
 
 export { STATIC_LAYER_RESOLUTION as STATIC_RES } from './renderConstants.ts';
 
 // One room's immutable ground at room-local integer tile coordinates. Walls
-// are drawn in the epoch-cached structure layer so constructed walls can join
-// their terrain geometry without adding another per-frame canvas layer.
+// are drawn separately, over this, by drawRoomTerrainLayer: the terrain tile
+// is opaque, so a border wall's half-pixel overlap with the next tile hides
+// rather than showing a seam, which a transparent structure tile could not.
 export function drawTerrain(
 	ctx: CanvasRenderingContext2D,
 	rows: string[],
@@ -75,25 +77,39 @@ export function drawTerrain(
 	ctx.restore();
 }
 
+// One room's terrain plus its walls, room-local. Walls draw here rather than
+// in the structure layer: terrain is opaque, so the half-pixel overlap between
+// adjacent terrain tiles (Task 4) hides the seam a transparent structure tile
+// would otherwise show as a hairline at fractional zoom.
+export function drawRoomTerrainLayer(
+	ctx: CanvasRenderingContext2D,
+	rows: string[],
+	constructedWalls: Array<{ x: number; y: number }>,
+	terrainTextures?: TerrainTextures,
+	wallTexture?: CanvasImageSource,
+): void {
+	drawTerrain(ctx, rows, terrainTextures);
+	drawWallIslands(ctx, rows, wallTexture, constructedWalls);
+}
+
 // The room's own name, small and white inside its top-left corner. Baked into
 // the structure layer, which sits above the walls the corner tile is made of, so
-// playback costs nothing per frame.
-export function drawRoomNames(ctx: CanvasRenderingContext2D, layout: StageLayout): void {
+// playback costs nothing per frame. Room-local.
+function drawRoomName(ctx: CanvasRenderingContext2D, roomName: string): void {
 	ctx.save();
 	ctx.fillStyle = RENDER_COLORS.roomName;
-	const font = parseRenderFont(ROOM_NAME_STYLE.fontSize);
+	fillRenderText(ctx, roomName, ROOM_NAME_STYLE.x, ROOM_NAME_STYLE.baseline, parseRenderFont(ROOM_NAME_STYLE.fontSize), 'left');
+	ctx.restore();
+}
+
+export function drawRoomNames(ctx: CanvasRenderingContext2D, layout: StageLayout): void {
 	for (const roomName of Object.keys(layout.offsets)) {
 		const roomOffset = layout.offsets[roomName];
-		fillRenderText(
-			ctx,
-			roomName,
-			roomOffset.col * ROOM_SIZE_TILES + ROOM_NAME_STYLE.x,
-			roomOffset.row * ROOM_SIZE_TILES + ROOM_NAME_STYLE.baseline,
-			font,
-			'left',
-		);
+		ctx.save();
+		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
+		drawRoomName(ctx, roomName);
+		ctx.restore();
 	}
-	ctx.restore();
 }
 
 export function drawTerrainScene(
@@ -158,70 +174,110 @@ export function buildTerrainCanvas(
 	});
 }
 
+// One room's static structures, room-local, in frameObjectsInDrawOrder order.
+// Roads collect their joins as they're drawn so connectRoads can lay a single
+// pass of joins over the whole room once the shells are down.
+function drawRoomStaticStructures(
+	ctx: CanvasRenderingContext2D,
+	objects: readonly FrameObject[],
+	modImages?: ModImages,
+): void {
+	const roads: number[][] = [];
+	for (const object of objects) {
+		if (STRUCTURE_SHELL_TYPES.has(object.type)) {
+			drawStructureShell(ctx, object);
+			if (object.type === 'road') roads.push([object.x, object.y]);
+		} else if (object.type === 'source') {
+			// The energy core is dynamic, so only its dark base is cached.
+			roundedSquare(ctx, object.x + 0.5, object.y + 0.5, SOURCE_RENDER_STYLE.halfSize, SOURCE_RENDER_STYLE.cornerRadius, {
+				fill: RENDER_COLORS.structure.sourceBase,
+				stroke: RENDER_COLORS.structure.sourceOutline,
+				strokeWidth: SOURCE_RENDER_STYLE.outlineWidth,
+			});
+		} else if (object.type === 'mineral') {
+			// Label the mineral with its resource type.
+			const mineralType = typeof object.mineralType === 'string' ? object.mineralType : '?';
+			const mineralColor = MINERAL_COLORS[mineralType] || DEFAULT_MINERAL_COLOR;
+			// Darken the fill while retaining the resource color as its outline.
+			const mineralDarkColor = darkenMineralColor(mineralColor);
+			circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
+			// Thorium gets the mod's own icon where it is available; the
+			// lettering stays the fallback, so the deposit is never unlabelled.
+			if (mineralType === 'T' && modImages?.thorium) {
+				ctx.drawImage(modImages.thorium, object.x + 0.5 - 0.45, object.y + 0.5 - 0.45, 0.9, 0.9);
+			} else {
+				text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
+			}
+		} else if (object.type === 'deposit') {
+			drawDeposit(ctx, object);
+		} else if (object.type === 'controller') {
+			// Draw the octagonal base and one triangular segment per level.
+			const octagon = [[0.292893, 0], [0.707107, 0], [1, 0.292893], [1, 0.707107], [0.707107, 1], [0.292893, 1], [0, 0.707107], [0, 0.292893],];
+			const octagonPoints = octagon.map(([dx, dy]) => [object.x - 0.25 + dx * 1.5, object.y - 0.25 + dy * 1.5]);
+			poly(ctx, octagonPoints, { fill: RENDER_COLORS.controller.base, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
+			const level = Math.min(object.level ?? 0, 8);
+			if (level > 0) {
+				for (let i = 0; i < level; i++) {
+					poly(ctx, [octagonPoints[i], octagonPoints[(i + 1) % 8], [object.x + 0.5, object.y + 0.5]], { fill: RENDER_COLORS.controller.level, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
+				}
+			}
+			let controllerColor;
+			if (level === 0) {
+				controllerColor = RENDER_COLORS.controller.unclaimed;
+			} else {
+				controllerColor = object.my ? RENDER_COLORS.ownership.bot : RENDER_COLORS.ownership.opponent;
+			}
+			circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.4, fill: controllerColor, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.05 });
+		}
+	}
+	connectRoads(ctx, roads);
+}
+
 export function drawStaticStructures(
 	ctx: CanvasRenderingContext2D,
 	frame: Frame,
 	layout: StageLayout,
 	modImages?: ModImages,
 ): void {
-	const objectsInDrawOrder = frameObjectsInDrawOrder(frame, layout);
+	const objectsByRoom = new Map<string, FrameObject[]>();
+	for (const object of frameObjectsInDrawOrder(frame, layout)) {
+		if (!layout.offsets[object.room]) continue;
+		const roomObjects = objectsByRoom.get(object.room);
+		if (roomObjects) roomObjects.push(object);
+		else objectsByRoom.set(object.room, [object]);
+	}
 	for (const room of Object.keys(layout.offsets)) {
 		const roomOffset = layout.offsets[room];
 		ctx.save();
 		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
-		const roads: number[][] = [];
-		for (const object of objectsInDrawOrder) {
-			if (object.room !== room) continue;
-			if (STRUCTURE_SHELL_TYPES.has(object.type)) {
-				drawStructureShell(ctx, object);
-				if (object.type === 'road') roads.push([object.x, object.y]);
-			} else if (object.type === 'source') {
-				// The energy core is dynamic, so only its dark base is cached.
-				roundedSquare(ctx, object.x + 0.5, object.y + 0.5, SOURCE_RENDER_STYLE.halfSize, SOURCE_RENDER_STYLE.cornerRadius, {
-					fill: RENDER_COLORS.structure.sourceBase,
-					stroke: RENDER_COLORS.structure.sourceOutline,
-					strokeWidth: SOURCE_RENDER_STYLE.outlineWidth,
-				});
-			} else if (object.type === 'mineral') {
-				// Label the mineral with its resource type.
-				const mineralType = typeof object.mineralType === 'string' ? object.mineralType : '?';
-				const mineralColor = MINERAL_COLORS[mineralType] || DEFAULT_MINERAL_COLOR;
-				// Darken the fill while retaining the resource color as its outline.
-				const mineralDarkColor = darkenMineralColor(mineralColor);
-				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.55, fill: mineralDarkColor, stroke: mineralColor, strokeWidth: 0.1 });
-				// Thorium gets the mod's own icon where it is available; the
-				// lettering stays the fallback, so the deposit is never unlabelled.
-				if (mineralType === 'T' && modImages?.thorium) {
-					ctx.drawImage(modImages.thorium, object.x + 0.5 - 0.45, object.y + 0.5 - 0.45, 0.9, 0.9);
-				} else {
-					text(ctx, mineralType, object.x + 0.5, object.y + 0.80, { font: 0.85, fill: mineralColor });
-				}
-			} else if (object.type === 'deposit') {
-				drawDeposit(ctx, object);
-			} else if (object.type === 'controller') {
-				// Draw the octagonal base and one triangular segment per level.
-				const octagon = [[0.292893, 0], [0.707107, 0], [1, 0.292893], [1, 0.707107], [0.707107, 1], [0.292893, 1], [0, 0.707107], [0, 0.292893],];
-				const octagonPoints = octagon.map(([dx, dy]) => [object.x - 0.25 + dx * 1.5, object.y - 0.25 + dy * 1.5]);
-				poly(ctx, octagonPoints, { fill: RENDER_COLORS.controller.base, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
-				const level = Math.min(object.level ?? 0, 8);
-				if (level > 0) {
-					for (let i = 0; i < level; i++) {
-						poly(ctx, [octagonPoints[i], octagonPoints[(i + 1) % 8], [object.x + 0.5, object.y + 0.5]], { fill: RENDER_COLORS.controller.level, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.1 });
-					}
-				}
-				let controllerColor;
-				if (level === 0) {
-					controllerColor = RENDER_COLORS.controller.unclaimed;
-				} else {
-					controllerColor = object.my ? RENDER_COLORS.ownership.bot : RENDER_COLORS.ownership.opponent;
-				}
-				circle(ctx, object.x + 0.5, object.y + 0.5, { radius: 0.4, fill: controllerColor, stroke: RENDER_COLORS.controller.outline, strokeWidth: 0.05 });
-			}
-		}
-		connectRoads(ctx, roads);
+		drawRoomStaticStructures(ctx, objectsByRoom.get(room) || [], modImages);
 		ctx.restore();
 	}
 	drawFlags(ctx, frame.flags, layout);
+}
+
+// One room's static structures, its flags and its name, room-local — no
+// walls (those are drawn in the terrain pass, see drawRoomTerrainLayer).
+// `objects` must already be filtered to this room, in frameObjectsInDrawOrder
+// order; `flags` in room-local tile coordinates, as flagsByRoom produces.
+export function drawRoomStructureLayer(
+	ctx: CanvasRenderingContext2D,
+	roomName: string,
+	objects: FrameObject[],
+	flags: RoomFlag[],
+	modImages?: ModImages,
+): void {
+	drawRoomStaticStructures(ctx, objects, modImages);
+	drawRoomFlags(ctx, flags);
+	drawRoomName(ctx, roomName);
+}
+
+export function constructedWallsIn(objects: readonly FrameObject[]): Array<{ x: number; y: number }> {
+	const walls: Array<{ x: number; y: number }> = [];
+	for (const object of objects) {
+		if (object.type === 'constructedWall') walls.push({ x: object.x, y: object.y });
+	}
+	return walls;
 }
 
 export function drawMergedWalls(
@@ -231,49 +287,80 @@ export function drawMergedWalls(
 	layout: StageLayout,
 	wallTexture?: CanvasImageSource,
 ): void {
-	const constructedWallsByRoom = new Map<string, Array<{ x: number; y: number }>>();
+	const objectsByRoom = new Map<string, FrameObject[]>();
 	for (const object of frame.objects) {
-		if (object.type !== 'constructedWall' || !layout.offsets[object.room]) continue;
-		const roomWalls = constructedWallsByRoom.get(object.room) || [];
-		roomWalls.push({ x: object.x, y: object.y });
-		constructedWallsByRoom.set(object.room, roomWalls);
+		if (!layout.offsets[object.room]) continue;
+		const roomObjects = objectsByRoom.get(object.room);
+		if (roomObjects) roomObjects.push(object);
+		else objectsByRoom.set(object.room, [object]);
 	}
 	for (const [roomName, roomOffset] of Object.entries(layout.offsets)) {
 		ctx.save();
 		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
-		drawWallIslands(ctx, terrain[roomName] || [], wallTexture, constructedWallsByRoom.get(roomName) || []);
+		drawWallIslands(ctx, terrain[roomName] || [], wallTexture, constructedWallsIn(objectsByRoom.get(roomName) || []));
 		ctx.restore();
 	}
+}
+
+// A flag in room-local tile coordinates, as flagsByRoom produces it.
+export interface RoomFlag {
+	name: string;
+	x: number;
+	y: number;
 }
 
 // Recorded flags use the engine's compact `data` wire string; map previews use
 // direct {room,name,x,y} entries. Normalising both here keeps every canvas
 // consumer on the replay renderer's visual implementation.
-export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], layout: StageLayout): void {
-	const flags: Array<{ room: string; name: string; x: number; y: number }> = [];
+export function flagsByRoom(rawFlags: unknown[], layout: StageLayout): Map<string, RoomFlag[]> {
+	const byRoom = new Map<string, RoomFlag[]>();
 	for (const value of rawFlags || []) {
 		if (!value || typeof value !== 'object') continue;
 		const flag = value as Record<string, unknown>;
 		const room = typeof flag.room === 'string' ? flag.room : '';
 		if (!room || !layout.offsets[room]) continue;
+		let flags = byRoom.get(room);
+		if (!flags) byRoom.set(room, flags = []);
 		if (typeof flag.x === 'number' && typeof flag.y === 'number') {
-			flags.push({ room, name: typeof flag.name === 'string' ? flag.name : 'flag', x: flag.x, y: flag.y });
+			flags.push({ name: typeof flag.name === 'string' ? flag.name : 'flag', x: flag.x, y: flag.y });
 			continue;
 		}
 		if (typeof flag.data !== 'string') continue;
 		for (const entry of flag.data.split('|').filter(Boolean)) {
 			const fields = entry.split('~');
 			const x = Number(fields[3]), y = Number(fields[4]);
-			if (Number.isFinite(x) && Number.isFinite(y)) flags.push({ room, name: fields[0] || 'flag', x, y });
+			if (Number.isFinite(x) && Number.isFinite(y)) flags.push({ name: fields[0] || 'flag', x, y });
 		}
 	}
+	return byRoom;
+}
+
+// A room's flags, room-local. A label near the room's left/right edge is
+// clamped so its centre stays inside the padded tile (TILE_PADDING_TILES on
+// each side): outside that, the flag pole itself is still exactly on-tile,
+// only its name shifts.
+export function drawRoomFlags(ctx: CanvasRenderingContext2D, flags: RoomFlag[]): void {
 	for (const flag of flags) {
-		const roomOffset = layout.offsets[flag.room];
-		const x = roomOffset.col * ROOM_SIZE_TILES + flag.x + 0.5;
-		const y = roomOffset.row * ROOM_SIZE_TILES + flag.y + 0.5;
+		const x = flag.x + 0.5;
+		const y = flag.y + 0.5;
 		poly(ctx, [[x, y + 0.3], [x, y - 0.5], [x + 0.5, y - 0.3], [x, y - 0.1]],
 			{ stroke: RENDER_COLORS.flag.foreground, strokeWidth: 0.08, fill: RENDER_COLORS.flag.fill, opacity: 0.9 });
-		text(ctx, flag.name, x, y + 0.85, { font: 0.4, fill: RENDER_COLORS.flag.foreground, opacity: 0.8 });
+		const halfLabelWidth = flag.name.length * 0.22 / 2;
+		const labelX = Math.min(
+			Math.max(x, halfLabelWidth - TILE_PADDING_TILES),
+			ROOM_SIZE_TILES + TILE_PADDING_TILES - halfLabelWidth,
+		);
+		text(ctx, flag.name, labelX, y + 0.85, { font: 0.4, fill: RENDER_COLORS.flag.foreground, opacity: 0.8 });
+	}
+}
+
+export function drawFlags(ctx: CanvasRenderingContext2D, rawFlags: unknown[], layout: StageLayout): void {
+	for (const [room, flags] of flagsByRoom(rawFlags, layout)) {
+		const roomOffset = layout.offsets[room];
+		ctx.save();
+		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
+		drawRoomFlags(ctx, flags);
+		ctx.restore();
 	}
 }
 
