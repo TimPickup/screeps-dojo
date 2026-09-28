@@ -108,4 +108,72 @@ describe('RoomTileCache', () => {
     cache.invalidate('A', 'structure');
     expect(cache.bytes()).toBe(before);                                      // now held as stale
   });
+
+  describe('releases dropped tile images', () => {
+    // finish() returns a fake ImageBitmap labelled `layer:room@widthPx` whose close() is recorded.
+    function setupClose(budgetBytes = Infinity) {
+      const closed: string[] = [];
+      let last = '';
+      const canvasFactory = (w: number, h: number) => ({ width: w, height: h, getContext: () => mockCtx().ctx }) as unknown as HTMLCanvasElement;
+      const painter = (layer: string) => (_: CanvasRenderingContext2D, room: string) => { last = `${layer}:${room}`; };
+      const finish = (canvas: HTMLCanvasElement) => {
+        const label = `${last}@${canvas.width}`;
+        return { width: canvas.width, height: canvas.height, close: () => closed.push(label) } as unknown as ImageBitmap;
+      };
+      const cache = new RoomTileCache({
+        layout, lods: [24, 12, 6, 3, 1.5], canvasFactory, budgetBytes, finish,
+        painters: { terrain: painter('terrain'), structure: painter('structure'), rampart: painter('rampart') },
+        padding: { terrain: 0, structure: 2, rampart: 2 },
+      });
+      return { cache, closed };
+    }
+
+    it('on eviction', () => {
+      const tile = (50 * 24) ** 2 * 4;
+      const { cache, closed } = setupClose(tile * 1.5);
+      cache.beginFrame(); cache.draw(mockCtx().ctx, 'terrain', ['A'], 24, true, 0);
+      cache.beginFrame(); cache.draw(mockCtx().ctx, 'terrain', ['B'], 24, true, 0);
+      expect(closed).toEqual(['terrain:A@1200']);
+    });
+
+    it('on invalidate for dropped LODs, but not for the tile moved to stale', () => {
+      const { cache, closed } = setupClose();
+      cache.beginFrame();
+      for (const lod of [24, 12, 6]) cache.draw(mockCtx().ctx, 'structure', ['A'], lod, true, 0);
+      cache.invalidate('A', 'structure');
+      expect(closed.sort()).toEqual(['structure:A@324', 'structure:A@648']);
+    });
+
+    it('when a pinned tile is replaced', () => {
+      const { cache, closed } = setupClose();
+      cache.warm('structure', ['A']); cache.beginFrame(); cache.pump(100, Infinity);
+      cache.invalidate('A', 'structure');
+      expect(closed).toEqual(['structure:A@81']);
+    });
+
+    it('when a current tile makes the stale one redundant', () => {
+      const { cache, closed } = setupClose();
+      cache.beginFrame(); cache.draw(mockCtx().ctx, 'structure', ['A'], 24, true, 0);
+      cache.invalidate('A', 'structure');
+      expect(closed).toEqual([]);
+      cache.draw(mockCtx().ctx, 'structure', ['A'], 6, true, 0);
+      expect(closed).toEqual(['structure:A@1296']);
+    });
+  });
+
+  it('rejects lods that are not strictly descending', () => {
+    const canvasFactory = (() => { throw new Error('unused'); }) as never;
+    const noop = () => {};
+    expect(() => new RoomTileCache({
+      layout, lods: [1.5, 3], canvasFactory, budgetBytes: Infinity,
+      painters: { terrain: noop, structure: noop, rampart: noop }, padding: { terrain: 0, structure: 2, rampart: 2 },
+    })).toThrow(/descending/);
+  });
+
+  it('warm() skips rooms outside the layout', () => {
+    const { cache, built } = setup();
+    cache.warm('terrain', ['Z', 'A']); cache.beginFrame();
+    expect(cache.pump(100, Infinity)).toBe(1);
+    expect(built).toEqual(['terrain:A']);
+  });
 });

@@ -76,6 +76,11 @@ export class RoomTileCache {
 
 	constructor(options: RoomTileCacheOptions) {
 		this.layout = options.layout;
+		// Descending order is relied on: the last entry is the pinned lowest LOD,
+		// and the fallback's "nearest" is measured by index distance.
+		for (let i = 1; i < options.lods.length; i++) {
+			if (!(options.lods[i] < options.lods[i - 1])) throw new Error('RoomTileCache: lods must be strictly descending');
+		}
 		this.lods = options.lods;
 		this.lowest = options.lods[options.lods.length - 1];
 		this.canvasFactory = options.canvasFactory;
@@ -102,25 +107,30 @@ export class RoomTileCache {
 		// still shows a near-full-detail picture (slightly out of date) until the
 		// current one is rebuilt, instead of falling back to the blurry pinned
 		// tile. Stale tiles hold real memory, so they count against bytes().
-		let best: { key: string; lod: number; tile: Tile } | undefined;
+		// lods is descending, so the first current tile found is the largest.
+		let best: Tile | undefined;
 		for (const lod of this.lods) {
 			if (lod === this.lowest) continue;
 			const key = `${base}|${lod}`;
 			const tile = this.current.get(key);
 			if (!tile) continue;
 			this.current.delete(key);
-			if (!best || lod > best.lod) best = { key, lod, tile };
-			else this.currentBytes -= tile.bytes;
+			if (!best) { best = tile; continue; }
+			this.currentBytes -= tile.bytes;
+			this.release(tile.image);
 		}
 		// With no current tile to promote, any older stale tile is still the best
 		// near-full-detail picture we have, so it is kept.
 		if (best) {
-			// best.tile's bytes move from current to stale, so the total is unchanged.
+			// best's bytes move from current to stale, so the total is unchanged.
 			const old = this.stale.get(base);
-			if (old) this.currentBytes -= old.bytes;
-			this.stale.set(base, best.tile);
+			if (old) {
+				this.currentBytes -= old.bytes;
+				this.release(old.image);
+			}
+			this.stale.set(base, best);
 		}
-		// The pinned tile is tiny (≤ 78 px square), so rebuild it right away:
+		// The pinned tile is tiny (≤ 81 px square), so rebuild it right away:
 		// the last-resort fallback is then never out of date.
 		if (this.pinned.has(base)) this.build(layer, room, this.lowest);
 		this.versionCount++;
@@ -182,7 +192,7 @@ export class RoomTileCache {
 
 	warm(layer: TileLayer, rooms: Iterable<string>): void {
 		for (const room of rooms) {
-			if (this.pinned.has(`${layer}|${room}`)) continue;
+			if (!this.layout.offsets[room] || this.pinned.has(`${layer}|${room}`)) continue;
 			this.warmQueue.set(`${layer}|${room}`, [layer, room, this.lowest]);
 		}
 	}
@@ -242,16 +252,22 @@ export class RoomTileCache {
 		const tile: Tile = { image, bytes: image.width * image.height * BYTES_PER_PIXEL, lastFrame: this.frame };
 		const base = `${layer}|${room}`;
 		if (lod === this.lowest) {
-			// Every lowest-LOD tile is pinned, however it was built: ~78 px square,
+			// Every lowest-LOD tile is pinned, however it was built: ~81 px square,
 			// ~5 MB for 108 rooms, and it is the always-available fallback.
 			const old = this.pinned.get(base);
-			if (old) this.pinnedTotal -= old.bytes;
+			if (old) {
+				this.pinnedTotal -= old.bytes;
+				this.release(old.image);
+			}
 			this.pinned.set(base, tile);
 			this.pinnedTotal += tile.bytes;
 		} else {
 			const key = `${base}|${lod}`;
 			const old = this.current.get(key);
-			if (old) this.currentBytes -= old.bytes;
+			if (old) {
+				this.currentBytes -= old.bytes;
+				this.release(old.image);
+			}
 			this.current.set(key, tile);
 			this.currentBytes += tile.bytes;
 			// A current tile now exists, so the stale one is no longer needed.
@@ -259,6 +275,7 @@ export class RoomTileCache {
 			if (staleTile) {
 				this.stale.delete(base);
 				this.currentBytes -= staleTile.bytes;
+				this.release(staleTile.image);
 			}
 		}
 		this.versionCount++;
@@ -280,6 +297,15 @@ export class RoomTileCache {
 			if (this.currentBytes <= this.budgetBytes) break;
 			c.map.delete(c.key);
 			this.currentBytes -= c.tile.bytes;
+			this.release(c.tile.image);
 		}
+	}
+
+	// Called only once a tile is out of every map. In the browser the image is
+	// an ImageBitmap whose pixels live outside the JS heap; GC barely sees that
+	// memory, so without close() real usage can run far past budgetBytes while
+	// panning. Canvases (Node/video, tests) have no close() and are left to GC.
+	private release(image: TileImage): void {
+		(image as Partial<ImageBitmap>).close?.();
 	}
 }
