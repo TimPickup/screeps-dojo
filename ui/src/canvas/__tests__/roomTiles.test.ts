@@ -181,6 +181,20 @@ describe('RoomTileCache', () => {
       cache.draw(mockCtx().ctx, 'structure', ['A'], 6, true, 0);
       expect(closed).toEqual(['structure:A@1296']);
     });
+
+    it('on dispose: every current, pinned and stale tile', () => {
+      const { cache, closed } = setupClose();
+      cache.warm('terrain', ['A']); cache.beginFrame(); cache.pump(100, Infinity);        // pinned terrain:A@75
+      cache.draw(mockCtx().ctx, 'structure', ['A'], 24, true, 0);                         // current structure:A@1296
+      cache.invalidate('A', 'structure');                                                 // → stale
+      cache.draw(mockCtx().ctx, 'terrain', ['B'], 12, true, 0);                           // current terrain:B@600
+      expect(closed).toEqual([]);
+      cache.dispose();
+      expect(closed.sort()).toEqual(['structure:A@1296', 'terrain:A@75', 'terrain:B@600']);
+      expect(cache.bytes()).toBe(0);
+      expect(cache.pinnedBytes()).toBe(0);
+      expect(cache.queued()).toBe(0);
+    });
   });
 
   it('rejects lods that are not strictly descending', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, FrameObject } from '../../api/types';
-import { computeStageLayout, creepFacing } from '../geometry';
+import { computeStageLayout, creepFacing, FacingCache } from '../geometry';
 
 function creep(id: string, x: number, y: number, actionLog?: FrameObject['actionLog']): FrameObject {
   return { _id: id, type: 'creep', room: 'W0N0', x, y, actionLog } as FrameObject;
@@ -58,5 +58,17 @@ describe('creepFacing cache', () => {
     frames.push(frame(creep('c', 1, 2)));
     expect(creepFacing(frames, 0, 'c', layout, 45)).toBe(90);
     expect(creepFacing(frames, 1, 'c', layout, 45)).toBe(90);
+  });
+
+  it('keeps at most the last frame index once facings are resolved', () => {
+    const frames = Array.from({ length: 50 }, (_, i) => frame(creep('c', 1 + (i % 2), 1)));
+    const cache = new FacingCache(frames, layout);
+    expect(cache.retainedIndexes()).toBeLessThanOrEqual(2);
+    frames.push(frame(creep('c', 5, 5)));
+    expect(cache.get(49, 'c', 0)).toBe(Math.atan2(4, 4 - (49 % 2)) * 180 / Math.PI);
+    expect(cache.retainedIndexes()).toBeLessThanOrEqual(2);
+    // Resolved values survive for every earlier frame (scrubbing back).
+    expect(cache.get(0, 'c', 7)).toBe(0);
+    expect(cache.get(1, 'c', 7)).toBe(180);
   });
 });

@@ -13,3 +13,7 @@
   padding: 5px 8px; border-radius: 4px; cursor: pointer; font: inherit; }
 .pickerItem:hover { background: #2c2c2c; }
 .pickerItemSel { background: #2a3a2a; color: #65fd62; }
+
+/* ?renderStats=1 overlay: render-loop numbers, refreshed twice a second. */
+.stats { position: absolute; top: 6px; left: 8px; z-index: 10; pointer-events: none; white-space: pre;
+  font: 11px/1.35 ui-monospace, monospace; color: #cfe; background: rgba(0, 0, 0, 0.6); padding: 4px 6px; border-radius: 4px; }

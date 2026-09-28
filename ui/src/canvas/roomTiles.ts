@@ -216,6 +216,23 @@ export class RoomTileCache {
 		return this.warmQueue.size + this.requested.size + (this.queue.length - this.queueHead);
 	}
 
+	// Closes every tile image (current, stale and pinned) and forgets all
+	// queued work. For when the owner is replaced: ImageBitmaps would otherwise
+	// hold their pixels until GC gets round to them.
+	dispose(): void {
+		for (const map of [this.current, this.stale, this.pinned]) {
+			for (const tile of map.values()) this.release(tile.image);
+			map.clear();
+		}
+		this.currentBytes = 0;
+		this.pinnedTotal = 0;
+		this.requested = new Map();
+		this.queue = [];
+		this.queueHead = 0;
+		this.warmQueue.clear();
+		this.versionCount++;
+	}
+
 	private lookup(layer: TileLayer, room: string, lod: number): Tile | undefined {
 		return lod === this.lowest ? this.pinned.get(`${layer}|${room}`) : this.current.get(`${layer}|${room}|${lod}`);
 	}

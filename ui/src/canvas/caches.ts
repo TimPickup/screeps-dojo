@@ -294,6 +294,12 @@ export class StaticLayers {
 		};
 	}
 
+	// Closes every tile image. Call when these layers are replaced.
+	dispose(): void {
+		this.exportTiles.dispose();
+		this.viewTiles.dispose();
+	}
+
 	private drawLayer(ctx: CanvasRenderingContext2D, layer: TileLayer, view?: RenderView): void {
 		if (!view) {
 			this.exportTiles.draw(ctx, layer, this.roomsWithContent(layer, this.allRooms), this.resolution, true, 0);

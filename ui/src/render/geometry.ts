@@ -74,10 +74,16 @@ function facingDelta(a: FrameObject, b: { room: string; x: number; y: number }, 
   return dx !== 0 || dy !== 0 ? Math.atan2(dy, dx) * 180 / Math.PI : undefined;
 }
 
-class FacingCache {
+// Resolves every creep's facing per frame, once, as frames arrive. A frame's
+// facing needs that frame and the next one, so only the last indexed frame is
+// kept (to pair with the next frame appended); the resolved values are kept
+// for every frame so scrubbing back costs nothing.
+export class FacingCache {
   private frames: Frame[];
   private layout: StageLayout;
-  private indexed: Array<Record<string, FrameObject>> = [];
+  // Creeps of frame indexedCount - 1, by id; null before the first frame.
+  private lastIndexed: Record<string, FrameObject> | null = null;
+  private indexedCount = 0;
   private values: Array<Record<string, number | undefined>> = [];
   private lastFacing: Record<string, number | undefined> = {};
 
@@ -116,18 +122,19 @@ class FacingCache {
   }
 
   sync(): void {
-    while (this.indexed.length < this.frames.length) {
-      const nextIndex = this.indexed.length;
+    while (this.indexedCount < this.frames.length) {
+      const nextIndex = this.indexedCount;
       const nextObjects = this.indexFrame(this.frames[nextIndex]);
-      this.indexed.push(nextObjects);
-      if (nextIndex === 0) {
+      const previousObjects = this.lastIndexed;
+      this.lastIndexed = nextObjects;
+      this.indexedCount++;
+      if (!previousObjects) {
         const first: Record<string, number | undefined> = {};
         for (const id of Object.keys(nextObjects)) first[id] = this.lastFacing[id];
         this.values.push(first);
         continue;
       }
 
-      const previousObjects = this.indexed[nextIndex - 1];
       const previous: Record<string, number | undefined> = {};
       for (const id of Object.keys(previousObjects)) previous[id] = this.resolve(previousObjects[id], nextObjects[id]);
       this.values[nextIndex - 1] = previous;
@@ -136,6 +143,11 @@ class FacingCache {
       for (const id of Object.keys(nextObjects)) final[id] = this.lastFacing[id];
       this.values.push(final);
     }
+  }
+
+  // How many frame indexes are held (for tests): at most one.
+  retainedIndexes(): number {
+    return this.lastIndexed ? 1 : 0;
   }
 
   get(frameIndex: number, objectId: string, fallbackAngle: number): number {
