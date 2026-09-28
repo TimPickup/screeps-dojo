@@ -3,6 +3,7 @@ import { api } from '../../../api/client';
 import { recordingSubtitle, statusLabel } from '../../../api/recordingLabels';
 import type { RecordingEntry, Recording } from '../../../api/types';
 import type { ReplayBatch } from '../../../api/replayStream';
+import { FrameResolver } from '../../../api/frameShare';
 import { ReplayViewer } from '../../ReplayViewer/ReplayViewer';
 import type { CpuSummary } from '../../../state/cpuSummary';
 import styles from './ReplaysTab.module.css';
@@ -82,6 +83,9 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
     const worker = new Worker(new URL('../../../api/replay.worker.ts', import.meta.url), { type: 'module' });
     replayWorker.current = worker;
     let current: Recording | null = null;
+    // The worker sends unchanged objects as markers; this swaps them back for
+    // the previous frame's objects. Frames arrive in order, one resolver per load.
+    const resolver = new FrameResolver();
     const fail = (message: string) => {
       if (replayWorker.current !== worker) return;
       setError(message);
@@ -96,7 +100,12 @@ export function ReplaysTab({ scenario }: { scenario: string }) {
       // recording.json was written; it wins over the embedded copy.
       if (!current) current = { meta: { ...data.meta!, cpuAvg: entry.meta?.cpuAvg ?? data.meta!.cpuAvg }, terrain: data.terrain!, frames: [] };
       // Append once; do not copy the entire replay with each incoming batch.
-      for (const frame of data.frames) current.frames.push(frame);
+      try {
+        for (const frame of data.frames) current.frames.push(resolver.resolve(frame));
+      } catch (error) {
+        fail((error as Error).message);
+        return;
+      }
       setRecording({ ...current });
       setBuffering(!data.done);
       setComplete(data.done);
