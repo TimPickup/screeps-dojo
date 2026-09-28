@@ -96,3 +96,23 @@ describe('fillCreepDots', () => {
     expect(log.filter((c) => c.op === 'fill')).toHaveLength(1);
   });
 });
+
+// Real recordings store an idle action target as null, not undefined.
+describe('drawFrame culling with null action targets', () => {
+  const oneRoom = { rooms: ['A'], offsets: { A: { col: 0, row: 0 } }, pixelsPerRoom: 600, width: 600, height: 600 } as StageLayout;
+  const offScreen = {
+    link: { _id: 'l', type: 'link', room: 'A', x: 45, y: 10, store: { energy: 0 }, actionLog: { transferEnergy: null } },
+    tower: { _id: 't', type: 'tower', room: 'A', x: 46, y: 10, store: { energy: 0 }, actionLog: { attack: null, heal: null, repair: null } },
+  };
+  for (const [kind, object] of Object.entries(offScreen)) {
+    for (const pixelsPerTile of [20, 4]) {
+      it(`does not throw for an off-screen ${kind} at ${pixelsPerTile} px/tile`, () => {
+        const recording = { meta: { botUserId: 'me' }, terrain: { A: [] },
+          frames: [{ gameTime: 1, flags: [], objects: [object] }] } as unknown as Recording;
+        const { ctx } = mockCtx();
+        expect(() => drawFrame(ctx, recording, 0, null, { sprites: { draw: () => undefined } as never, layers: layers as never,
+          layout: oneRoom, showVisuals: false, view: { minX: 0, minY: 0, maxX: 20, maxY: 50, pixelsPerTile } })).not.toThrow();
+      });
+    }
+  }
+});

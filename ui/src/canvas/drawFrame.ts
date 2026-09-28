@@ -475,8 +475,10 @@ function cullTest(view: RenderView | undefined, layout: StageLayout): CullTest {
 // is in view, so a beam whose source is off screen still draws.
 function actionTargetInView(actionLog: RenderActionLog | undefined, roomName: string, inView: CullTest): boolean {
 	if (!actionLog) return false;
+	// Recordings store an idle target as null, not undefined: `||` skips both,
+	// and the final check must too.
 	const target = actionLog.attack || actionLog.heal || actionLog.repair || actionLog.transferEnergy;
-	return target !== undefined && inView(roomName, target.x, target.y);
+	return target != null && inView(roomName, target.x, target.y);
 }
 
 // Zoomed-out creeps as dots. Positions follow the full pass's movement
