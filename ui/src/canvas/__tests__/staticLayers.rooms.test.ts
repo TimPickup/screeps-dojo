@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, FrameObject, StageLayout } from '../../api/types';
-import { constructedWallsIn, drawMergedWalls, drawRoomStructureLayer, drawStaticStructures, flagsByRoom } from '../staticLayers';
+import { constructedWallsIn, drawFlags, drawMergedWalls, drawRoomFlags, drawRoomStructureLayer, drawStaticStructures, flagsByRoom } from '../staticLayers';
 import { drawWallIslands } from '../terrainWalls';
 import { drawRamparts, drawRoomRamparts } from '../ramparts';
 import { frameObjectsInDrawOrder } from '../renderOrder';
@@ -55,11 +55,32 @@ describe('room-local static drawing', () => {
     expect(flagsByRoom([{ room: 'W0N1', name: 'F', x: 3, y: 4 }], layout).get('W0N1')).toEqual([{ name: 'F', x: 3, y: 4 }]);
   });
 
-  it('keeps a long flag label at the room edge inside the padded tile', () => {
+  // Label centre x as it reaches fillText (the mock transform is identity).
+  const labelX = (name: string, x: number) => {
     const { ctx, log } = mockCtx();
-    const name = 'a-very-long-flag-name';
-    drawRoomStructureLayer(ctx, 'W1N1', [], [{ name, x: 49, y: 10 }]);
-    const label = log.find((c) => c.op === 'fillText' && c.args[0] === name)!;
-    expect((label.args[1] as number) + name.length * 0.22 / 2).toBeLessThanOrEqual(52 + 1e-9);
+    drawRoomStructureLayer(ctx, 'W1N1', [], [{ name, x, y: 10 }]);
+    return log.find((c) => c.op === 'fillText' && c.args[0] === name)!.args[1] as number;
+  };
+
+  it('clamps a long flag label at the right edge inside the padded tile', () => {
+    const name = 'x'.repeat(40); // half-width 4.4, so centre 49.5 would overflow to 53.9
+    expect(labelX(name, 49) + name.length * 0.22 / 2).toBeCloseTo(52, 9);
+  });
+
+  it('clamps a long flag label at the left edge inside the padded tile', () => {
+    const name = 'x'.repeat(40);
+    expect(labelX(name, 0) - name.length * 0.22 / 2).toBeCloseTo(-2, 9);
+  });
+
+  it('leaves a short mid-room flag label unmoved', () => {
+    expect(labelX('F', 20)).toBe(20.5);
+  });
+
+  it('draws flags per room the same as the whole-map pass', () => {
+    const rawFlags = [{ room: 'W0N1', name: 'F', x: 3, y: 4 }, { room: 'W1N1', name: 'G', x: 7, y: 8 }];
+    const whole = mockCtx(); drawFlags(whole.ctx, rawFlags, layout);
+    const local = mockCtx();
+    for (const [, flags] of flagsByRoom(rawFlags, layout)) drawRoomFlags(local.ctx, flags);
+    expect(geometry(local.log)).toEqual(geometry(whole.log));
   });
 });
