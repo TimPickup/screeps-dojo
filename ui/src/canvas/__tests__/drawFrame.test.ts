@@ -3,7 +3,7 @@ import type { Recording, StageLayout } from '../../api/types';
 import { drawFrame } from '../drawFrame';
 import * as powerEffects from '../powerEffects';
 import * as powerCreepsModule from '../powerCreeps';
-import { mockCtx } from './mockCtx';
+import { fakeLayers, mockCtx } from './mockCtx';
 
 describe('drawFrame spawn transition', () => {
   it('uses the normal movement interpolation when a spawning creep is released', () => {
@@ -27,14 +27,8 @@ describe('drawFrame spawn transition', () => {
     const sprites = {
       draw: (_ctx: unknown, object: { spawning?: unknown }, x: number, y: number) => draws.push({ object, x, y }),
     };
-    let swampAnimationTime = -1;
-    const terrainCanvas = {};
-    const structureCanvas = {};
-    const rampartCanvas = {};
-    const layers = {
-      terrain: terrainCanvas, structure: structureCanvas, rampart: rampartCanvas, prepare: () => undefined,
-      drawSwamps: (_ctx: unknown, animationTime: number) => { swampAnimationTime = animationTime; },
-    };
+    const record: string[] = [];
+    const layers = fakeLayers(record);
 
     const { ctx, log } = mockCtx();
     drawFrame(ctx, recording, 0, 0.75, {
@@ -45,15 +39,10 @@ describe('drawFrame spawn transition', () => {
     expect(draws[0].object.spawning).toBe(false);
     expect(draws[0].x).toBeCloseTo(10.5);
     expect(draws[0].y).toBe(10);
-    expect(swampAnimationTime).toBe(0.75);
-    const canvasDraws = log.filter((call) => call.op === 'drawImage');
-    expect(canvasDraws.map((call) => call.args[0])).toEqual([
-      terrainCanvas,
-      structureCanvas,
-      rampartCanvas,
-    ]);
+    expect(layers.swampTime).toBe(0.75);
+    expect(record).toEqual(['terrain', 'structure', 'rampart']);
     expect(log[log.length - 1].op).toBe('drawImage');
-    expect(log[log.length - 1].args[0]).toBe(rampartCanvas);
+    expect((log[log.length - 1].args[0] as { layer: string }).layer).toBe('rampart');
   });
 
   it('draws smaller-y creeps before larger-y creeps regardless of recording order', () => {
@@ -77,10 +66,7 @@ describe('drawFrame spawn transition', () => {
     const sprites = {
       draw: (_ctx: unknown, object: { _id: string }) => drawnObjectIds.push(object._id),
     };
-    const layers = {
-      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
-      drawSwamps: () => undefined,
-    };
+    const layers = fakeLayers();
 
     drawFrame(mockCtx().ctx, recording, 0, null, {
       sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
@@ -109,10 +95,7 @@ describe('drawFrame spawn transition', () => {
     const sprites = {
       draw: (_ctx: unknown, object: { _id: string; type: string }) => draws.push({ object }),
     };
-    const layers = {
-      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
-      drawSwamps: () => undefined,
-    };
+    const layers = fakeLayers();
 
     drawFrame(mockCtx().ctx, recording, 0, null, {
       sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
@@ -129,10 +112,7 @@ describe('drawFrame spawn transition', () => {
       pixelsPerRoom: 600, width: 600, height: 600,
     } as StageLayout;
     const sprites = { draw: () => undefined };
-    const layers = {
-      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
-      drawSwamps: () => undefined,
-    };
+    const layers = fakeLayers();
     const makeRecording = (actionLog: Record<string, unknown>) => ({
       meta: { scenario: 'power-creep-fade-in', endReason: 'running', ticks: 2 },
       terrain: { W0N0: [] },
@@ -180,11 +160,7 @@ describe('drawFrame spawn transition', () => {
       pixelsPerRoom: 600, width: 600, height: 600,
     } as StageLayout;
     const sprites = { draw: () => undefined };
-    const rampartCanvas = {};
-    const layers = {
-      terrain: {}, structure: {}, rampart: rampartCanvas, prepare: () => undefined,
-      drawSwamps: () => undefined,
-    };
+    const layers = fakeLayers();
 
     const { ctx, log } = mockCtx();
     drawFrame(ctx, recording, 0, null, {
@@ -192,7 +168,7 @@ describe('drawFrame spawn transition', () => {
     });
 
     expect(log.some((call) => call.op === 'fillText' && call.args[0] === 'OT')).toBe(true);
-    const rampartDrawIndex = log.findIndex((call) => call.op === 'drawImage' && call.args[0] === rampartCanvas);
+    const rampartDrawIndex = log.findIndex((call) => call.op === 'drawImage' && (call.args[0] as { layer?: string } | undefined)?.layer === 'rampart');
     const pipTextIndex = log.findIndex((call) => call.op === 'fillText' && call.args[0] === 'OT');
     expect(rampartDrawIndex).toBeGreaterThanOrEqual(0);
     expect(pipTextIndex).toBeGreaterThan(rampartDrawIndex);
@@ -221,10 +197,7 @@ describe('drawFrame spawn transition', () => {
       pixelsPerRoom: 600, width: 600, height: 600,
     } as StageLayout;
     const sprites = { draw: () => undefined };
-    const layers = {
-      terrain: {}, structure: {}, rampart: {}, prepare: () => undefined,
-      drawSwamps: () => undefined,
-    };
+    const layers = fakeLayers();
 
     const activeEffectsSpy = vi.spyOn(powerEffects, 'activeEffects');
     try {

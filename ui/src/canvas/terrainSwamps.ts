@@ -9,6 +9,7 @@ import {
 import type { CanvasPathFactory } from './terrainTextures.ts';
 
 interface RoomSwampPath {
+	name: string;
 	col: number;
 	row: number;
 	path: Path2D;
@@ -21,6 +22,16 @@ interface PatternPair {
 
 export function buildSwampIslands(rows: string[]): TerrainIsland[] {
 	return buildTerrainIslands(rows, '~');
+}
+
+// Terrain rows never change for a recording, so each room's swamp islands are
+// traced once and shared by every tile LOD and every rebuild. Keyed by the rows
+// array itself; callers treat the islands as read-only.
+const swampIslandsByRows = new WeakMap<string[], TerrainIsland[]>();
+function swampIslandsFor(rows: string[]): TerrainIsland[] {
+	let islands = swampIslandsByRows.get(rows);
+	if (!islands) swampIslandsByRows.set(rows, islands = buildSwampIslands(rows));
+	return islands;
 }
 
 function beginFillPaths(ctx: CanvasRenderingContext2D, islands: TerrainIsland[]): void {
@@ -50,7 +61,7 @@ export function drawSwampIslands(
 	rows: string[],
 	staticTexture?: CanvasImageSource,
 ): void {
-	const islands = buildSwampIslands(rows);
+	const islands = swampIslandsFor(rows);
 	if (islands.length === 0) return;
 
 	ctx.save();
@@ -102,11 +113,11 @@ export class AnimatedSwampRenderer {
 		for (const [roomName, rows] of Object.entries(terrain)) {
 			const offset = layout.offsets[roomName];
 			if (!offset) continue;
-			const islands = buildSwampIslands(rows);
+			const islands = swampIslandsFor(rows);
 			if (islands.length === 0) continue;
 			const path = pathFactory();
 			appendIslandFillPaths(path, islands, SWAMP_RENDER_STYLE.cornerRadius);
-			this.rooms.push({ col: offset.col, row: offset.row, path });
+			this.rooms.push({ name: roomName, col: offset.col, row: offset.row, path });
 		}
 	}
 
@@ -122,10 +133,12 @@ export class AnimatedSwampRenderer {
 		return patterns;
 	}
 
-	draw(ctx: CanvasRenderingContext2D, animationTime: number): void {
+	// `rooms` limits the pass to those rooms (the visible ones); omitted, every room.
+	draw(ctx: CanvasRenderingContext2D, animationTime: number, rooms?: Set<string>): void {
 		if (this.rooms.length === 0) return;
 		const patterns = this.patterns(ctx);
 		for (const room of this.rooms) {
+			if (rooms && !rooms.has(room.name)) continue;
 			ctx.save();
 			ctx.translate(room.col * ROOM_SIZE_TILES, room.row * ROOM_SIZE_TILES);
 			ctx.globalAlpha = SWAMP_RENDER_STYLE.textureOpacity;

@@ -205,6 +205,12 @@ export class RoomTileCache {
 		return this.pinnedTotal;
 	}
 
+	// Builds still waiting: warm-ups plus the tiles the last drawn frame asked
+	// for (the next beginFrame turns those into the queue). For the stats overlay.
+	queued(): number {
+		return this.warmQueue.size + this.requested.size;
+	}
+
 	private lookup(layer: TileLayer, room: string, lod: number): Tile | undefined {
 		return lod === this.lowest ? this.pinned.get(`${layer}|${room}`) : this.current.get(`${layer}|${room}|${lod}`);
 	}

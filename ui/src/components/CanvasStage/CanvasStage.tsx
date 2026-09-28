@@ -8,7 +8,9 @@ import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { useModImages } from '../../hooks/useModImages';
 import { usePowerImages } from '../../hooks/usePowerImages';
-import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
+import { STATIC_LAYER_RESOLUTION, TILE_BUILD_BUDGET_MS, TILE_BUILD_BUDGET_PIXELS } from '../../canvas/renderConstants';
+import { viewFromTransform } from '../../canvas/renderView';
+import { createTileCanvas, finishTile } from '../../canvas/browserTileFinish';
 import { SMOOTH_TURN_MAX_SPEED } from '../../render/geometry';
 import styles from './CanvasStage.module.css';
 
@@ -58,7 +60,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   const powerImages = usePowerImages();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const view = useRef({ scale: 1, tx: 0, ty: 0 });
+  const viewRef = useRef({ scale: 1, tx: 0, ty: 0 });
   const fittedRef = useRef<StageLayout | null>(null);
   const caches = useRef<{ sprites: CreepRenderer; layers: StaticLayers } | null>(null);
   const recordingRef = useRef(recording);
@@ -88,7 +90,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
     if (!fontsReady || !terrainTextures) return () => { cancelled = true; };
     const initial = recordingRef.current;
     const sprites = new CreepRenderer();
-    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, undefined, { textures: terrainTextures, modImages });
+    const layers = new StaticLayers(initial, layout, STATIC_LAYER_RESOLUTION, createTileCanvas, { textures: terrainTextures, modImages, finish: finishTile });
     caches.current = { sprites, layers };
     playhead.current = stateRef.current.tick;
     if (!cancelled) setReady(true);
@@ -102,7 +104,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
     const el = containerRef.current; if (!el) return;
     const cw = el.clientWidth || 1, ch = el.clientHeight || 1;
     const scale = Math.min(cw / colsTiles, ch / rowsTiles) * 0.96;
-    view.current = { scale, tx: (cw - colsTiles * scale) / 2, ty: (ch - rowsTiles * scale) / 2 };
+    viewRef.current = { scale, tx: (cw - colsTiles * scale) / 2, ty: (ch - rowsTiles * scale) / 2 };
   };
   useEffect(() => { if (fittedRef.current !== layout) { fittedRef.current = layout; fit(); } });
 
@@ -151,15 +153,24 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#0e0e0e';
       ctx.fillRect(0, 0, cv.width, cv.height);
-      const s = view.current.scale * dpr;
-      ctx.setTransform(s, 0, 0, s, view.current.tx * dpr, view.current.ty * dpr);
+      const s = viewRef.current.scale * dpr;
+      ctx.setTransform(s, 0, 0, s, viewRef.current.tx * dpr, viewRef.current.ty * dpr);
       if (c) {
+        const view = viewFromTransform(cv.width, cv.height, viewRef.current.scale, viewRef.current.tx, viewRef.current.ty, dpr);
         const f0 = activeRecording.frames[Math.min(drawTick, count - 1)];
+        // beginFrame before any tile is drawn: it starts a new frame id, and the
+        // cache never evicts a tile drawn in the current frame. The build queue
+        // it takes over is what the last frame lacked. pump runs after the draws
+        // so the tiles this frame needs are already marked in use; pumping first
+        // could evict tiles that are on screen, only to rebuild them every frame.
+        c.layers.beginFrame();
         c.layers.sync(f0);
         drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, {
           sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, showMapVisuals: st.showMapVisuals,
           modImages: modImagesRef.current, powerImages: powerImagesRef.current, smoothTurns: st.speed <= SMOOTH_TURN_MAX_SPEED,
+          view,
         });
+        c.layers.pump(TILE_BUILD_BUDGET_MS, TILE_BUILD_BUDGET_PIXELS);
       }
 
       // selection ring
@@ -183,7 +194,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   // pan / zoom / select (screen → tile)
   const toTile = (clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
-    return { x: (clientX - rect.left - view.current.tx) / view.current.scale, y: (clientY - rect.top - view.current.ty) / view.current.scale };
+    return { x: (clientX - rect.left - viewRef.current.tx) / viewRef.current.scale, y: (clientY - rect.top - viewRef.current.ty) / viewRef.current.scale };
   };
   useEffect(() => {
     const el = containerRef.current; if (!el) return;
@@ -191,16 +202,16 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-      const v = view.current;
+      const v = viewRef.current;
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
       const scale = Math.max(0.05, Math.min(40, v.scale * factor));
-      view.current = { scale, tx: mx - (mx - v.tx) * (scale / v.scale), ty: my - (my - v.ty) * (scale / v.scale) };
+      viewRef.current = { scale, tx: mx - (mx - v.tx) * (scale / v.scale), ty: my - (my - v.ty) * (scale / v.scale) };
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
   useEffect(() => {
-    const onMove = (e: MouseEvent) => { const d = drag.current; if (!d) return; view.current.tx = d.tx + (e.clientX - d.x); view.current.ty = d.ty + (e.clientY - d.y); };
+    const onMove = (e: MouseEvent) => { const d = drag.current; if (!d) return; viewRef.current.tx = d.tx + (e.clientX - d.x); viewRef.current.ty = d.ty + (e.clientY - d.y); };
     const onUp = () => { drag.current = null; };
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
@@ -212,7 +223,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   // long it took to recalculate the console drawer's line elements.
   const onMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
-    drag.current = { x: e.clientX, y: e.clientY, tx: view.current.tx, ty: view.current.ty };
+    drag.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
   };
   const moved = useRef(false);
   const onClick = (e: React.MouseEvent) => {

@@ -17,6 +17,27 @@ export function buildWallIslands(rows: string[], constructedWalls: readonly Wall
 	return buildTerrainIslands(rows, '#', constructedWalls);
 }
 
+// Constructed walls merge into the natural wall islands, so the islands depend
+// on both. Memoised per rows array (terrain never changes for a recording) and
+// then per wall set, keeping only the last few wall sets: every tile LOD of a
+// room, and a rebuild after an unrelated invalidation, reuse one trace. Callers
+// treat the islands as read-only.
+const WALL_SETS_PER_ROOM = 4;
+const wallIslandsByRows = new WeakMap<string[], Map<string, WallIsland[]>>();
+function wallIslandsFor(rows: string[], constructedWalls: readonly WallTile[]): WallIsland[] {
+	let byWalls = wallIslandsByRows.get(rows);
+	if (!byWalls) wallIslandsByRows.set(rows, byWalls = new Map());
+	let wallKey = '';
+	for (const wall of constructedWalls) wallKey += wall.x + ',' + wall.y + ';';
+	let islands = byWalls.get(wallKey);
+	if (!islands) {
+		islands = buildWallIslands(rows, constructedWalls);
+		if (byWalls.size >= WALL_SETS_PER_ROOM) byWalls.delete(byWalls.keys().next().value as string);
+		byWalls.set(wallKey, islands);
+	}
+	return islands;
+}
+
 function beginFillPaths(ctx: CanvasRenderingContext2D, islands: WallIsland[]): void {
 	ctx.beginPath();
 	appendIslandFillPaths(ctx, islands, WALL_RENDER_STYLE.cornerRadius);
@@ -77,7 +98,7 @@ export function drawWallIslands(
 	texture?: CanvasImageSource,
 	constructedWalls: readonly WallTile[] = [],
 ): void {
-	const islands = buildWallIslands(rows, constructedWalls);
+	const islands = wallIslandsFor(rows, constructedWalls);
 	if (islands.length === 0) return;
 
 	ctx.save();

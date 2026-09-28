@@ -104,53 +104,70 @@ describe('static layer epochs', () => {
     expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(opponent));
   });
 
-  it('bakes merged walls into the structure canvas and rebuilds that canvas on change', () => {
+  it('bakes merged walls into a terrain tile', () => {
     const canvasLogs: Call[][] = [];
     const canvasFactory = (width: number, height: number): HTMLCanvasElement => {
       const { ctx, log } = mockCtx();
       canvasLogs.push(log);
       return { width, height, getContext: () => ctx } as unknown as HTMLCanvasElement;
     };
-    const initialFrame = frameWithWall(11);
     const recording = {
       meta: {},
       terrain: { W1N1: terrainWithWall(10, 10) },
-      frames: [initialFrame],
+      frames: [frameWithWall(11)],
     } as unknown as Recording;
 
     const layers = new StaticLayers(recording, layout, 1, canvasFactory);
-    expect(canvasLogs).toHaveLength(2);
-    expect(canvasLogs[1].some((call) => call.op === 'moveTo'
+    const { ctx } = mockCtx();
+    layers.beginFrame();
+    layers.drawTerrain(ctx);
+    expect(canvasLogs).toHaveLength(1);
+    expect(canvasLogs[0].some((call) => call.op === 'moveTo'
       && call.args[0] === 11.3 && call.args[1] === 10 + 1 / 3)).toBe(true);
-
-    layers.sync(frameWithWall(11, 25));
-    expect(canvasLogs).toHaveLength(2);
-    layers.sync(frameWithWall(12, 25));
-    expect(canvasLogs).toHaveLength(3);
   });
 
-  it('rebuilds the rampart canvas independently from the structure canvas', () => {
-    const canvasFactory = (width: number, height: number): HTMLCanvasElement => {
-      const { ctx } = mockCtx();
-      return { width, height, getContext: () => ctx } as unknown as HTMLCanvasElement;
+  function tileFactory(built: string[]) {
+    return (width: number, height: number): HTMLCanvasElement => {
+      const { ctx, log } = mockCtx();
+      built.push(String(width));
+      return { width, height, getContext: () => ctx, log } as unknown as HTMLCanvasElement;
     };
-    const initialFrame = frameWithRampart(10);
-    const recording = {
-      meta: {},
-      terrain: { W1N1: plainTerrain() },
-      frames: [initialFrame],
-    } as unknown as Recording;
-    const layers = new StaticLayers(recording, layout, 1, canvasFactory);
-    const initialStructureCanvas = layers.structure;
-    const initialRampartCanvas = layers.rampart;
+  }
+  const twoRooms = { ...layout, offsets: { W1N1: { col: 0, row: 0 }, W2N1: { col: 1, row: 0 } } } as unknown as StageLayout;
+  const twoRoomRecording = (frame: Frame) => ({ meta: {}, terrain: { W1N1: plainTerrain(), W2N1: plainTerrain() }, frames: [frame] }) as unknown as Recording;
 
-    layers.sync(frameWithRampart(10, 25));
-    expect(layers.structure).toBe(initialStructureCanvas);
-    expect(layers.rampart).toBe(initialRampartCanvas);
+  it('rebuilds only the room whose walls changed, in the terrain layer', () => {
+    const built: string[] = [];
+    const layers = new StaticLayers(twoRoomRecording(frameWithWall(11)), twoRooms, 1, tileFactory(built));
+    const { ctx } = mockCtx();
+    layers.beginFrame(); layers.drawTerrain(ctx); layers.drawStructures(ctx);
+    const before = built.length;
+    layers.sync(frameWithWall(11, 25));                  // hits only: nothing rebuilt
+    layers.beginFrame(); layers.drawTerrain(ctx); layers.drawStructures(ctx);
+    expect(built.length).toBe(before);
+    layers.sync(frameWithWall(12, 25));                  // wall moved in W1N1
+    layers.beginFrame(); layers.drawTerrain(ctx); layers.drawStructures(ctx);
+    expect(built.length).toBe(before + 1);               // one terrain tile, one room
+  });
 
-    layers.sync(frameWithRampart(11, 25));
-    expect(layers.structure).toBe(initialStructureCanvas);
-    expect(layers.rampart).not.toBe(initialRampartCanvas);
+  it('draws only visible rooms, and nothing is built in the constructor', () => {
+    const built: string[] = [];
+    const layers = new StaticLayers(twoRoomRecording(frameWithWall(11)), twoRooms, 24, tileFactory(built));
+    expect(built).toHaveLength(0);
+    const { ctx, log } = mockCtx();
+    layers.beginFrame();
+    layers.drawTerrain(ctx, { minX: 0, minY: 0, maxX: 40, maxY: 40, pixelsPerTile: 2 });
+    expect(log.filter((c) => c.op === 'drawImage').length).toBeLessThanOrEqual(1);   // W1N1 only (or nothing yet)
+    layers.pump(1000, Infinity);
+    expect(built.length).toBeGreaterThan(0);
+  });
+
+  it('steps down the LOD so the visible rooms fit the budget', () => {
+    const many = { ...layout, offsets: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`W${i}N1`, { col: i % 10, row: Math.floor(i / 10) }])) } as unknown as StageLayout;
+    const recording = { meta: {}, terrain: {}, frames: [{ gameTime: 1, flags: [], objects: [] }] } as unknown as Recording;
+    const layers = new StaticLayers(recording, many, 24, tileFactory([]));
+    expect(layers.lodFor({ minX: 0, minY: 0, maxX: 500, maxY: 300, pixelsPerTile: 20 })).toBeLessThan(24);
+    expect(layers.lodFor({ minX: 0, minY: 0, maxX: 40, maxY: 40, pixelsPerTile: 20 })).toBe(24);
   });
 });
 

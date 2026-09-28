@@ -9,6 +9,7 @@ import {
 	tTurn as turnProgressAt,
 } from '../render/geometry.ts';
 import { StaticLayers } from './caches.ts';
+import type { RenderView } from './renderView.ts';
 import { CreepRenderer } from './creeps.ts';
 import {
 	drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill, drawTowerTurret,
@@ -46,6 +47,9 @@ interface DrawOptions {
 	// icon pop falls back to a vector badge when unloaded or the power has no
 	// artwork.
 	powerImages?: PowerImages;
+	// What is on screen and at what zoom (see renderView.ts). Absent (the video
+	// renderer, tests): every room at full detail and full resolution.
+	view?: RenderView;
 }
 
 interface ActionTarget {
@@ -105,15 +109,14 @@ export function drawFrame(
 	options.layers.prepare(baseFrame);
 	if (nextFrame) options.layers.prepare(nextFrame);
 	const offsets = layout.offsets;
-	const widthInTiles = (layout.width / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
-	const heightInTiles = (layout.height / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
 	const baseObjectsInDrawOrder = frameObjectsInDrawOrder(baseFrame, layout);
 	const nextObjectsInDrawOrder = nextFrame ? frameObjectsInDrawOrder(nextFrame, layout) : null;
 
-	// 1) static layers (client-side, synchronous — never black)
-	ctx.drawImage(options.layers.terrain, 0, 0, widthInTiles, heightInTiles);
-	options.layers.drawSwamps(ctx, frameIndex + (subFrame ?? 0));
-	ctx.drawImage(options.layers.structure, 0, 0, widthInTiles, heightInTiles);
+	// 1) static layers: per-room tiles (see caches.ts). Without a view they are
+	//    built synchronously; with one, a missing tile falls back to a coarser one.
+	options.layers.drawTerrain(ctx, options.view);
+	options.layers.drawSwamps(ctx, frameIndex + (subFrame ?? 0), options.view);
+	options.layers.drawStructures(ctx, options.view);
 
 	// world tile coords for a room-local position
 	const worldPosition = (roomName: string, x: number, y: number) => {
@@ -341,9 +344,7 @@ export function drawFrame(
 
 	// 4) cached ramparts are deliberately the final overlay, above structures,
 	// creeps, effects, resources, and user RoomVisuals.
-	if (options.layers.rampart) {
-		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
-	}
+	options.layers.drawRamparts(ctx, options.view);
 
 	// 4b) active power effect corner pips: the final pass, after the rampart
 	//     overlay, so SHIELD and FORTIFY targets (ramparts and walls) don't
