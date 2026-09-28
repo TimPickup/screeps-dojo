@@ -179,6 +179,8 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
     let lastDrawn: DrawState | null = null;
     // Static layers are synced once per tick, not once per animation frame.
     let synced: { tick: number; recording: Recording; layers: StaticLayers } | null = null;
+    // The last draw error logged, so a failing state logs once, not 60 times a second.
+    let lastDrawError: string | null = null;
     const loop = (ts: number) => {
       raf = requestAnimationFrame(loop);
       const cv = canvasRef.current, c = caches.current; if (!cv || !c) return;
@@ -231,28 +233,41 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
           synced = { tick: drawTick, recording: activeRecording, layers: c.layers };
         }
 
-        // clear + world transform (tile → device px)
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = '#0e0e0e';
-        ctx.fillRect(0, 0, cv.width, cv.height);
-        const s = scale * dpr;
-        ctx.setTransform(s, 0, 0, s, tx * dpr, ty * dpr);
-        drawFrame(ctx, activeRecording, drawTick, sub, {
-          sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, showMapVisuals: st.showMapVisuals,
-          modImages: modImagesRef.current, powerImages: powerImagesRef.current, smoothTurns: next.smoothTurns,
-          view,
-        });
+        // A throw here must not kill the loop: rAF is already re-armed, but an
+        // uncaught error would skip lastDrawn and pump, and the next frame would
+        // retry the same failing state forever. A null beam target once froze
+        // the whole view that way with no sign but the console. So log it once,
+        // count this state as drawn, and let a change of state try again.
+        try {
+          // clear + world transform (tile → device px)
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.fillStyle = '#0e0e0e';
+          ctx.fillRect(0, 0, cv.width, cv.height);
+          const s = scale * dpr;
+          ctx.setTransform(s, 0, 0, s, tx * dpr, ty * dpr);
+          drawFrame(ctx, activeRecording, drawTick, sub, {
+            sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, showMapVisuals: st.showMapVisuals,
+            modImages: modImagesRef.current, powerImages: powerImagesRef.current, smoothTurns: next.smoothTurns,
+            view,
+          });
 
-        // selection ring
-        if (st.selectedId) {
-          const o = objectById(f0, st.selectedId);
-          if (o && layout.offsets[o.room]) {
-            const wx = layout.offsets[o.room].col * 50 + o.x + 0.5, wy = layout.offsets[o.room].row * 50 + o.y + 0.5;
-            ctx.strokeStyle = 'rgba(70, 130, 255, 0.7)';
-            ctx.lineWidth = 0.15;
-            ctx.beginPath();
-            ctx.arc(wx, wy, 1, 0, Math.PI * 2);
-            ctx.stroke();
+          // selection ring
+          if (st.selectedId) {
+            const o = objectById(f0, st.selectedId);
+            if (o && layout.offsets[o.room]) {
+              const wx = layout.offsets[o.room].col * 50 + o.x + 0.5, wy = layout.offsets[o.room].row * 50 + o.y + 0.5;
+              ctx.strokeStyle = 'rgba(70, 130, 255, 0.7)';
+              ctx.lineWidth = 0.15;
+              ctx.beginPath();
+              ctx.arc(wx, wy, 1, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message !== lastDrawError) {
+            lastDrawError = message;
+            console.error('Replay draw failed:', error);
           }
         }
 
