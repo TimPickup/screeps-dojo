@@ -43,6 +43,19 @@ just its structures, creeps and resource nodes.
 - Opening a map in the editor dropped any controller, source or mineral field it had no control for,
   such as a power-enabled controller's `isPowerEnabled`. The map showed as edited as soon as it was
   opened, and saving it lost the field.
+- Large replays froze for seconds on every skip and whenever a structure changed, panning or zooming
+  stuttered, and a long replay needed about 2 GB of memory. The whole map was cached as three images
+  of up to 12000×18000 px, and every frame kept its own copy of every object. The map is now cached
+  per room at the resolution the zoom needs, zoomed-out views draw once per tick, and unchanged
+  objects are shared between frames. On a 108-room, 1662-tick replay a skip went from 8.4–8.7 s to
+  no stall, a structure change during playback from a 3.9 s freeze to no frame over 40 ms zoomed
+  in, and memory from 855 MB at 39% loaded to 590 MB fully loaded.
+
+### Changed
+
+- Zoomed right out, the replay stops animating between ticks and draws creeps as dots, and a paused
+  replay no longer redraws 60 times a second. Add `?renderStats=1` to the URL to see draw time,
+  draws per second, the detail level and the tile cache.
 
 ### Still skipped on import, on purpose
 
