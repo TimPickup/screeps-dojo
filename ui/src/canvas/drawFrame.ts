@@ -260,7 +260,7 @@ export function drawFrame(
 	}
 
 	// 2b) towers: live energy fill + attack/heal/repair beams. Towers are baked
-	//     into the per-epoch background (epochKey excludes energy), so their
+	//     into the per-room structure tile (whose key excludes energy), so their
 	//     current fill and per-tick actions must be drawn here on top. Beams reuse
 	//     the creep effect renderer — tower actionLog keys (attack/heal/repair)
 	//     are a subset of the creep ones, so they read identically.
@@ -292,7 +292,7 @@ export function drawFrame(
 	}
 
 	// 2c) spawns: live energy core. Like towers, spawns are baked into the per-
-	//     epoch background (which is energy-blind), but the background draws only
+	//     room structure tile (which is energy-blind), but the tile draws only
 	//     the dark base — so the yellow core (scaled by fill, hidden when empty)
 	//     is painted here on top and stays accurate as the spawn fills/drains.
 	if (detail !== 'minimal') for (const object of baseObjectsInDrawOrder) {

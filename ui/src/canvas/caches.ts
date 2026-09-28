@@ -10,18 +10,9 @@ import {
 import { drawRoomRamparts } from './ramparts.ts';
 import { drawWallIslands } from './terrainWalls.ts';
 import { populateFrameMy } from './ownership.ts';
-import {
-	flagKeyPart,
-	objectsByRoom,
-	rampartKeyPart,
-	roomRampartKeys,
-	roomStructureKeys,
-	roomTerrainKeys,
-	structureKeyPart,
-} from './roomIndex.ts';
+import { objectsByRoom, roomRampartKeys, roomStructureKeys, roomTerrainKeys } from './roomIndex.ts';
 import {
 	ROOM_SIZE_TILES,
-	STATIC_LAYER_OBJECT_TYPES,
 	STATIC_LAYER_RESOLUTION,
 	SWAMP_RENDER_STYLE,
 	TILE_CACHE_BUDGET_BYTES,
@@ -33,31 +24,6 @@ import { createTileCanvas } from './browserTileFinish.ts';
 import { AnimatedSwampRenderer } from './terrainSwamps.ts';
 import type { ModImages } from './modImages.ts';
 import type { TerrainRenderResources, TerrainTextures } from './terrainTextures.ts';
-
-// ---- Per-epoch static-scene background cache ----
-// Epoch = a run of frames with the same structure layout. Key excludes
-// energy/progress (those would change every tick); minor in-epoch staleness of
-// energy fills is accepted by the cached static layer.
-export function epochKey(frame: Frame): string {
-	const parts: string[] = [];
-	for (const object of frame.objects) {
-		if (!STATIC_LAYER_OBJECT_TYPES.has(object.type)) continue;
-		parts.push(structureKeyPart(object));
-	}
-	for (const flag of frame.flags || []) parts.push(flagKeyPart(flag));
-	parts.sort();
-	return parts.join('|');
-}
-
-export function rampartEpochKey(frame: Frame): string {
-	const parts: string[] = [];
-	for (const object of frame.objects) {
-		if (object.type !== 'rampart') continue;
-		parts.push(rampartKeyPart(object));
-	}
-	parts.sort();
-	return parts.join('|');
-}
 
 export interface StaticLayerResources extends TerrainRenderResources {
 	// Turns a painted tile canvas into what gets drawn (see RoomTileCache).

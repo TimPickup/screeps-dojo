@@ -269,9 +269,9 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'extractor',
 ]);
 
-// The epoch cache KEY, not the draw list: an object type belongs here only if
-// it is baked into the cached structure canvas, because listing it makes the
-// whole background rebuild whenever one appears, moves, or disappears.
+// The tile cache KEY, not the draw list: an object type belongs here only if
+// it is baked into the cached room tiles, because listing it makes that room's
+// tile rebuild whenever one appears, moves, or disappears (roomIndex.ts).
 // Construction sites are deliberately absent — they are drawn per frame (their
 // progress changes every tick), so keying on them would rebuild for nothing.
 export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([

@@ -37,9 +37,9 @@ const recentRoomIndexesByLayout = new WeakMap<StageLayout, CachedRoomIndex[]>();
 // objectById has no layout, so it keeps its own list of the same size.
 const recentIdIndexes: CachedIdIndex[] = [];
 
-// The part strings use the same fields as caches.ts epochKey/rampartEpochKey
-// (they build their whole-map keys from these), so a per-room key changes
-// exactly when that room's share of the old whole-map key changes.
+// The fields a tile draws from. Hits, energy, cooldowns and progress are left
+// out: those change every tick and are drawn per frame, so a room's tile is
+// rebuilt only when something it actually shows has changed.
 export function structureKeyPart(object: FrameObject): string {
 	return object.type + ',' + object.room + ',' + object.x + ',' + object.y + ','
 		+ (object.level ?? '') + ',' + (object.user ?? '') + ',' + (object.depositType ?? '');

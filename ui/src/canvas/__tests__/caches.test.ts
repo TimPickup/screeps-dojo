@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, Recording, StageLayout } from '../../api/types';
-import { epochKey, rampartEpochKey, StaticLayers } from '../caches';
+import { StaticLayers } from '../caches';
+import { roomRampartKeys, roomStructureKeys, roomTerrainKeys } from '../roomIndex';
 import { mockCtx, type Call } from './mockCtx';
 
 const layout = {
@@ -30,14 +31,21 @@ function plainTerrain(): string[] {
   return Array.from({ length: 50 }, () => '.'.repeat(50));
 }
 
-describe('static layer epochs', () => {
-  it('invalidates for constructed-wall layout changes but not hit-point changes', () => {
-    expect(epochKey(frameWithWall(10, 100))).toBe(epochKey(frameWithWall(10, 50)));
-    expect(epochKey(frameWithWall(10))).not.toBe(epochKey(frameWithWall(11)));
-    expect(epochKey(frameWithWall(10))).not.toBe(epochKey({
+// Each room tile is rebuilt only when that room's key changes (roomIndex.ts).
+const terrainKey = (frame: Frame) => roomTerrainKeys(frame, layout).get('W1N1');
+const structureKey = (frame: Frame) => roomStructureKeys(frame, layout).get('W1N1');
+const rampartKey = (frame: Frame) => roomRampartKeys(frame, layout).get('W1N1');
+
+describe('static layer room keys', () => {
+  it('rebuilds the terrain tile for constructed-wall layout changes but not hit-point changes', () => {
+    expect(terrainKey(frameWithWall(10, 100))).toBe(terrainKey(frameWithWall(10, 50)));
+    expect(terrainKey(frameWithWall(10))).not.toBe(terrainKey(frameWithWall(11)));
+    expect(terrainKey(frameWithWall(10))).not.toBe(terrainKey({
       ...frameWithWall(10),
       objects: [],
     } as unknown as Frame));
+    // Walls draw in the terrain tile, so moving one leaves the structure tile alone.
+    expect(structureKey(frameWithWall(10))).toBe(structureKey(frameWithWall(11)));
   });
 
   it('tracks deposit appearance and type but ignores cooldown and power-bank hits', () => {
@@ -60,12 +68,12 @@ describe('static layer epochs', () => {
       _id: 'bank', type: 'powerBank', room: 'W1N1', x: 20, y: 20, hits: 1000,
     });
 
-    expect(epochKey(depositFrame)).toBe(epochKey(changedCooldown));
-    expect(epochKey(depositFrame)).not.toBe(epochKey(changedType));
-    expect(epochKey(fullPowerBank)).toBe(epochKey(damagedPowerBank));
+    expect(structureKey(depositFrame)).toBe(structureKey(changedCooldown));
+    expect(structureKey(depositFrame)).not.toBe(structureKey(changedType));
+    expect(structureKey(fullPowerBank)).toBe(structureKey(damagedPowerBank));
   });
 
-  it('ignores construction sites entirely — they are drawn per frame, not baked', () => {
+  it('ignores construction sites entirely: they are drawn per frame, not baked', () => {
     const bare = frameWithStaticObject({
       _id: 'spawn', type: 'spawn', room: 'W1N1', x: 25, y: 25,
     });
@@ -81,12 +89,14 @@ describe('static layer epochs', () => {
       objects: [withSite.objects[0], { ...withSite.objects[1], progress: 2000 }],
     } as unknown as Frame;
 
-    // Placing one must not throw away the background it never appears on.
-    expect(epochKey(withSite)).toBe(epochKey(bare));
-    expect(epochKey(advancedSite)).toBe(epochKey(bare));
+    // Placing one must not throw away a tile it never appears on.
+    for (const key of [terrainKey, structureKey, rampartKey]) {
+      expect(key(withSite)).toBe(key(bare));
+      expect(key(advancedSite)).toBe(key(bare));
+    }
   });
 
-  it('invalidates the rampart overlay for layout, ownership, and public-state changes only', () => {
+  it('rebuilds the rampart tile for layout, ownership, and public-state changes only', () => {
     const mine = frameWithRampart(10, 100);
     mine.objects[0].my = true;
     const damaged = frameWithRampart(10, 50);
@@ -98,12 +108,14 @@ describe('static layer epochs', () => {
     const opponent = frameWithRampart(10, 50, false, 'enemy');
     opponent.objects[0].my = false;
 
-    expect(rampartEpochKey(mine)).toBe(rampartEpochKey(damaged));
-    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(moved));
-    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(publicRampart));
-    expect(rampartEpochKey(mine)).not.toBe(rampartEpochKey(opponent));
+    expect(rampartKey(mine)).toBe(rampartKey(damaged));
+    expect(rampartKey(mine)).not.toBe(rampartKey(moved));
+    expect(rampartKey(mine)).not.toBe(rampartKey(publicRampart));
+    expect(rampartKey(mine)).not.toBe(rampartKey(opponent));
   });
+});
 
+describe('static layers', () => {
   it('bakes merged walls into a terrain tile', () => {
     const canvasLogs: Call[][] = [];
     const canvasFactory = (width: number, height: number): HTMLCanvasElement => {

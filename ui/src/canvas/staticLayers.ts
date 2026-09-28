@@ -1,4 +1,4 @@
-import type { Recording, StageLayout, Frame, FrameObject } from '../api/types.ts';
+import type { StageLayout, Frame, FrameObject } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
 import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
 import { circle, poly, roundedSquare, text } from './primitives.ts';
@@ -19,7 +19,6 @@ import {
 	RENDER_COLORS,
 	ROOM_SIZE_TILES,
 	SOURCE_RENDER_STYLE,
-	STATIC_LAYER_RESOLUTION,
 	STRUCTURE_SHELL_TYPES,
 	TILE_PADDING_TILES,
 } from './renderConstants.ts';
@@ -130,48 +129,11 @@ export function drawTerrainScene(
 
 export type CanvasFactory = (width: number, height: number) => HTMLCanvasElement;
 
-function browserCanvas(width: number, height: number): HTMLCanvasElement {
-	const canvas = document.createElement('canvas');
-	canvas.width = width;
-	canvas.height = height;
-	return canvas;
-}
-
 function darkenMineralColor(color: string): string {
 	const darkenedDigits = color.slice(1).split('').map((hexDigit) => (
 		(parseInt(hexDigit, 16) * 0.25 | 0).toString(16)
 	));
 	return `#${darkenedDigits.join('')}`;
-}
-
-function buildStaticCanvas(
-	layout: StageLayout,
-	resolution: number,
-	canvasFactory: CanvasFactory,
-	draw: (ctx: CanvasRenderingContext2D) => void,
-): HTMLCanvasElement {
-	const widthInTiles = (layout.width / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
-	const heightInTiles = (layout.height / layout.pixelsPerRoom) * ROOM_SIZE_TILES;
-	const canvas = canvasFactory(
-		Math.max(1, Math.round(widthInTiles * resolution)),
-		Math.max(1, Math.round(heightInTiles * resolution)),
-	);
-	const ctx = canvas.getContext('2d')!;
-	ctx.scale(resolution, resolution);
-	draw(ctx);
-	return canvas;
-}
-
-export function buildTerrainCanvas(
-	recording: Recording,
-	layout: StageLayout,
-	resolution = STATIC_LAYER_RESOLUTION,
-	canvasFactory: CanvasFactory = browserCanvas,
-	terrainTextures?: TerrainTextures,
-): HTMLCanvasElement {
-	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
-		drawTerrainScene(ctx, recording.terrain, layout, terrainTextures);
-	});
 }
 
 // One room's static structures, room-local, in frameObjectsInDrawOrder order.
@@ -389,31 +351,4 @@ export function drawStaticScene(
 	}
 	drawRamparts(ctx, scene.frame, scene.layout);
 	drawRoomNames(ctx, scene.layout);
-}
-
-export function buildStructureCanvas(
-	frame: Frame,
-	layout: StageLayout,
-	resolution = STATIC_LAYER_RESOLUTION,
-	canvasFactory: CanvasFactory = browserCanvas,
-	terrain: Record<string, string[]> = {},
-	wallTexture?: CanvasImageSource,
-	modImages?: ModImages,
-): HTMLCanvasElement {
-	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
-		drawMergedWalls(ctx, terrain, frame, layout, wallTexture);
-		drawStaticStructures(ctx, frame, layout, modImages);
-		drawRoomNames(ctx, layout);
-	});
-}
-
-export function buildRampartCanvas(
-	frame: Frame,
-	layout: StageLayout,
-	resolution = STATIC_LAYER_RESOLUTION,
-	canvasFactory: CanvasFactory = browserCanvas,
-): HTMLCanvasElement {
-	return buildStaticCanvas(layout, resolution, canvasFactory, (ctx) => {
-		drawRamparts(ctx, frame, layout);
-	});
 }
