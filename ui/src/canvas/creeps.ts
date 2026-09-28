@@ -2,7 +2,8 @@ import type { FrameObject } from '../api/types.ts';
 import { RENDER_COLORS } from './renderConstants.ts';
 import { drawPowerCreep } from './powerCreeps.ts';
 
-const NPC_USERS = new Set(['2', '3']);
+// Invader (2) and Source Keeper (3) accounts.
+export const NPC_USERS: ReadonlySet<string> = new Set(['2', '3']);
 const CREEP_SIZE = 1.25;
 const MAX_CREEP_PARTS = 50;
 const PART_ANGLE_DEGREES = 360 / MAX_CREEP_PARTS;
@@ -137,4 +138,29 @@ export class CreepRenderer {
 
 	isBot(object: FrameObject): boolean { return object.my === true; }
 	isNpc(object: FrameObject): boolean { return NPC_USERS.has(String(object.user)); }
+}
+
+export interface CreepDot { x: number; y: number; my: boolean; npc: boolean }
+
+// Zoomed-out creeps: plain dots, one path and one fill per colour instead of a
+// save/restore and a dozen arcs per creep. Colours match the full sprite: NPC
+// body red, else bot blue or opponent red. Centres are in world tiles.
+export function fillCreepDots(ctx: CanvasRenderingContext2D, dots: CreepDot[], radius: number): void {
+	fillDotGroup(ctx, dots, radius, RENDER_COLORS.ownership.bot, (dot) => !dot.npc && dot.my);
+	fillDotGroup(ctx, dots, radius, RENDER_COLORS.ownership.opponent, (dot) => !dot.npc && !dot.my);
+	fillDotGroup(ctx, dots, radius, RENDER_COLORS.creep.invaderBody, (dot) => dot.npc);
+}
+
+function fillDotGroup(ctx: CanvasRenderingContext2D, dots: CreepDot[], radius: number, color: string, inGroup: (dot: CreepDot) => boolean): void {
+	let started = false;
+	for (const dot of dots) {
+		if (!inGroup(dot)) continue;
+		if (!started) { ctx.beginPath(); started = true; }
+		// moveTo starts a separate subpath, so fill() doesn't join the circles.
+		ctx.moveTo(dot.x + radius, dot.y);
+		ctx.arc(dot.x, dot.y, radius, 0, Math.PI * 2);
+	}
+	if (!started) return;
+	ctx.fillStyle = color;
+	ctx.fill();
 }

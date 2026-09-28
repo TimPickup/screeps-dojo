@@ -170,8 +170,10 @@ export function roomTerrainKeys(frame: Frame, layout: StageLayout): Map<string, 
 	return entry.terrainKeys;
 }
 
-// Any object in the frame by `_id` (creeps, structures, everything).
-export function objectById(frame: Frame, id: string): FrameObject | undefined {
+// Every object in the frame by `_id` (creeps, structures, everything). Shares
+// the recent-frames cache with objectById, so drawFrame's per-animation-frame
+// lookups reuse one index per frame rather than rebuilding it every call.
+export function objectIndex(frame: Frame): ReadonlyMap<string, FrameObject> {
 	let cached = recentIdIndexes.find((entry) => entry.frame === frame);
 	if (!cached) {
 		const byId = new Map<string, FrameObject>();
@@ -180,5 +182,10 @@ export function objectById(frame: Frame, id: string): FrameObject | undefined {
 		recentIdIndexes.push(cached);
 		if (recentIdIndexes.length > RECENT_FRAME_CACHE_SIZE) recentIdIndexes.shift();
 	}
-	return cached.byId.get(id);
+	return cached.byId;
+}
+
+// Any object in the frame by `_id` (creeps, structures, everything).
+export function objectById(frame: Frame, id: string): FrameObject | undefined {
+	return objectIndex(frame).get(id);
 }
