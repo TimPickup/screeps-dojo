@@ -589,6 +589,7 @@ function clearOrphanedRecordings(scenariosRoot, legacyRoot) {
 module.exports = {
 	writeRecording: writeRecording,
 	loadRecording: loadRecording,
+	isRecorderAlive: isRecorderAlive,
 	createRecorder: createRecorder,
 	listRecordings: listRecordings,
 	readRecordingMeta: readRecordingMeta,

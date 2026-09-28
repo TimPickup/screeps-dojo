@@ -1,7 +1,8 @@
 'use strict';
 
 const path = require('path');
-const { listRecordings, loadRecording, listOrphanedRecordings, clearOrphanedRecordings, saveRecordingCpuAvg } = require('../../recording');
+const { listRecordings, loadRecording, isRecorderAlive, listOrphanedRecordings, clearOrphanedRecordings, saveRecordingCpuAvg } = require('../../recording');
+const { tailRecording } = require('../../recordingTail');
 const { RECORDINGS_DIR_NAME } = require('../../scenarioTree');
 const { pathSafe } = require('../pathSafe');
 const streamReplay = require('../streamReplay');
@@ -98,29 +99,38 @@ module.exports = function registerRecordingRoutes(router, ctx) {
 		try { abs = pathSafe(ctx.recordingsRoot, rel); } catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
 		const fs = require('fs');
 		try {
+			const progressive = req.query.get('progressive') === '1';
+			// A run still recording: the progressive viewer tails its journal and
+			// keeps loading frames until the run finishes. Nothing is written to
+			// the run, so this can't race the recorder's own finalize.
+			const dir = path.dirname(abs);
+			const live = progressive && path.basename(abs) === 'recording.json' && !fs.existsSync(abs)
+				&& fs.existsSync(path.join(dir, 'meta.json')) && isRecorderAlive(dir);
 			// stream the on-disk JSON directly (no parse+stringify round-trip).
 			// loadRecording() only here to assemble a salvaged run if recording.json
 			// is missing; if it exists we never parse it server-side.
-			if (!fs.existsSync(abs)) loadRecording(abs);
-			// Content-Length, not chunked. The client picks its JSON parser by the
-			// declared size — the engine's own parser below the string limit, a
-			// streaming one above it — and without this header every recording,
-			// however small, takes the slow path. Stat after loadRecording(), which
-			// is what writes the file in the salvage case.
-			const size = fs.statSync(abs).size;
-			const progressive = req.query.get('progressive') === '1';
+			if (!live && !fs.existsSync(abs)) loadRecording(abs);
 			const id = progressive ? require('crypto').randomUUID() : null;
 			const control = { urgent: false };
 			if (id) {
 				streams.set(id, control);
 				res.once('close', () => streams.delete(id));
 			}
+			// Content-Length, not chunked. The client picks its JSON parser by the
+			// declared size — the engine's own parser below the string limit, a
+			// streaming one above it — and without this header every recording,
+			// however small, takes the slow path. Stat after loadRecording(), which
+			// is what writes the file in the salvage case. A live run has no size
+			// yet, and the progressive viewer always parses as it streams.
 			res.writeHead(200, {
 				'Content-Type': 'application/json; charset=utf-8',
-				'Content-Length': size,
+				...(live ? {} : { 'Content-Length': fs.statSync(abs).size }),
 				...(id ? { 'X-Replay-Stream': id } : {})
 			});
-			if (progressive) {
+			if (live) {
+				const source = (signal) => tailRecording(dir, { isAlive: isRecorderAlive, signal });
+				streamReplay(abs, res, { source, isUrgent: () => control.urgent }).catch(() => res.destroy());
+			} else if (progressive) {
 				streamReplay(abs, res, { isUrgent: () => control.urgent }).catch(() => res.destroy());
 			} else {
 				fs.createReadStream(abs).on('error', function () { res.destroy(); }).pipe(res);

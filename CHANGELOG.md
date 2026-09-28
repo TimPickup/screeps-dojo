@@ -23,6 +23,10 @@ just its structures, creeps and resource nodes.
 
 ### Fixed
 
+- A replay of a run that is still recording opens again, and keeps loading new frames as the run
+  records them until it finishes. Since 0.15.0 it answered "still recording" and would not open.
+  The server tails the run's journal and writes nothing into the run, so it can't collide with the
+  recorder finishing.
 - Dropped resources drew at minimum size and as energy whatever they held, and the hover label had
   no amount: the renderer read `store`, which a dropped pile does not have.
 - A ruin's "was a" in the map editor edited a top-level `structureType` the engine never reads, and
