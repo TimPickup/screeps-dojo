@@ -30,6 +30,37 @@ describe('RoomTileCache', () => {
     expect(rect).toEqual([48, -2, 54, 54]);
   });
 
+  it('places a padded tile on whole export pixels at a resolution that is not a multiple of 0.5 (res 2.56)', () => {
+    // Video export with --pixels 128: 2.56 px per tile. The pad (2 tiles) is 5.12 px,
+    // so a tile drawn over 54 world tiles would be resampled and blur.
+    const lod = 2.56;
+    const paintLogs: { op: string; args: unknown[] }[][] = [];
+    const canvasFactory = (w: number, h: number) => ({
+      width: w, height: h, getContext: () => { const m = mockCtx(); paintLogs.push(m.log); return m.ctx; },
+    }) as unknown as HTMLCanvasElement;
+    const noop = () => {};
+    const cache = new RoomTileCache({
+      layout, lods: [lod], canvasFactory, budgetBytes: Infinity,
+      painters: { terrain: noop, structure: noop, rampart: noop }, padding: { terrain: 0, structure: 2, rampart: 2 },
+    });
+    const { ctx, log } = mockCtx();
+    cache.beginFrame(); cache.draw(ctx, 'structure', ['B'], lod, true, 0);
+    const [img, x, y, w, h] = images(log)[0].args as [HTMLCanvasElement, number, number, number, number];
+    // Drawn at its own pixel size: one canvas px per export px.
+    expect(w * lod).toBeCloseTo(img.width, 9);
+    expect(h * lod).toBeCloseTo(img.height, 9);
+    // The room origin (col 1 = 128 px) and the tile's corner both sit on whole pixels.
+    const padPx = 50 * lod - x * lod;
+    expect(padPx).toBeCloseTo(Math.round(padPx), 9);
+    expect(-y * lod).toBeCloseTo(padPx, 9);
+    // The painter's room origin lands on the same pixel inside the tile.
+    const translate = paintLogs[0].find((c) => c.op === 'translate')!.args as number[];
+    expect(translate[0] * lod).toBeCloseTo(padPx, 9);
+    expect(translate[1] * lod).toBeCloseTo(padPx, 9);
+    // And the pad is the same on both sides.
+    expect(img.width).toBe(Math.round(50 * lod + 2 * padPx));
+  });
+
   it('expands opaque tiles only when asked', () => {
     const { cache } = setup();
     const a = mockCtx(); cache.beginFrame(); cache.draw(a.ctx, 'terrain', ['A'], 3, true, 0.25);

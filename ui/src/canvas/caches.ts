@@ -12,14 +12,13 @@ import { drawWallIslands } from './terrainWalls.ts';
 import { populateFrameMy } from './ownership.ts';
 import { objectsByRoom, roomRampartKeys, roomStructureKeys, roomTerrainKeys } from './roomIndex.ts';
 import {
-	ROOM_SIZE_TILES,
 	STATIC_LAYER_RESOLUTION,
 	SWAMP_RENDER_STYLE,
 	TILE_CACHE_BUDGET_BYTES,
 	TILE_PADDING_TILES,
 } from './renderConstants.ts';
 import { detailLevel, lodLevels, pickLod, visibleRooms, type RenderView } from './renderView.ts';
-import { RoomTileCache, type TileImage, type TileLayer } from './roomTiles.ts';
+import { RoomTileCache, tilePixels, type TileImage, type TileLayer } from './roomTiles.ts';
 import { createTileCanvas } from './browserTileFinish.ts';
 import { AnimatedSwampRenderer } from './terrainSwamps.ts';
 import type { ModImages } from './modImages.ts';
@@ -300,7 +299,7 @@ export class StaticLayers {
 
 	// One tile at `lod`, padding included, sized as RoomTileCache builds it.
 	private tileBytes(layer: TileLayer, lod: number): number {
-		const px = Math.ceil((ROOM_SIZE_TILES + 2 * TILE_PADDING[layer]) * lod);
+		const px = tilePixels(TILE_PADDING[layer], lod);
 		return px * px * BYTES_PER_PIXEL;
 	}
 

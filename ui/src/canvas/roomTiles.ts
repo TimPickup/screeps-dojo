@@ -31,8 +31,23 @@ export interface RoomTileCacheOptions {
 	now?: () => number;
 }
 
+// A tile's padding and side in pixels. The pad is rounded up to whole pixels
+// on each side, so the room's own 0..50 area starts on a pixel boundary and the
+// tile can be drawn 1:1 onto a grid of `lod` px per tile at any lod (video
+// export takes any --pixels, e.g. 2.56 px per tile). At the browser LODs
+// (24, 12, 6, 3, 1.5 with pad 2) this equals ceil((50 + 2·pad)·lod).
+export function tilePadPixels(pad: number, lod: number): number {
+	return Math.ceil(pad * lod);
+}
+
+export function tilePixels(pad: number, lod: number): number {
+	return Math.ceil(ROOM_SIZE_TILES * lod) + 2 * tilePadPixels(pad, lod);
+}
+
 interface Tile {
 	image: TileImage;
+	// The LOD it was built at (a fallback can be drawn in place of another).
+	lod: number;
 	bytes: number;
 	// Frame id of the last frame that drew this tile (or built it).
 	lastFrame: number;
@@ -150,7 +165,6 @@ export class RoomTileCache {
 		// between neighbours. Padded layers are transparent and already overlap,
 		// so widening them would only blur and misplace their content.
 		const e = pad === 0 ? expandPx : 0;
-		const size = ROOM_SIZE_TILES + 2 * pad + 2 * e;
 		for (const room of rooms) {
 			const offset = this.layout.offsets[room];
 			if (!offset) continue;
@@ -167,12 +181,16 @@ export class RoomTileCache {
 			}
 			if (!tile) continue;
 			tile.lastFrame = this.frame;
+			// Placed by its real pixel size, not by 50 + 2·pad world tiles: when
+			// pad·lod is not whole the two differ, and stretching one onto the
+			// other resamples (blurs) the whole layer.
+			const padTiles = tilePadPixels(pad, tile.lod) / tile.lod;
 			ctx.drawImage(
 				tile.image,
-				offset.col * ROOM_SIZE_TILES - pad - e,
-				offset.row * ROOM_SIZE_TILES - pad - e,
-				size,
-				size,
+				offset.col * ROOM_SIZE_TILES - padTiles - e,
+				offset.row * ROOM_SIZE_TILES - padTiles - e,
+				tile.image.width / tile.lod + 2 * e,
+				tile.image.height / tile.lod + 2 * e,
 			);
 		}
 	}
@@ -280,14 +298,16 @@ export class RoomTileCache {
 		const pad = this.padding[layer];
 		// Padding lets structure/rampart art that spills past the room edge
 		// (rampart outlines, road stubs, labels) be drawn from this room's tile.
-		const px = Math.ceil((ROOM_SIZE_TILES + 2 * pad) * lod);
+		const px = tilePixels(pad, lod);
 		const canvas = this.canvasFactory(px, px);
 		const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 		ctx.scale(lod, lod);
-		ctx.translate(pad, pad);
+		// Whole pixels, matching where draw() puts the tile.
+		const padTiles = tilePadPixels(pad, lod) / lod;
+		ctx.translate(padTiles, padTiles);
 		this.painters[layer](ctx, room);
 		const image = this.finish ? this.finish(canvas) : canvas;
-		const tile: Tile = { image, bytes: image.width * image.height * BYTES_PER_PIXEL, lastFrame: this.frame };
+		const tile: Tile = { image, lod, bytes: image.width * image.height * BYTES_PER_PIXEL, lastFrame: this.frame };
 		const base = `${layer}|${room}`;
 		if (lod === this.lowest) {
 			// Every lowest-LOD tile is pinned, however it was built: ~81 px square,
