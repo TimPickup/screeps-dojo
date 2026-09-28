@@ -160,6 +160,12 @@ describe('static layer epochs', () => {
     expect(log.filter((c) => c.op === 'drawImage').length).toBeLessThanOrEqual(1);   // W1N1 only (or nothing yet)
     layers.pump(1000, Infinity);
     expect(built.length).toBeGreaterThan(0);
+    const again = mockCtx();
+    layers.beginFrame();
+    layers.drawTerrain(again.ctx, { minX: 0, minY: 0, maxX: 40, maxY: 40, pixelsPerTile: 2 });
+    const draws = again.log.filter((c) => c.op === 'drawImage');
+    expect(draws).toHaveLength(1);                                                     // W1N1, never W2N1
+    expect(draws[0].args.slice(1)).toEqual([-0.25, -0.25, 50.5, 50.5]);               // W1N1, widened half a device px
   });
 
   it('steps down the LOD so the visible rooms fit the budget', () => {
@@ -168,6 +174,14 @@ describe('static layer epochs', () => {
     const layers = new StaticLayers(recording, many, 24, tileFactory([]));
     expect(layers.lodFor({ minX: 0, minY: 0, maxX: 500, maxY: 300, pixelsPerTile: 20 })).toBeLessThan(24);
     expect(layers.lodFor({ minX: 0, minY: 0, maxX: 40, maxY: 40, pixelsPerTile: 20 })).toBe(24);
+  });
+
+  it('counts only the layers drawn: ~40 rooms on a 4K screen keep 12 px/tile', () => {
+    // 8 x 5 rooms, none with ramparts, at the 4K fit zoom.
+    const forty = { ...layout, offsets: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`W${i}N1`, { col: i % 8, row: Math.floor(i / 8) }])) } as unknown as StageLayout;
+    const recording = { meta: {}, terrain: {}, frames: [{ gameTime: 1, flags: [], objects: [] }] } as unknown as Recording;
+    const layers = new StaticLayers(recording, forty, 24, tileFactory([]));
+    expect(layers.lodFor({ minX: 0, minY: 0, maxX: 400, maxY: 250, pixelsPerTile: 9.6 })).toBe(12);
   });
 });
 

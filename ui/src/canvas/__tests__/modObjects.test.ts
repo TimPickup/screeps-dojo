@@ -140,8 +140,9 @@ describe('drawFrame integration', () => {
     drawFrame(ctx, recordingWith([reactor({ user: 'u1', store: { T: 4 } })]), 0, null, {
       sprites, layers, layout, showVisuals: false, modImages: images,
     });
-    // three drawImage markers for the cached layers, plus the reactor's core+edge
-    expect(log.filter((c) => c.op === 'drawImage').length).toBeGreaterThanOrEqual(4);
+    // the reactor's core + edge artwork, not counting the cached layers' markers
+    const artwork = log.filter((c) => c.op === 'drawImage' && !(c.args[0] as { layer?: string }).layer);
+    expect(artwork.length).toBeGreaterThanOrEqual(2);
     expect(log.some((c) => c.op === 'createRadialGradient')).toBe(true);
   });
 

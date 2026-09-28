@@ -24,7 +24,7 @@ export function buildWallIslands(rows: string[], constructedWalls: readonly Wall
 // treat the islands as read-only.
 const WALL_SETS_PER_ROOM = 4;
 const wallIslandsByRows = new WeakMap<string[], Map<string, WallIsland[]>>();
-function wallIslandsFor(rows: string[], constructedWalls: readonly WallTile[]): WallIsland[] {
+export function wallIslandsFor(rows: string[], constructedWalls: readonly WallTile[]): WallIsland[] {
 	let byWalls = wallIslandsByRows.get(rows);
 	if (!byWalls) wallIslandsByRows.set(rows, byWalls = new Map());
 	let wallKey = '';

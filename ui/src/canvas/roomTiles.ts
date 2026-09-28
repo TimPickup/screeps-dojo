@@ -71,7 +71,7 @@ export class RoomTileCache {
 	private requested = new Map<string, Job>();
 	private queue: Job[] = [];
 	private queueHead = 0;
-	// Pinned builds asked for by warm(), served before the queue.
+	// Pinned builds asked for by warm(), served after everything on screen.
 	private readonly warmQueue = new Map<string, Job>();
 
 	constructor(options: RoomTileCacheOptions) {
@@ -157,6 +157,11 @@ export class RoomTileCache {
 			let tile = this.lookup(layer, room, lod);
 			if (!tile && synchronous) tile = this.build(layer, room, lod);
 			if (!tile) {
+				// An on-screen room with no pinned tile yet asks for that first:
+				// it is tiny, and it is the fallback until the real tile is built.
+				if (lod !== this.lowest && !this.pinned.has(`${layer}|${room}`)) {
+					this.requested.set(`${layer}|${room}|${this.lowest}`, [layer, room, this.lowest]);
+				}
 				this.requested.set(`${layer}|${room}|${lod}`, [layer, room, lod]);
 				tile = this.fallback(layer, room, lod);
 			}
@@ -205,10 +210,10 @@ export class RoomTileCache {
 		return this.pinnedTotal;
 	}
 
-	// Builds still waiting: warm-ups plus the tiles the last drawn frame asked
-	// for (the next beginFrame turns those into the queue). For the stats overlay.
+	// Builds still waiting (warm-ups, and what drawn frames asked for that the
+	// budget has not reached yet; may count a tile twice). For the stats overlay.
 	queued(): number {
-		return this.warmQueue.size + this.requested.size;
+		return this.warmQueue.size + this.requested.size + (this.queue.length - this.queueHead);
 	}
 
 	private lookup(layer: TileLayer, room: string, lod: number): Tile | undefined {
@@ -231,14 +236,24 @@ export class RoomTileCache {
 		return best ?? this.stale.get(`${layer}|${room}`) ?? this.pinned.get(`${layer}|${room}`);
 	}
 
+	// On-screen work first, warm-ups last: the frame being drawn (pump runs
+	// after the draws), then what the previous frame asked for, then warm().
+	// Serving warm() first would build the whole map's pinned tiles before any
+	// visible one, leaving the screen coarse for tens of frames on first open.
 	private nextJob(): Job | undefined {
-		for (const [key, job] of this.warmQueue) {
-			this.warmQueue.delete(key);
+		// Served entries leave `requested`, so beginFrame only carries over
+		// what the budget did not reach.
+		for (const [key, job] of this.requested) {
+			this.requested.delete(key);
 			if (!this.lookup(job[0], job[1], job[2])) return job;
 		}
 		while (this.queueHead < this.queue.length) {
 			const job = this.queue[this.queueHead++];
 			// A synchronous draw or an earlier duplicate may have built it already.
+			if (!this.lookup(job[0], job[1], job[2])) return job;
+		}
+		for (const [key, job] of this.warmQueue) {
+			this.warmQueue.delete(key);
 			if (!this.lookup(job[0], job[1], job[2])) return job;
 		}
 		return undefined;

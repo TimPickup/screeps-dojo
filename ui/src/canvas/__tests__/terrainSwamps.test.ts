@@ -54,5 +54,46 @@ describe('terrain swamp islands', () => {
     expect(log.filter((call) => call.op === 'createPattern')).toHaveLength(2);
     expect(log.filter((call) => call.op === 'pattern.setTransform')).toHaveLength(4);
     expect(log.filter((call) => call.op === 'fill' && call.args.length === 1)).toHaveLength(4);
+    expect(log.filter((call) => call.op === 'clip')).toHaveLength(0);     // no walls, nothing to cut out
+  });
+
+  it('cuts the room walls out of the animated texture, following constructed walls', () => {
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const texture = { width: 256, height: 256 } as unknown as CanvasImageSource;
+    const paths: Array<Array<[string, ...number[]]>> = [];
+    const recordingPath = () => {
+      const calls: Array<[string, ...number[]]> = [];
+      paths.push(calls);
+      const record = (op: string) => (...args: number[]) => { calls.push([op, ...args]); };
+      return {
+        moveTo: record('moveTo'), lineTo: record('lineTo'), quadraticCurveTo: record('quadraticCurveTo'),
+        closePath: record('closePath'), rect: record('rect'), calls,
+      } as unknown as Path2D;
+    };
+    const renderer = new AnimatedSwampRenderer(
+      { W0N0: terrainWithSwamps([[5, 5], [6, 5]]) },
+      layout,
+      [texture, texture],
+      recordingPath,
+    );
+    renderer.setConstructedWalls('W0N0', [{ x: 5, y: 5 }]);   // a wall built on a swamp tile
+    const { ctx, log } = mockCtx();
+    renderer.draw(ctx, 1);
+    const clips = log.filter((call) => call.op === 'clip');
+    expect(clips).toHaveLength(1);
+    expect(clips[0].args[1]).toBe('evenodd');
+    const clipCalls = (clips[0].args[0] as unknown as { calls: Array<[string, ...number[]]> }).calls;
+    expect(clipCalls[0]).toEqual(['rect', 0, 0, 50, 50]);
+    const xs = clipCalls.slice(1).flatMap((c) => [c[1], c[3]].filter((v) => v !== undefined));
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(5);        // the hole is the wall tile (5..6)
+    expect(Math.max(...xs)).toBeLessThanOrEqual(6);
+
+    renderer.setConstructedWalls('W0N0', []);                 // wall destroyed: no hole left
+    const after = mockCtx();
+    renderer.draw(after.ctx, 1);
+    expect(after.log.filter((call) => call.op === 'clip')).toHaveLength(0);
   });
 });

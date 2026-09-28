@@ -72,6 +72,8 @@ const TILE_PADDING: Record<TileLayer, number> = {
 };
 const TILE_LAYERS: readonly TileLayer[] = ['terrain', 'structure', 'rampart'];
 const BYTES_PER_PIXEL = 4;
+// Share of TILE_CACHE_BUDGET_BYTES the tiles on screen may take (see lodFor).
+const VISIBLE_TILE_BUDGET_SHARE = 0.75;
 // Shared so the wall-island memo (keyed by the rows array) also hits for a
 // room the recording has no terrain for.
 const NO_TERRAIN_ROWS: string[] = [];
@@ -167,6 +169,7 @@ export class StaticLayers {
 		this.terrainKeys = roomTerrainKeys(firstFrame, layout);
 		this.structureKeys = roomStructureKeys(firstFrame, layout);
 		this.rampartKeys = roomRampartKeys(firstFrame, layout);
+		for (const room of this.allRooms) this.syncSwampWalls(room);
 
 		const painters: Record<TileLayer, (ctx: CanvasRenderingContext2D, room: string) => void> = {
 			terrain: (ctx, room) => this.paintTerrain(ctx, room),
@@ -234,6 +237,7 @@ export class StaticLayers {
 				if (next[layer].get(room) === previous[layer].get(room)) continue;
 				this.exportTiles.invalidate(room, layer);
 				this.viewTiles.invalidate(room, layer);
+				if (layer === 'terrain') this.syncSwampWalls(room);
 			}
 		}
 	}
@@ -273,10 +277,11 @@ export class StaticLayers {
 		return this.viewTiles.pump(budgetMs, budgetPixels);
 	}
 
-	// The zoom's LOD, stepped down until all three layers of every visible room
-	// fit in half the byte budget. Tiles drawn this frame are never evicted, so
-	// a visible set over budget would just keep growing; the other half holds
-	// stale fallbacks and recently seen rooms.
+	// The zoom's LOD, stepped down until the tiles the visible rooms actually
+	// draw (terrain and structure for each, ramparts only where there are some)
+	// fit in 3/4 of the byte budget. Tiles drawn this frame are never evicted,
+	// so a visible set over budget would just keep growing; the last quarter
+	// holds stale fallbacks and recently seen rooms.
 	lodFor(view: RenderView): number {
 		return this.planFor(view).lod;
 	}
@@ -303,35 +308,44 @@ export class StaticLayers {
 	private roomsWithContent(layer: TileLayer, rooms: Iterable<string>): Iterable<string> {
 		if (layer !== 'rampart') return rooms;
 		const withRamparts: string[] = [];
-		for (const room of rooms) {
-			const key = this.rampartKeys.get(room);
-			if (key && !key.startsWith('0:')) withRamparts.push(room);
-		}
+		for (const room of rooms) if (this.hasRamparts(room)) withRamparts.push(room);
 		return withRamparts;
 	}
 
 	private planFor(view: RenderView): ViewPlan {
 		if (this.plan?.view === view) return this.plan;
 		const rooms = visibleRooms(this.layout, view);
+		let rampartRooms = 0;
+		for (const room of rooms) if (this.hasRamparts(room)) rampartRooms++;
+		const visibleBytes = (lod: number) => rooms.size * (this.tileBytes('terrain', lod) + this.tileBytes('structure', lod))
+			+ rampartRooms * this.tileBytes('rampart', lod);
 		let index = this.levels.indexOf(pickLod(this.levels, view.pixelsPerTile));
 		while (index < this.levels.length - 1
-			&& rooms.size * this.roomTileBytes(this.levels[index]) > TILE_CACHE_BUDGET_BYTES / 2) index++;
+			&& visibleBytes(this.levels[index]) > VISIBLE_TILE_BUDGET_SHARE * TILE_CACHE_BUDGET_BYTES) index++;
 		this.plan = { view, rooms, lod: this.levels[index] };
 		return this.plan;
 	}
 
-	// One room's three tiles at `lod`, padding included, sized as RoomTileCache builds them.
-	private roomTileBytes(lod: number): number {
-		let bytes = 0;
-		for (const layer of TILE_LAYERS) {
-			const px = Math.ceil((ROOM_SIZE_TILES + 2 * TILE_PADDING[layer]) * lod);
-			bytes += px * px * BYTES_PER_PIXEL;
-		}
-		return bytes;
+	// One tile at `lod`, padding included, sized as RoomTileCache builds it.
+	private tileBytes(layer: TileLayer, lod: number): number {
+		const px = Math.ceil((ROOM_SIZE_TILES + 2 * TILE_PADDING[layer]) * lod);
+		return px * px * BYTES_PER_PIXEL;
+	}
+
+	// A rampart key starting `0:` means the room has no ramparts (roomIndex.ts).
+	private hasRamparts(room: string): boolean {
+		const key = this.rampartKeys.get(room);
+		return key !== undefined && !key.startsWith('0:');
 	}
 
 	private roomObjects(room: string): FrameObject[] {
 		return objectsByRoom(this.frame, this.layout).get(room) || NO_OBJECTS;
+	}
+
+	// The animated swamp pass cuts out the walls the terrain tile draws, so it
+	// follows the same (synced) frame's constructed walls.
+	private syncSwampWalls(room: string): void {
+		this.animatedSwamps?.setConstructedWalls(room, constructedWallsIn(this.roomObjects(room)));
 	}
 
 	private paintTerrain(ctx: CanvasRenderingContext2D, room: string): void {

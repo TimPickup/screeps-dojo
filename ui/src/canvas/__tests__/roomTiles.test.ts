@@ -53,13 +53,35 @@ describe('RoomTileCache', () => {
     expect(built).toEqual(['structure:A', 'structure:A']);
   });
 
+  it('builds what a visible room asks for before the warm-up queue', () => {
+    const many = { offsets: Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`R${i}`, { col: i % 10, row: Math.floor(i / 10) }])) } as unknown as StageLayout;
+    const built: string[] = [];
+    let clock = 0;
+    const canvasFactory = (w: number, h: number) => ({ width: w, height: h, getContext: () => mockCtx().ctx }) as unknown as HTMLCanvasElement;
+    const painter = (layer: string) => (_: CanvasRenderingContext2D, room: string) => { built.push(`${layer}:${room}`); clock += 1; };
+    const cache = new RoomTileCache({
+      layout: many, lods: [24, 12, 6, 3, 1.5], canvasFactory, budgetBytes: Infinity, now: () => clock,
+      painters: { terrain: painter('terrain'), structure: painter('structure'), rampart: painter('rampart') },
+      padding: { terrain: 0, structure: 2, rampart: 2 },
+    });
+    cache.warm('terrain', Object.keys(many.offsets));
+    cache.warm('structure', Object.keys(many.offsets));
+    cache.beginFrame();
+    cache.draw(mockCtx().ctx, 'terrain', ['R55'], 12, false, 0);
+    expect(cache.pump(2, Infinity)).toBe(2);
+    expect(built).toEqual(['terrain:R55', 'terrain:R55']);                // its pinned fallback, then the tile
+    const { ctx, log } = mockCtx();
+    cache.beginFrame(); cache.draw(ctx, 'terrain', ['R55'], 12, false, 0);
+    expect((images(log)[0].args[0] as HTMLCanvasElement).width).toBe(600);
+  });
+
   it('drops queued tiles the view no longer asks for', () => {
     const { cache, built } = setup();
     const { ctx } = mockCtx();
     cache.beginFrame(); cache.draw(ctx, 'terrain', ['A', 'B'], 24, false, 0);
     cache.beginFrame(); cache.draw(ctx, 'terrain', ['B'], 24, false, 0);  // panned: only B wanted now
     cache.beginFrame(); cache.pump(100, Infinity);
-    expect(built).toEqual(['terrain:B']);
+    expect(built).toEqual(['terrain:B', 'terrain:B']);                    // B's pinned fallback, then B @24
   });
 
   it('rebuilds only the invalidated room and keeps its pinned fallback current', () => {
