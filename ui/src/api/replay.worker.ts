@@ -1,3 +1,4 @@
+import { FrameMarker } from './frameShare';
 import { readReplay } from './replayStream';
 
 let acknowledge: (() => void) | undefined;
@@ -32,9 +33,11 @@ self.onmessage = async ({ data }) => {
     const response = await fetch('/api/recordings/file?progressive=1&path=' + encodeURIComponent(data));
     streamId = response.headers.get('X-Replay-Stream');
     void updatePriority();
+    const marker = new FrameMarker();
     await readReplay(response,
       (batch) => new Promise<void>((resolve) => {
         acknowledge = resolve;
+        batch.frames = batch.frames.map((f) => marker.mark(f));
         self.postMessage(batch);
       }));
   } catch (error) {

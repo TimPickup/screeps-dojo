@@ -168,6 +168,27 @@ export const ROOM_NAME_STYLE = { fontSize: 0.65, x: 0.15, baseline: 0.75 } as co
 
 export const STATIC_LAYER_RESOLUTION = 24;
 
+// Device px per tile at which detail drops: below 8 a creep body is too small
+// to read its parts, below 3 a tile is a speck and only position matters.
+export const RENDER_DETAIL_THRESHOLDS = { full: 8, simple: 3 } as const;
+// Cached static tiles (stale fallbacks included) may hold this many bytes, so a
+// huge map zoomed in cannot grow browser canvas memory without bound.
+export const TILE_CACHE_BUDGET_BYTES = 256 * 1024 * 1024;
+// Tile building per frame stops after this many ms, keeping a 60 fps frame
+// (16.7 ms) free for the dynamic pass.
+export const TILE_BUILD_BUDGET_MS = 6;
+// ...or after this many tile pixels built, which caps the rasterise cost a
+// single frame can take on even when the clock reads cheap.
+export const TILE_BUILD_BUDGET_PIXELS = 3_000_000;
+// Rooms within this many tiles of the screen still count as visible, so an
+// object poking in from just off-screen is not culled mid-draw.
+export const CULL_MARGIN_TILES = 2;
+
+// Structure and rampart tiles are cached wider than a room so a shell drawn
+// near the edge (its outline, a wide public-rampart marker) never gets cut by
+// the tile boundary. Terrain tiles need none: they abut edge-to-edge.
+export const TILE_PADDING_TILES = 2;
+
 export const WALL_RENDER_STYLE = {
 	cornerRadius: 0.42,
 	textureOpacity: 0.055,
@@ -248,9 +269,9 @@ export const STRUCTURE_SHELL_TYPES: ReadonlySet<string> = new Set([
 	'extractor',
 ]);
 
-// The epoch cache KEY, not the draw list: an object type belongs here only if
-// it is baked into the cached structure canvas, because listing it makes the
-// whole background rebuild whenever one appears, moves, or disappears.
+// The tile cache KEY, not the draw list: an object type belongs here only if
+// it is baked into the cached room tiles, because listing it makes that room's
+// tile rebuild whenever one appears, moves, or disappears (roomIndex.ts).
 // Construction sites are deliberately absent — they are drawn per frame (their
 // progress changes every tick), so keying on them would rebuild for nothing.
 export const STATIC_LAYER_OBJECT_TYPES: ReadonlySet<string> = new Set([

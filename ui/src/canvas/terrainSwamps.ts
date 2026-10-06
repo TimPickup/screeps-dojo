@@ -1,5 +1,5 @@
 import type { StageLayout } from '../api/types.ts';
-import { RENDER_COLORS, ROOM_SIZE_TILES, SWAMP_RENDER_STYLE } from './renderConstants.ts';
+import { RENDER_COLORS, ROOM_SIZE_TILES, SWAMP_RENDER_STYLE, WALL_RENDER_STYLE } from './renderConstants.ts';
 import {
 	appendIslandBoundaryPaths,
 	appendIslandFillPaths,
@@ -7,11 +7,18 @@ import {
 	type TerrainIsland,
 } from './terrainIslands.ts';
 import type { CanvasPathFactory } from './terrainTextures.ts';
+import { wallIslandsFor, type WallTile } from './terrainWalls.ts';
 
 interface RoomSwampPath {
+	name: string;
 	col: number;
 	row: number;
 	path: Path2D;
+	rows: string[];
+	constructedWalls: readonly WallTile[];
+	// The room square with its wall islands cut out (evenodd), or null when the
+	// room has no walls. Undefined until first needed after a wall change.
+	wallHole?: Path2D | null;
 }
 
 interface PatternPair {
@@ -21,6 +28,16 @@ interface PatternPair {
 
 export function buildSwampIslands(rows: string[]): TerrainIsland[] {
 	return buildTerrainIslands(rows, '~');
+}
+
+// Terrain rows never change for a recording, so each room's swamp islands are
+// traced once and shared by every tile LOD and every rebuild. Keyed by the rows
+// array itself; callers treat the islands as read-only.
+const swampIslandsByRows = new WeakMap<string[], TerrainIsland[]>();
+function swampIslandsFor(rows: string[]): TerrainIsland[] {
+	let islands = swampIslandsByRows.get(rows);
+	if (!islands) swampIslandsByRows.set(rows, islands = buildSwampIslands(rows));
+	return islands;
 }
 
 function beginFillPaths(ctx: CanvasRenderingContext2D, islands: TerrainIsland[]): void {
@@ -50,7 +67,7 @@ export function drawSwampIslands(
 	rows: string[],
 	staticTexture?: CanvasImageSource,
 ): void {
-	const islands = buildSwampIslands(rows);
+	const islands = swampIslandsFor(rows);
 	if (islands.length === 0) return;
 
 	ctx.save();
@@ -89,6 +106,8 @@ function wrappedOffset(value: number): number {
 
 export class AnimatedSwampRenderer {
 	private readonly rooms: RoomSwampPath[] = [];
+	private readonly roomsByName = new Map<string, RoomSwampPath>();
+	private readonly pathFactory: CanvasPathFactory;
 	private readonly textures: readonly [CanvasImageSource, CanvasImageSource];
 	private readonly patternsByContext = new WeakMap<CanvasRenderingContext2D, PatternPair>();
 
@@ -99,15 +118,39 @@ export class AnimatedSwampRenderer {
 		pathFactory: CanvasPathFactory,
 	) {
 		this.textures = textures;
+		this.pathFactory = pathFactory;
 		for (const [roomName, rows] of Object.entries(terrain)) {
 			const offset = layout.offsets[roomName];
 			if (!offset) continue;
-			const islands = buildSwampIslands(rows);
+			const islands = swampIslandsFor(rows);
 			if (islands.length === 0) continue;
 			const path = pathFactory();
 			appendIslandFillPaths(path, islands, SWAMP_RENDER_STYLE.cornerRadius);
-			this.rooms.push({ col: offset.col, row: offset.row, path });
+			const room: RoomSwampPath = { name: roomName, col: offset.col, row: offset.row, path, rows, constructedWalls: [] };
+			this.rooms.push(room);
+			this.roomsByName.set(roomName, room);
 		}
+	}
+
+	// The walls are drawn under this pass (in the terrain tile), so the moving
+	// texture must not multiply over them: over a constructed wall on a swamp
+	// tile it would tint and shimmer the whole wall. The caller keeps each room's
+	// constructed walls current (StaticLayers.sync).
+	setConstructedWalls(roomName: string, constructedWalls: readonly WallTile[]): void {
+		const room = this.roomsByName.get(roomName);
+		if (!room) return;
+		room.constructedWalls = constructedWalls;
+		room.wallHole = undefined;
+	}
+
+	private wallHole(room: RoomSwampPath): Path2D | null {
+		if (room.wallHole !== undefined) return room.wallHole;
+		const islands = wallIslandsFor(room.rows, room.constructedWalls);
+		if (islands.length === 0) return room.wallHole = null;
+		const hole = this.pathFactory();
+		hole.rect(0, 0, ROOM_SIZE_TILES, ROOM_SIZE_TILES);
+		appendIslandFillPaths(hole, islands, WALL_RENDER_STYLE.cornerRadius);
+		return room.wallHole = hole;
 	}
 
 	private patterns(ctx: CanvasRenderingContext2D): PatternPair {
@@ -122,12 +165,16 @@ export class AnimatedSwampRenderer {
 		return patterns;
 	}
 
-	draw(ctx: CanvasRenderingContext2D, animationTime: number): void {
+	// `rooms` limits the pass to those rooms (the visible ones); omitted, every room.
+	draw(ctx: CanvasRenderingContext2D, animationTime: number, rooms?: Set<string>): void {
 		if (this.rooms.length === 0) return;
 		const patterns = this.patterns(ctx);
 		for (const room of this.rooms) {
+			if (rooms && !rooms.has(room.name)) continue;
 			ctx.save();
 			ctx.translate(room.col * ROOM_SIZE_TILES, room.row * ROOM_SIZE_TILES);
+			const hole = this.wallHole(room);
+			if (hole) ctx.clip(hole, 'evenodd');
 			ctx.globalAlpha = SWAMP_RENDER_STYLE.textureOpacity;
 			ctx.globalCompositeOperation = 'multiply';
 			for (let layerIndex = 0; layerIndex < SWAMP_RENDER_STYLE.textureLayers.length; layerIndex++) {

@@ -21,6 +21,19 @@ just its structures, creeps and resource nodes.
 - The map editor shows an imported nuke's landing clock and launch room, and a deposit's
   "harvested so far".
 
+### Changed
+
+- Below 8 device pixels per tile, creeps and power creeps are drawn as dots coloured by owner (yours,
+  NPC or another player). HP bars, speech bubbles, action effects, the harvest/attack bob and transfer
+  nod, the turn sweep, power creep spawn flares, power effect flares and pips, and the moving swamp
+  texture are not drawn.
+- Below 3 device pixels per tile, RoomVisuals, tower and link beams, structure fills, source cores,
+  spawn and controller progress, construction sites, tombstones, ruins, dropped resources, portals,
+  incoming nukes and reactors are not drawn either, and playback draws once per tick instead of
+  animating between ticks. Structures, ramparts and map visuals still draw at every zoom.
+- A paused replay no longer redraws 60 times a second. Add `?renderStats=1` to the URL to see draw
+  time, draws per second, the detail level and the tile cache.
+
 ### Fixed
 
 - A replay of a run that is still recording opens again, and keeps loading new frames as the run
@@ -43,6 +56,14 @@ just its structures, creeps and resource nodes.
 - Opening a map in the editor dropped any controller, source or mineral field it had no control for,
   such as a power-enabled controller's `isPowerEnabled`. The map showed as edited as soon as it was
   opened, and saving it lost the field.
+- Large replays froze for seconds on every skip and whenever a structure changed, panning or zooming
+  stuttered, and a long replay needed about 2 GB of memory. The whole map was cached as three images
+  of up to 12000×18000 px, and every frame kept its own copy of every object. The map is now cached
+  per room at the resolution the zoom needs, and unchanged objects are shared between frames. On a
+  108-room, 1662-tick replay a skip went from 8.4–8.7 s to no stall, and a structure change during
+  playback from a 3.9 s freeze to no frame over 40 ms zoomed in. At 39% loaded the JS heap went from
+  about 855 MB to about 230 MB; fully loaded it is 590 MB. The cached map tiles are GPU bitmaps
+  outside that figure, capped at 256 MB plus a few MB of low-resolution fallbacks.
 
 ### Still skipped on import, on purpose
 

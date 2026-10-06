@@ -106,23 +106,33 @@ function drawRampartGroups(ctx: CanvasRenderingContext2D, groups: RampartGroups)
 	drawPublicRamparts(ctx, groups.otherPublic, RENDER_COLORS.rampart.other);
 }
 
+// One room's ramparts, room-local. `objects` need not be pre-filtered to
+// ramparts — only object.type === 'rampart' entries contribute.
+export function drawRoomRamparts(ctx: CanvasRenderingContext2D, objects: readonly FrameObject[]): void {
+	const groups = emptyRampartGroups();
+	for (const object of objects) {
+		if (object.type === 'rampart') addRampart(groups, object);
+	}
+	drawRampartGroups(ctx, groups);
+}
+
 export function drawRamparts(
 	ctx: CanvasRenderingContext2D,
 	frame: Frame,
 	layout: StageLayout,
 ): void {
-	const groupsByRoom = new Map<string, RampartGroups>();
+	const objectsByRoom = new Map<string, FrameObject[]>();
 	for (const object of frame.objects) {
 		if (object.type !== 'rampart' || !layout.offsets[object.room]) continue;
-		const groups = groupsByRoom.get(object.room) || emptyRampartGroups();
-		addRampart(groups, object);
-		groupsByRoom.set(object.room, groups);
+		const roomObjects = objectsByRoom.get(object.room);
+		if (roomObjects) roomObjects.push(object);
+		else objectsByRoom.set(object.room, [object]);
 	}
-	for (const [roomName, groups] of groupsByRoom) {
+	for (const [roomName, objects] of objectsByRoom) {
 		const roomOffset = layout.offsets[roomName];
 		ctx.save();
 		ctx.translate(roomOffset.col * ROOM_SIZE_TILES, roomOffset.row * ROOM_SIZE_TILES);
-		drawRampartGroups(ctx, groups);
+		drawRoomRamparts(ctx, objects);
 		ctx.restore();
 	}
 }

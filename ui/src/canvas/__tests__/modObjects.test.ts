@@ -3,7 +3,7 @@ import { drawReactor, drawUnknownObject, reactorAngle, reactorIsRunning } from '
 import { drawFrame } from '../drawFrame';
 import { drawStaticScene } from '../staticLayers';
 import { REACTOR_RENDER_STYLE, RENDER_COLORS } from '../renderConstants';
-import { mockCtx, lastSet } from './mockCtx';
+import { fakeLayers, mockCtx, lastSet } from './mockCtx';
 import type { FrameObject } from '../../api/types';
 
 const reactor = (patch: Partial<FrameObject> = {}): FrameObject => ({
@@ -131,14 +131,7 @@ describe('drawFrame integration', () => {
     } as unknown as Parameters<typeof drawFrame>[1];
   }
 
-  const layers = {
-    terrain: {} as HTMLCanvasElement,
-    structure: {} as HTMLCanvasElement,
-    rampart: null,
-    prepare: () => {},
-    sync: () => {},
-    drawSwamps: () => {},
-  } as unknown as Parameters<typeof drawFrame>[4]['layers'];
+  const layers = fakeLayers();
 
   const sprites = { draw: () => {} } as unknown as Parameters<typeof drawFrame>[4]['sprites'];
 
@@ -147,8 +140,9 @@ describe('drawFrame integration', () => {
     drawFrame(ctx, recordingWith([reactor({ user: 'u1', store: { T: 4 } })]), 0, null, {
       sprites, layers, layout, showVisuals: false, modImages: images,
     });
-    // two drawImage calls for the cached layers, plus the reactor's core+edge
-    expect(log.filter((c) => c.op === 'drawImage').length).toBeGreaterThanOrEqual(4);
+    // the reactor's core + edge artwork, not counting the cached layers' markers
+    const artwork = log.filter((c) => c.op === 'drawImage' && !(c.args[0] as { layer?: string }).layer);
+    expect(artwork.length).toBeGreaterThanOrEqual(2);
     expect(log.some((c) => c.op === 'createRadialGradient')).toBe(true);
   });
 

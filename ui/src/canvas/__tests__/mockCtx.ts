@@ -1,3 +1,5 @@
+import type { StaticLayers } from '../caches';
+
 export type Call = { op: string; args: unknown[] };
 
 // A fake CanvasRenderingContext2D that records every method call and property
@@ -47,4 +49,32 @@ export function ops(log: Call[]): string[] {
 export function lastSet(log: Call[], prop: string): unknown {
   const hits = log.filter((c) => c.op === 'set:' + prop);
   return hits.length ? hits[hits.length - 1].args[0] : undefined;
+}
+
+// A stand-in for StaticLayers (the drawFrame caller's view of it). Each draw
+// method records its layer name in `record` and draws a `{ layer }` marker
+// through ctx.drawImage, so a test can check both the layer order and where a
+// layer falls among the other calls in the ctx log. drawSwamps keeps the
+// animation time it was given on `.swampTime`.
+export type FakeLayers = StaticLayers & { swampTime?: number };
+export function fakeLayers(record: string[] = []): FakeLayers {
+  const draw = (layer: 'terrain' | 'structure' | 'rampart') => (ctx: CanvasRenderingContext2D) => {
+    record.push(layer);
+    ctx.drawImage({ layer } as unknown as CanvasImageSource, 0, 0);
+  };
+  const layers = {
+    swampTime: undefined as number | undefined,
+    version: 0,
+    prepare: () => undefined,
+    sync: () => undefined,
+    beginFrame: () => undefined,
+    drawTerrain: draw('terrain'),
+    drawStructures: draw('structure'),
+    drawRamparts: draw('rampart'),
+    drawSwamps: (_ctx: CanvasRenderingContext2D, animationTime: number) => { layers.swampTime = animationTime; },
+    pump: () => 0,
+    lodFor: () => 1,
+    stats: () => ({ tileBytes: 0, pinnedBytes: 0, queued: 0 }),
+  };
+  return layers as unknown as FakeLayers;
 }

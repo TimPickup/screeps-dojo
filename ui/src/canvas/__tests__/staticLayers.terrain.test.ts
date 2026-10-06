@@ -11,7 +11,7 @@ function rows(fill: string): string[] {
 }
 
 describe('drawTerrain', () => {
-  it('leaves walls for the epoch-cached merged wall layer', () => {
+  it('leaves walls to the room terrain tile, which draws them merged', () => {
     const { ctx, log } = mockCtx();
     drawTerrain(ctx, rows('.'));
     expect(log.some((call) => call.op === 'quadraticCurveTo')).toBe(false);

@@ -196,8 +196,8 @@ export function constructionSitePulseOpacity(replayTime: number): number {
 }
 
 // An ownership-coloured ring filled by a progress wedge, pulsing so a site
-// reads as pending rather than built. Never baked into the cached background:
-// progress changes every tick and the epoch key is deliberately progress-blind.
+// reads as pending rather than built. Never baked into the room tiles:
+// progress changes every tick and the tile keys are deliberately progress-blind.
 export function drawConstructionSite(
 	ctx: CanvasContext,
 	object: FrameObject,
