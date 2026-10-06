@@ -23,8 +23,6 @@ import {
 	TILE_PADDING_TILES,
 } from './renderConstants.ts';
 
-export { STATIC_LAYER_RESOLUTION as STATIC_RES } from './renderConstants.ts';
-
 // One room's immutable ground at room-local integer tile coordinates. Walls
 // are drawn separately, over this, by drawRoomTerrainLayer: the terrain tile
 // is opaque, so a border wall's half-pixel overlap with the next tile hides

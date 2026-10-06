@@ -263,12 +263,18 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
               ctx.stroke();
             }
           }
+          lastDrawError = null;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (message !== lastDrawError) {
             lastDrawError = message;
             console.error('Replay draw failed:', error);
           }
+          // A helper that threw between save() and restore() leaves its clip,
+          // alpha or composite mode on the context, and setTransform doesn't
+          // undo those, so the next frame would draw clipped. Start clean.
+          if (typeof ctx.reset === 'function') ctx.reset();
+          else cv.width = cv.width;
         }
 
         // sync can invalidate tiles (bumping version) before this draw, which

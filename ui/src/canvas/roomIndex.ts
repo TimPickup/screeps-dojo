@@ -40,17 +40,17 @@ const recentIdIndexes: CachedIdIndex[] = [];
 // The fields a tile draws from. Hits, energy, cooldowns and progress are left
 // out: those change every tick and are drawn per frame, so a room's tile is
 // rebuilt only when something it actually shows has changed.
-export function structureKeyPart(object: FrameObject): string {
+function structureKeyPart(object: FrameObject): string {
 	return object.type + ',' + object.room + ',' + object.x + ',' + object.y + ','
 		+ (object.level ?? '') + ',' + (object.user ?? '') + ',' + (object.depositType ?? '');
 }
 
-export function flagKeyPart(flag: unknown): string {
+function flagKeyPart(flag: unknown): string {
 	return 'flag,' + JSON.stringify(flag);
 }
 
 // `my` is render-only ownership: the caller must run populateFrameMy first.
-export function rampartKeyPart(object: FrameObject): string {
+function rampartKeyPart(object: FrameObject): string {
 	return [
 		object.room,
 		object.x,
