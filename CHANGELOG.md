@@ -7,8 +7,15 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
-Importing a live room now brings in everything in it that the dojo can run, not
-just its structures, creeps and resource nodes.
+## [0.17.0] — 2026-10-07
+
+Large replays stop freezing. The map is cached per room at the resolution the
+zoom needs instead of as three map-sized images, so skipping, panning and
+zooming no longer stall, and a zoomed-out view draws simpler creeps and skips
+small effects. Unchanged objects are shared between frames, so a long replay
+needs about a quarter of the memory. A run that is still recording opens again
+and keeps loading as it records. Importing a live room brings in everything in
+it that the dojo can run, not just its structures, creeps and resource nodes.
 
 ### Added
 
@@ -1294,6 +1301,7 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.17.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.17.0
 [0.16.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.16.0
 [0.15.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.15.0
 [0.14.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.14.0
