@@ -83,6 +83,54 @@ export function SliderField({ label, value, onChange, min, max, step, hint, form
 	);
 }
 
+// A countdown from 1 to `max` ticks on a log scale — 100 and 50,000 are both a
+// comfortable drag apart — with an exact box beside it. Empty = not set, which
+// the loader fills with the full `max` (a nuke's NUKE_LAND_TIME), so the slider
+// sits at max and the box shows it greyed as a placeholder.
+const TICKS_SLIDER_STEPS = 1000;
+
+export function ticksToSlider(value: number, max: number): number {
+	if (max <= 1) return 0;
+	return Math.round(TICKS_SLIDER_STEPS * Math.log(Math.max(1, Math.min(max, value))) / Math.log(max));
+}
+
+export function sliderToTicks(position: number, max: number): number {
+	const raw = Math.exp(Math.log(max) * position / TICKS_SLIDER_STEPS);
+	// Round to two significant figures so the readout is a sensible number.
+	const scale = Math.pow(10, Math.max(0, Math.floor(Math.log10(raw)) - 1));
+	return Math.max(1, Math.min(max, Math.round(raw / scale) * scale));
+}
+
+export function TicksSliderField({ label, value, onChange, max, hint }: {
+	label: string; value: number | undefined; onChange: (value: number | null) => void; max: number; hint?: string;
+}) {
+	const [text, setText] = useState(value === undefined ? '' : String(value));
+	useEffect(() => { setText(value === undefined ? '' : String(value)); }, [value]);
+	const commit = (raw: string) => {
+		setText(raw);
+		if (raw.trim() === '') { onChange(null); return; }
+		const parsed = Number(raw);
+		if (!Number.isFinite(parsed)) return;
+		const clamped = Math.max(1, Math.min(max, Math.round(parsed)));
+		// Out of range: show what was actually stored, not what was typed.
+		if (clamped !== parsed) setText(String(clamped));
+		onChange(clamped);
+	};
+	return (
+		<FieldShell label={label} value="ticks" hint={hint}>
+			<div className={styles.inlineRow}>
+				<input className={styles.range} type="range" min={0} max={TICKS_SLIDER_STEPS} step={1}
+					value={ticksToSlider(value ?? max, max)}
+					onChange={(event) => onChange(sliderToTicks(Number(event.target.value), max))} />
+				<input className={styles.input} style={{ width: '7.5em', flex: 'none' }} type="number" inputMode="numeric"
+					min={1} max={max} step={1} value={text} placeholder={String(max)}
+					onChange={(event) => commit(event.target.value)}
+					onBlur={() => setText(value === undefined ? '' : String(value))} />
+			</div>
+		</FieldShell>
+	);
+}
+
 export function SelectField({ label, value, onChange, options, hint, groups }: {
 	label: string; value: string; onChange: (value: string) => void;
 	options?: Array<{ value: string; label: string }>;
@@ -130,6 +178,37 @@ export function HitsField({ hits, hitsMax, onChange }: {
 			<input className={styles.range} type="range" min={0} max={Math.max(1, hitsMax)}
 				step={Math.max(1, Math.round(hitsMax / 200))} value={Math.min(hits, hitsMax)}
 				onChange={(event) => onChange(Number(event.target.value))} />
+		</FieldShell>
+	);
+}
+
+// A dropdown of known values plus "other…", which swaps in a text box for any
+// value the list lacks. The box shows whenever the value is not one of the
+// options, so an imported value outside the list opens on it.
+const OTHER = '__other__';
+
+export function CustomSelectField({ label, value, onChange, options, placeholder, hint }: {
+	label: string; value: string; onChange: (value: string) => void;
+	options: Array<{ value: string; label: string }>; placeholder?: string; hint?: string;
+}) {
+	const [typing, setTyping] = useState(false);
+	const known = options.some((option) => option.value === value);
+	const custom = typing || !known;
+	return (
+		<FieldShell label={label} hint={hint}>
+			<select className={styles.select} value={custom ? OTHER : value}
+				onChange={(event) => {
+					if (event.target.value === OTHER) { setTyping(true); return; }
+					setTyping(false);
+					onChange(event.target.value);
+				}}>
+				{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+				<option value={OTHER}>other…</option>
+			</select>
+			{custom && (
+				<input className={styles.input} style={{ marginTop: 4 }} value={value} placeholder={placeholder}
+					onChange={(event) => onChange(event.target.value.trim().toUpperCase())} />
+			)}
 		</FieldShell>
 	);
 }

@@ -304,8 +304,20 @@ export function drawNuke(ctx: CanvasContext, cx: number, cy: number): void {
 	ctx.fillStyle = RENDER_COLORS.nuke.area;
 	ctx.fillRect(cx - 2.5, cy - 2.5, 5, 5);
 	ctx.restore();
-	circle(ctx, cx, cy, { radius: 0.4, stroke: RENDER_COLORS.nuke.mark, strokeWidth: 0.08 });
-	circle(ctx, cx, cy, { radius: 0.12, fill: RENDER_COLORS.nuke.mark });
+	// crosshair: four separate arms with a gap round the centre, reaching 20%
+	// past the tile's edge
+	ctx.save();
+	ctx.strokeStyle = RENDER_COLORS.nuke.mark;
+	ctx.lineWidth = 0.08;
+	ctx.lineCap = 'butt';
+	ctx.beginPath();
+	for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+		ctx.moveTo(cx + dx * 0.22, cy + dy * 0.22);
+		ctx.lineTo(cx + dx * 0.6, cy + dy * 0.6);
+	}
+	ctx.stroke();
+	ctx.restore();
+	circle(ctx, cx, cy, { radius: 0.08, fill: RENDER_COLORS.nuke.mark });
 }
 
 // What a dropped pile holds. The engine keeps the size in a field named after

@@ -55,7 +55,24 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
     ],
   },
   nuker: {
-    stats: [{ label: 'ready in', keys: ['cooldown'], value: (o, gt) => ticksUntil(o, 'cooldown', gt) ?? (num(o, 'cooldown') ? num(o, 'cooldown') + ' ticks' : null) }],
+    // The engine stores the deadline (cooldownTime); `cooldown` is what the
+    // bot API reports, and older frames may carry it instead.
+    stats: [{ label: 'ready in', keys: ['cooldown', 'cooldownTime'], value: (o, gt) => {
+      const deadline = num(o, 'cooldownTime');
+      if (deadline !== undefined && typeof gt === 'number') return deadline > gt ? (deadline - gt) + ' ticks' : null;
+      const c = num(o, 'cooldown');
+      return c ? c + ' ticks' : null;
+    } }],
+  },
+  // A nuke in flight: shown like a creep's ticksToLive, counting down to impact.
+  nuke: {
+    stats: [
+      { label: 'ticksToLand', keys: ['landTime'], value: (o, gt) => {
+        const t = num(o, 'landTime');
+        return t === undefined || typeof gt !== 'number' ? null : Math.max(0, t - gt);
+      } },
+      { label: 'launched from', keys: ['launchRoomName'], value: (o) => (o.launchRoomName as string) || null },
+    ],
   },
   factory: {
     stats: [

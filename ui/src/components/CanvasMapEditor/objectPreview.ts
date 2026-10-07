@@ -9,6 +9,7 @@ import type { Frame, FrameObject, StageLayout } from '../../api/types';
 import { drawMergedWalls, drawStaticStructures } from '../../canvas/staticLayers';
 import { drawConstructionSite, drawDroppedResource, drawNuke, drawPortal, drawRuin, drawSourceCore, drawTombstone, drawTowerTurret, droppedPile } from '../../canvas/dynamic';
 import { drawReactor } from '../../canvas/modObjects';
+import { drawNukeFlights, drawNukerFill } from '../../canvas/nukes';
 import { drawRamparts } from '../../canvas/ramparts';
 import { CreepRenderer } from '../../canvas/creeps';
 import { populateFrameMy } from '../../canvas/ownership';
@@ -27,6 +28,8 @@ export interface PreviewOptions {
 	// Terrain for the room, needed only so a constructedWall merges into the
 	// natural walls around it exactly as it does on the map.
 	terrain?: Record<string, string[]>;
+	// A nuke's arc and rocket. Off for palette icons, which show the tile alone.
+	nukeFlights?: boolean;
 }
 
 // The engine's NPC user ids. A map writes the owner as a label; the creep
@@ -89,6 +92,7 @@ export function drawPreviewFrame(
 		else if (object.type === 'ruin') drawRuin(ctx, object, cx, cy);
 		else if (object.type === 'portal') drawPortal(ctx, cx, cy);
 		else if (object.type === 'nuke') drawNuke(ctx, cx, cy);
+		else if (object.type === 'nuker') drawNukerFill(ctx, object, cx, cy);
 		// A static pulse: the editor has no clock, so it draws the peak.
 		else if (object.type === 'constructionSite') drawConstructionSite(ctx, object, cx, cy, 0);
 		else if (object.type === 'creep') {
@@ -96,6 +100,7 @@ export function drawPreviewFrame(
 		}
 	}
 	drawRamparts(ctx, frame, layout);
+	if (options.nukeFlights !== false) drawNukeFlights(ctx, frame, layout);
 }
 
 const sharedCreepRenderer = new CreepRenderer();
@@ -141,5 +146,5 @@ export function drawObjectIcon(
 	const terrain = object.type === 'constructedWall'
 		? { W1N1: Array.from({ length: 50 }, () => '.'.repeat(50)) }
 		: {};
-	drawPreviewFrame(ctx, frame, ICON_LAYOUT, { ...options, terrain });
+	drawPreviewFrame(ctx, frame, ICON_LAYOUT, { ...options, terrain, nukeFlights: false });
 }

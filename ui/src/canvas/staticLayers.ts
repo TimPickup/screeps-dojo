@@ -1,6 +1,7 @@
 import type { StageLayout, Frame, FrameObject } from '../api/types.ts';
 import { drawStructureShell, connectRoads } from './structures.ts';
-import { drawSourceCore, drawTowerTurret } from './dynamic.ts';
+import { drawNuke, drawSourceCore, drawTowerTurret } from './dynamic.ts';
+import { drawNukeFlights, drawNukerFill } from './nukes.ts';
 import { circle, poly, roundedSquare, text } from './primitives.ts';
 import { drawWallIslands } from './terrainWalls.ts';
 import { drawSwampIslands } from './terrainSwamps.ts';
@@ -345,8 +346,11 @@ export function drawStaticScene(
 		if (object.type === 'tower') drawTowerTurret(ctx, object, cx, cy, scene.frame.gameTime);
 		else if (object.type === 'reactor') drawReactor(ctx, object, cx, cy, scene.frame.gameTime, options.modImages);
 		else if (options.initialSourceEnergy && object.type === 'source') drawSourceCore(ctx, object, cx, cy);
+		else if (object.type === 'nuker') drawNukerFill(ctx, object, cx, cy);
+		else if (object.type === 'nuke') drawNuke(ctx, cx, cy);
 		else if (!KNOWN_OBJECT_TYPES.has(object.type)) drawUnknownObject(ctx, object, cx, cy);
 	}
 	drawRamparts(ctx, scene.frame, scene.layout);
+	drawNukeFlights(ctx, scene.frame, scene.layout);
 	drawRoomNames(ctx, scene.layout);
 }

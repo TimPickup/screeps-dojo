@@ -8,7 +8,7 @@ export function mockCtx(): { ctx: CanvasRenderingContext2D; log: Call[] } {
   const log: Call[] = [];
   const methods = [
     'save', 'restore', 'beginPath', 'closePath', 'moveTo', 'lineTo', 'arc',
-    'arcTo', 'quadraticCurveTo', 'bezierCurveTo', 'rect', 'fill', 'stroke', 'clip', 'fillRect', 'strokeRect', 'translate',
+    'arcTo', 'ellipse', 'quadraticCurveTo', 'bezierCurveTo', 'rect', 'fill', 'stroke', 'clip', 'fillRect', 'strokeRect', 'translate',
     'rotate', 'scale', 'setLineDash', 'fillText', 'drawImage', 'setTransform',
   ];
   const target: Record<string, unknown> = {};

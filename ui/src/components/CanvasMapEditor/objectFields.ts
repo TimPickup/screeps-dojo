@@ -7,22 +7,28 @@
 
 import { mineralTypes, allResources, rampartHitsFor, STRUCTURE_HITS } from './gameData';
 import type { EditableObject } from './mapModel';
+import { NUKE_LAND_TIME } from '../../canvas/nukes';
 
 export type Field =
 	| { kind: 'text'; key: string; label: string; hint?: string; placeholder?: string }
 	| { kind: 'number'; key: string; label: string; min?: number; max?: number; step?: number; hint?: string; suffix?: string }
 	| { kind: 'slider'; key: string; label: string; min: number; max: number; step?: number; hint?: string }
 	// `fallback`: what the loader uses when the field is missing (else the first option).
-	| { kind: 'select'; key: string; label: string; options: Array<{ value: string; label: string }>; hint?: string; fallback?: string }
+	// `custom`: also offer "other…", which opens a text box for a value not in
+	// the list (the panel shows it whenever the value is not one of the options).
+	| { kind: 'select'; key: string; label: string; options: Array<{ value: string; label: string }>; hint?: string; fallback?: string; custom?: { placeholder: string } }
 	| { kind: 'toggle'; key: string; label: string; hint?: string }
 	// A relative clock that the loader turns into an absolute deadline via
 	// `ticks: { <field>: n }` (src/dojoWorld.js applyClocks).
-	| { kind: 'ticks'; key: string; label: string; hint?: string }
+	// With `max`, drawn as a log-scale slider (plus an exact box) from 1 to max.
+	| { kind: 'ticks'; key: string; label: string; hint?: string; max?: number }
 	| { kind: 'position'; key: string; label: string; hint?: string };
 
 export interface FieldContext {
 	mods?: string[];
 	rcl: number;
+	// Every room this scenario has a map for.
+	rooms?: string[];
 }
 
 const options = (values: readonly (string | number)[], labels?: Record<string, string>) =>
@@ -168,10 +174,13 @@ export function fieldsFor(object: EditableObject, context: FieldContext): Field[
 			break;
 		}
 
-		// Not placeable from the palette, but an import brings in-flight ones.
 		case 'nuke':
-			fields.push({ kind: 'ticks', key: 'landTime', label: 'lands in' });
-			fields.push({ kind: 'text', key: 'launchRoomName', label: 'launched from' });
+			// This scenario's rooms, or any other room typed in (a launch from
+			// somewhere the scenario has no map for).
+			fields.push({ kind: 'select', key: 'launchRoomName', label: 'launched from', options: options(context.rooms || []),
+				custom: { placeholder: 'e.g. W5N3' } });
+			fields.push({ kind: 'ticks', key: 'landTime', label: 'lands in', max: NUKE_LAND_TIME,
+				hint: 'A fresh launch is ' + NUKE_LAND_TIME.toLocaleString() + ' ticks out.' });
 			break;
 
 		case 'portal':

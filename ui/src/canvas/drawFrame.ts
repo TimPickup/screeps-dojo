@@ -28,6 +28,7 @@ import type { PowerImages } from './powerImages.ts';
 import { CULL_MARGIN_TILES, KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawMapVisuals } from './mapVisuals.ts';
+import { drawNukeFlight, drawNukeImpact, drawNukerFill, frameNukes, nukeFlight, nukeLandedBy, nukeLandsAfter, roomWorldOrigin } from './nukes.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
 import { objectIndex } from './roomIndex.ts';
 
@@ -343,6 +344,7 @@ export function drawFrame(
 			case 'ruin': drawRuin(ctx, object, centerX, centerY); break;
 			case 'portal': drawPortal(ctx, centerX, centerY); break;
 			case 'nuke': drawNuke(ctx, centerX, centerY); break;
+			case 'nuker': drawNukerFill(ctx, object, centerX, centerY); break;
 			// Season 5. Drawn per frame rather than baked into the structure
 			// layer: its edge turns, and it starts and stops turning as Thorium
 			// arrives and burns away.
@@ -417,11 +419,59 @@ export function drawFrame(
 		drawEffectPips(ctx, target.effects, target.worldX, target.worldY, options.powerImages);
 	}
 
+	// 4c) nukes: the arc and rocket of every nuke in flight, and the blast on
+	//     the tick one lands. Map-scale like the map visuals, so drawn at every
+	//     detail level, from the unthrottled sub-frame so the rocket still
+	//     glides when zoomed out.
+	drawNukes(ctx, frames, frameIndex, baseObjectsById, tickObjectsById, requestedSubFrame, layout,
+		options.view ? options.view.pixelsPerTile : layout.pixelsPerRoom / ROOM_SIZE_TILES);
+
 	// 5) bot's Game.map.visual draws: a map-scale overlay above the rooms
 	//    themselves, as the game client's world map shows them. Drawn at every
 	//    detail level: they are map-scale by design, made for zoomed-out viewing.
 	if (options.showMapVisuals && tickFrame.mapVisuals) {
 		drawMapVisuals(ctx, tickFrame.mapVisuals, offsets);
+	}
+}
+
+// How far into the landing tick a paused frame shows the blast: the fireball
+// at its fullest, the shock wave a third of the way out.
+const PAUSED_IMPACT_PROGRESS = 0.3;
+
+// The blast plays over the tick that removes the nuke: frame N (nuke there) to
+// N+1 (gone), so it lands with the creeps it kills fading out. The newest frame
+// has no N+1 — always so in the live view — so there it plays on the first
+// frame without the nuke instead.
+function drawNukes(
+	ctx: CanvasRenderingContext2D,
+	frames: Frame[],
+	frameIndex: number,
+	baseObjectsById: ReadonlyMap<string, FrameObject>,
+	nextObjectsById: ReadonlyMap<string, FrameObject>,
+	subFrame: number | null,
+	layout: StageLayout,
+	pixelsPerTile: number,
+): void {
+	const frame = frames[frameIndex];
+	const nextFrame = frames[frameIndex + 1];
+	const impact = (nuke: FrameObject) => {
+		const room = roomWorldOrigin(nuke.room, layout);
+		if (room) {
+			drawNukeImpact(ctx, room.x + nuke.x + 0.5, room.y + nuke.y + 0.5, room.x, room.y,
+				subFrame ?? PAUSED_IMPACT_PROGRESS, pixelsPerTile, nuke._id);
+		}
+	};
+	const { nukes, nukers } = frameNukes(frame);
+	const time = frame.gameTime + (subFrame ?? 0);
+	for (const nuke of nukes) {
+		if (nukeLandsAfter(nuke, nextFrame, nextFrame ? nextObjectsById : null)) { impact(nuke); continue; }
+		const flight = nukeFlight(nuke, nukers.get(String(nuke.launchRoomName)), layout, time);
+		if (flight) drawNukeFlight(ctx, flight, time, pixelsPerTile);
+	}
+	if (!nextFrame && frameIndex > 0) {
+		for (const nuke of frameNukes(frames[frameIndex - 1]).nukes) {
+			if (nukeLandedBy(nuke, frame, baseObjectsById)) impact(nuke);
+		}
 	}
 }
 

@@ -31,6 +31,8 @@ interface Props {
 	// owner labels a map may use, so the owner dropdown offers exactly the ones
 	// this scenario can actually run a codebase for.
 	ownerLabels?: string[];
+	// Every room this scenario has a map for: where a nuke may be launched from.
+	roomNames?: string[];
 }
 
 // Which edge tiles are not solid wall — i.e. where a creep can leave the room.
@@ -46,7 +48,9 @@ function exitSummary(terrain: string[]): string {
 	return parts.length ? parts.join(', ') : 'none — the room is sealed';
 }
 
-export function CanvasMapEditor({ value, onChange, mods, ownerLabels }: Props) {
+export function CanvasMapEditor({ value, onChange, mods, ownerLabels, roomNames }: Props) {
+	const roomNamesRef = useRef(roomNames);
+	roomNamesRef.current = roomNames;
 	const fontsReady = useRenderFonts();
 	const terrainTextures = useTerrainTextures();
 	const modImages = useModImages();
@@ -163,15 +167,18 @@ export function CanvasMapEditor({ value, onChange, mods, ownerLabels }: Props) {
 		structures = structures.filter((object) => {
 			if (object.x !== x || object.y !== y) return true;
 			// Loose objects stack (a tile can hold energy AND a tombstone), so
-			// only an identical type is replaced; everything else displaces
-			// whatever shares its layer.
-			if (layer === 'loose') return object.type !== buildType;
+			// only an identical type is replaced — except nukes, which the game
+			// lets pile onto one tile; everything else displaces whatever shares
+			// its layer.
+			if (layer === 'loose') return buildType === 'nuke' || object.type !== buildType;
 			return structureLayer(object.type) !== layer;
 		});
 		const created = makeEditableObject(buildType, x, y, {
 			terrainTile: current.terrain[y]?.[x],
 			existing: current.structures,
 			rcl: mapRcl(current),
+			// a new nuke comes from another of the scenario's rooms when there is one
+			launchRoom: (roomNamesRef.current || []).find((room) => room !== current.room) || current.room,
 		});
 		setSelection(null);
 		commit({ ...current, structures: structures.concat(created) }, `place:${gestureRef.current}`);
@@ -388,6 +395,7 @@ export function CanvasMapEditor({ value, onChange, mods, ownerLabels }: Props) {
 							rcl={rcl}
 							mods={mods}
 							ownerLabels={ownerLabels || []}
+							roomNames={roomNames}
 							onChangeObject={updateSelectedObject}
 							onChangeFlag={updateSelectedFlag}
 							onDelete={deleteSelection}

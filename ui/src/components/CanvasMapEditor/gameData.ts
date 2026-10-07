@@ -81,6 +81,8 @@ export const PLACEABLES: readonly Placeable[] = [
 	{ type: 'deposit', label: 'Deposit', group: 'natural', glyph: '❖', layer: 'main' },
 	{ type: 'powerBank', label: 'Power Bank', group: 'natural', glyph: '⬣', layer: 'main' },
 	{ type: 'portal', label: 'Portal', group: 'natural', glyph: '◎', layer: 'main' },
+	{ type: 'nuke', label: 'Nuke', group: 'natural', glyph: '☄', layer: 'loose',
+		hint: 'Lands on this tile. Pick the room it was launched from and when it lands.' },
 	{ type: 'reactor', label: 'Reactor', group: 'natural', glyph: '☀', layer: 'main', mod: 'season5' },
 
 	// --- NPC structures ---

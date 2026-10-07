@@ -1,4 +1,5 @@
 import { BODY_PART_HITS, STRUCTURE_HITS, rampartHitsFor, roadHitsFor } from './gameData';
+import { NUKE_LAND_TIME } from '../../canvas/nukes';
 
 export interface EditableObject extends Record<string, unknown> {
 	type: string;
@@ -232,7 +233,8 @@ export function structureLayer(type: string): 'floor' | 'overlay' | 'main' | 'un
 	if (type === 'road') return 'floor';
 	if (type === 'rampart') return 'overlay';
 	if (type === 'creep') return 'unit';
-	if (type === 'energy' || type === 'tombstone' || type === 'ruin') return 'loose';
+	// A nuke lands on whatever is there, so it shares a tile like a loose object.
+	if (type === 'energy' || type === 'tombstone' || type === 'ruin' || type === 'nuke') return 'loose';
 	return 'main';
 }
 
@@ -268,7 +270,7 @@ export function makeEditableObject(
 	type: string,
 	x: number,
 	y: number,
-	context: { terrainTile?: string; existing?: readonly EditableObject[]; rcl?: number } = {},
+	context: { terrainTile?: string; existing?: readonly EditableObject[]; rcl?: number; launchRoom?: string } = {},
 ): EditableObject {
 	const object: EditableObject = { type, x, y };
 	if (['spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab', 'factory',
@@ -302,6 +304,8 @@ export function makeEditableObject(
 	if (type === 'ruin') { object.store = {}; object.ticks = { decayTime: 500 }; object.structure = { type: 'spawn', hits: 0, hitsMax: STRUCTURE_HITS.spawn }; }
 	if (type === 'deposit') { object.depositType = 'silicon'; object.harvested = 0; }
 	if (type === 'portal') object.destination = { room: 'W1N1', x: 25, y: 25 };
+	// A fresh launch: NUKE_LAND_TIME to go.
+	if (type === 'nuke') { object.launchRoomName = context.launchRoom || 'W1N1'; object.ticks = { landTime: NUKE_LAND_TIME }; }
 	if (type === 'constructionSite') { object.structureType = 'extension'; object.progress = 0; object.progressTotal = 3000; object.owner = 'me'; }
 	if (type === 'invaderCore') { object.owner = 'invader'; object.level = 1; }
 

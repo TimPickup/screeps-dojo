@@ -13,7 +13,7 @@ import { ObjectIcon } from './ObjectIcon';
 import { FLAG_COLORS, fieldValue, fieldsFor, handledKeys, ticksValue, withField, withTicks } from './objectFields';
 import { hasStore } from './storeRules';
 import { bodyToSegments, segmentsToBody } from './bodyModel';
-import { HitsField, NumberField, SelectField, SliderField, TextField, ToggleField, FieldShell } from './controls';
+import { CustomSelectField, HitsField, NumberField, SelectField, SliderField, TextField, TicksSliderField, ToggleField, FieldShell } from './controls';
 import { StoreEditor } from './StoreEditor';
 import { BodyEditor } from './BodyEditor';
 import type { EditableFlag, EditableObject } from './mapModel';
@@ -26,6 +26,8 @@ interface Props {
 	mods: string[] | undefined;
 	// Player labels this scenario's settings.json binds a bot codebase to.
 	ownerLabels: string[];
+	// Rooms this scenario has maps for (a nuke's "launched from").
+	roomNames?: string[];
 	// `field` identifies the control, so consecutive edits from it collapse into
 	// a single undo step (see CanvasMapEditor.updateSelectedObject).
 	onChangeObject: (change: (object: EditableObject) => EditableObject, field?: string) => void;
@@ -52,10 +54,10 @@ export function PropertiesPanel(props: Props) {
 	return <ObjectProperties {...props} object={object} />;
 }
 
-function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDelete, onDuplicate }: Props & { object: EditableObject }) {
+function ObjectProperties({ object, rcl, mods, ownerLabels, roomNames, onChangeObject, onDelete, onDuplicate }: Props & { object: EditableObject }) {
 	const set = (key: string, value: unknown) => onChangeObject((current) => withField(current, key, value, { mods, rcl }), key);
 
-	const fields = fieldsFor(object, { mods, rcl });
+	const fields = fieldsFor(object, { mods, rcl, rooms: roomNames });
 	const ownerOptions = BUILTIN_OWNERS.concat(
 		ownerLabels.filter((label) => !BUILTIN_OWNERS.some((entry) => entry.value === label))
 			.map((label) => ({ value: label, label: `${label} (player)` })),
@@ -123,6 +125,13 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 									value={Number(fieldValue(object, field.key)) || 0}
 									onChange={(value) => set(field.key, value)} />;
 							case 'select':
+								if (field.custom) {
+									const current = fieldValue(object, field.key);
+									return <CustomSelectField key={field.key} label={field.label} hint={field.hint}
+										options={field.options} placeholder={field.custom.placeholder}
+										value={typeof current === 'string' ? current : ''}
+										onChange={(value) => set(field.key, value)} />;
+								}
 								return <SelectField key={field.key} label={field.label} hint={field.hint} options={field.options}
 									value={String(fieldValue(object, field.key) ?? field.fallback ?? field.options[0]?.value ?? '')}
 									onChange={(value) => {
@@ -135,6 +144,11 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 									value={fieldValue(object, field.key) !== false}
 									onChange={(value) => set(field.key, value)} />;
 							case 'ticks':
+								if (field.max) {
+									return <TicksSliderField key={field.key} label={field.label} hint={field.hint} max={field.max}
+										value={ticksValue(object, field.key)}
+										onChange={(value) => onChangeObject((current) => withTicks(current, field.key, value), field.key)} />;
+								}
 								return <NumberField key={field.key} label={field.label} hint={field.hint} suffix="ticks"
 									min={0} allowEmpty value={ticksValue(object, field.key)}
 									onChange={(value) => onChangeObject((current) => withTicks(current, field.key, value), field.key)} />;

@@ -29,7 +29,7 @@ describe('deposit fields', () => {
 describe('imported nuke', () => {
 	it('shows its landing clock and origin, and survives a round trip', () => {
 		const nuke = { type: 'nuke', x: 20, y: 20, id: 'n', launchRoomName: 'E20S20', ticks: { landTime: 49000 } };
-		expect(keysOf(nuke)).toEqual(['landTime', 'launchRoomName']);
+		expect(keysOf(nuke)).toEqual(['launchRoomName', 'landTime']);
 		expect(ticksValue(nuke, 'landTime')).toBe(49000);
 		const parsed = parseEditableMap({ room: 'W1N1', terrain, structures: [nuke] });
 		expect(JSON.parse(serializeEditableMap(parsed.map!)).structures[0]).toEqual(nuke);

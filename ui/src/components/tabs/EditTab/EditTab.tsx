@@ -196,6 +196,9 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
       .catch(() => {});
     return () => { live = false; };
   }, [scenario]);
+  // Rooms this scenario has a map file for, from the file names.
+  // Room names are upper case in the game; a file may not be.
+  const mapRoomNames = files.map((f) => /(?:^|\/)map\.([WE]\d+[NS]\d+)\.json$/i.exec(f.path)?.[1]?.toUpperCase()).filter((room): room is string => !!room).sort();
   const scenarioMods = isSettings ? (parseDoc(settingsDraft).form?.mods ?? savedMods) : savedMods;
   const scenarioSides = isSettings
     ? (parseDoc(settingsDraft).form?.sides.map((s) => s.side).filter((side) => side !== MAIN_SIDE) ?? savedSides)
@@ -443,7 +446,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                   ) : isSettings ? (
                     <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} onOpenFile={openFile} />
                   ) : (
-                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} ownerLabels={scenarioSides} />
+                    <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} ownerLabels={scenarioSides} roomNames={mapRoomNames} />
                   )
                 ) : (
                   <div className={styles.monaco}>
