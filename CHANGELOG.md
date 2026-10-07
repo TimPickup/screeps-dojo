@@ -7,6 +7,42 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-07
+
+Nukes can be seen, placed and watched landing. A nuke in flight draws an arc
+from the nuker that launched it, with a rocket riding it to show how far it
+has come, and the tick it lands plays a blast: a flash over the room, a
+fireball filling the 5×5 blast area and a shock wave out to the room's edges.
+A nuker shows how much of its ghodium and energy it holds. Nukes can be placed
+in the map editor, with the launch room and landing time set there.
+
+### Added
+
+- Replays draw a nuke's flight: a curved line from the launching nuker (or the launch room's
+  centre once the nuker is gone, or for a room outside the recording) to the landing tile, and a
+  semi-transparent rocket on it placed by how much of its 50,000-tick flight has passed. It draws
+  at every zoom and cannot be selected.
+- The tick a nuke lands plays an impact: a room-wide flash, a fireball held inside the 5×5 blast
+  area, sparks, and a shock wave that reaches every edge of the room. In the live view, which has no
+  next frame, it plays on the first frame without the nuke.
+- A nuker shows its ghodium as a white bar in its base and its energy filling the warhead from the
+  bottom up, by area.
+- The inspector shows a nuke's `ticksToLand` and launch room.
+- The map editor places nukes under Room features. "Launched from" is a dropdown of the scenario's
+  rooms plus "other…" for any room; "lands in" is a log-scale slider with an exact box. Nukes stack
+  on a tile, as the game allows.
+- The map editor and the scenario preview draw nukes, their flights and nuker charge.
+
+### Changed
+
+- A nuke's landing marker is a crosshair of four separate arms with a dot, over the same red 5×5
+  blast area.
+
+### Fixed
+
+- The inspector's nuker "ready in" read a field recordings do not have, so it never showed. It now
+  counts down from the nuker's real cooldown.
+
 ## [0.17.0] — 2026-10-07
 
 Large replays stop freezing. The map is cached per room at the resolution the
@@ -1301,6 +1337,7 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.18.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.18.0
 [0.17.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.17.0
 [0.16.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.16.0
 [0.15.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.15.0
